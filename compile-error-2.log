@@ -1,0 +1,30 @@
+﻿[INFO] Scanning for projects...
+[INFO] 
+[INFO] ---------------------------< com.david:MES >----------------------------
+[INFO] Building MES 0.0.1-SNAPSHOT
+[INFO]   from pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[WARNING] The POM for com.alibaba:druid:jar:1.2.6 is invalid, transitive dependencies (if any) will not be available: 2 problems were encountered while building the effective model for com.alibaba:druid:1.2.6
+[ERROR] 'dependencies.dependency.systemPath' for com.sun:tools:jar must specify an absolute path but is ${project.basedir}/lib/openjdk-1.8-tools.jar @ 
+[ERROR] 'dependencies.dependency.systemPath' for com.sun:jconsole:jar must specify an absolute path but is ${project.basedir}/lib/openjdk-1.8-jconsole.jar @ 
+
+[INFO] 
+[INFO] --- clean:3.2.0:clean (default-clean) @ MES ---
+[INFO] Deleting E:\java\MES\target
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ MES ---
+[INFO] Copying 1 resource from src\main\resources to target\classes
+[INFO] 
+[INFO] --- compiler:3.8.1:compile (default-compile) @ MES ---
+[INFO] Changes detected - recompiling the module!
+[INFO] Compiling 87 source files to E:\java\MES\target\classes
+[INFO] /E:/java/MES/src/main/java/com/fine/config/MybatisPlusConfig.java: E:\java\MES\src\main\java\com\fine\config\MybatisPlusConfig.java使用或覆盖了已过时的 API。
+[INFO] /E:/java/MES/src/main/java/com/fine/config/MybatisPlusConfig.java: 有关详细信息, 请使用 -Xlint:deprecation 重新编译。
+[INFO] /E:/java/MES/src/main/java/com/fine/controller/TapeController.java: 某些输入文件使用了未经检查或不安全的操作。
+[INFO] /E:/java/MES/src/main/java/com/fine/controller/TapeController.java: 有关详细信息, 请使用 -Xlint:unchecked 重新编译。
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD SUCCESS
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  18.854 s
+[INFO] Finished at: 2026-01-05T16:22:25+08:00
+[INFO] ------------------------------------------------------------------------

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.fine.Dao.stock.ChemicalStockOutMapper">
+    
+    <!-- 按化工库存ID查询出库记录 -->
+    <select id="selectByChemicalStockId" resultType="com.fine.model.stock.ChemicalStockOut">
+        SELECT * FROM chemical_stock_out
+        WHERE chemical_stock_id = #{chemicalStockId}
+        ORDER BY outbound_time DESC
+    </select>
+    
+    <!-- 按排程ID查询出库记录 -->
+    <select id="selectByScheduleId" resultType="com.fine.model.stock.ChemicalStockOut">
+        SELECT * FROM chemical_stock_out
+        WHERE schedule_id = #{scheduleId}
+        ORDER BY outbound_time DESC
+    </select>
+    
+    <!-- 按涂布任务ID查询出库记录 -->
+    <select id="selectByCoatingTaskId" resultType="com.fine.model.stock.ChemicalStockOut">
+        SELECT * FROM chemical_stock_out
+        WHERE coating_task_id = #{coatingTaskId}
+        LIMIT 1
+    </select>
+    
+</mapper>

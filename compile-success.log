@@ -1,0 +1,83 @@
+﻿[INFO] Scanning for projects...
+[INFO] 
+[INFO] ---------------------------< com.david:MES >----------------------------
+[INFO] Building MES 0.0.1-SNAPSHOT
+[INFO]   from pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[WARNING] The POM for com.alibaba:druid:jar:1.2.6 is invalid, transitive dependencies (if any) will not be available: 2 problems were encountered while building the effective model for com.alibaba:druid:1.2.6
+[ERROR] 'dependencies.dependency.systemPath' for com.sun:tools:jar must specify an absolute path but is ${project.basedir}/lib/openjdk-1.8-tools.jar @ 
+[ERROR] 'dependencies.dependency.systemPath' for com.sun:jconsole:jar must specify an absolute path but is ${project.basedir}/lib/openjdk-1.8-jconsole.jar @ 
+
+[INFO] 
+[INFO] --- clean:3.2.0:clean (default-clean) @ MES ---
+[INFO] Deleting E:\java\MES\target
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ MES ---
+[INFO] Copying 2 resources from src\main\resources to target\classes
+[INFO] 
+[INFO] --- compiler:3.8.1:compile (default-compile) @ MES ---
+[INFO] Changes detected - recompiling the module!
+[INFO] Compiling 101 source files to E:\java\MES\target\classes
+[INFO] -------------------------------------------------------------
+[ERROR] COMPILATION ERROR : 
+[INFO] -------------------------------------------------------------
+[ERROR] /E:/java/MES/src/main/java/com/fine/controller/SalesOrderController.java:[31,15] 编码UTF-8的不可映射字符
+[ERROR] /E:/java/MES/src/main/java/com/fine/controller/SalesOrderController.java:[59,31] 编码UTF-8的不可映射字符
+[ERROR] /E:/java/MES/src/main/java/com/fine/controller/SalesOrderController.java:[64,17] 编码UTF-8的不可映射字符
+[ERROR] /E:/java/MES/src/main/java/com/fine/controller/SalesOrderController.java:[70,31] 编码UTF-8的不可映射字符
+[ERROR] /E:/java/MES/src/main/java/com/fine/controller/SalesOrderController.java:[75,18] 编码UTF-8的不可映射字符
+[ERROR] /E:/java/MES/src/main/java/com/fine/controller/SalesOrderController.java:[81,31] 编码UTF-8的不可映射字符
+[ERROR] /E:/java/MES/src/main/java/com/fine/controller/QuotationController.java:[43,22] 编码UTF-8的不可映射字符
+[ERROR] /E:/java/MES/src/main/java/com/fine/controller/QuotationController.java:[51,16] 编码UTF-8的不可映射字符
+[ERROR] /E:/java/MES/src/main/java/com/fine/controller/QuotationController.java:[60,16] 编码UTF-8的不可映射字符
+[ERROR] /E:/java/MES/src/main/java/com/fine/controller/QuotationController.java:[69,16] 编码UTF-8的不可映射字符
+[ERROR] /E:/java/MES/src/main/java/com/fine/serviceIMPL/LoginServiceImpl.java:[78,36] 不兼容的类型: 无法推断com.fine.Utils.ResponseResult<>的类型参数
+    原因: 推论变量T具有不兼容的限制范围
+      等式约束条件: org.apache.poi.ss.formula.functions.T
+      下限: java.util.Map<java.lang.String,java.lang.Object>
+[ERROR] /E:/java/MES/src/main/java/com/fine/serviceIMPL/LoginServiceImpl.java:[123,42] 不兼容的类型: 无法推断com.fine.Utils.ResponseResult<>的类型参数
+    原因: 推论变量T具有不兼容的限制范围
+      等式约束条件: org.apache.poi.ss.formula.functions.T
+      下限: java.util.Map<java.lang.String,java.lang.Object>
+[ERROR] /E:/java/MES/src/main/java/com/fine/controller/LoginController.java:[30,34] 不兼容的类型: com.fine.Utils.ResponseResult<capture#1, 共 ?>无法转换为com.fine.Utils.ResponseResult<org.apache.poi.ss.formula.functions.T>
+[ERROR] /E:/java/MES/src/main/java/com/fine/controller/LoginController.java:[55,55] 不兼容的类型: com.fine.Utils.ResponseResult<capture#2, 共 ?>无法转换为com.fine.Utils.ResponseResult<org.apache.poi.ss.formula.functions.T>
+[ERROR] /E:/java/MES/src/main/java/com/fine/controller/LoginController.java:[63,58] 不兼容的类型: com.fine.Utils.ResponseResult<capture#3, 共 ?>无法转换为com.fine.Utils.ResponseResult<org.apache.poi.ss.formula.functions.T>
+[ERROR] /E:/java/MES/src/main/java/com/fine/controller/LoginController.java:[73,57] 不兼容的类型: com.fine.Utils.ResponseResult<capture#4, 共 ?>无法转换为com.fine.Utils.ResponseResult<org.apache.poi.ss.formula.functions.T>
+[INFO] 16 errors 
+[INFO] -------------------------------------------------------------
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD FAILURE
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  19.565 s
+[INFO] Finished at: 2026-01-06T11:21:18+08:00
+[INFO] ------------------------------------------------------------------------
+[ERROR] Failed to execute goal org.apache.maven.plugins:maven-compiler-plugin:3.8.1:compile (default-compile) on project MES: Compilation failure: Compilation failure: 
+[ERROR] /E:/java/MES/src/main/java/com/fine/controller/SalesOrderController.java:[31,15] 编码UTF-8的不可映射字符
+[ERROR] /E:/java/MES/src/main/java/com/fine/controller/SalesOrderController.java:[59,31] 编码UTF-8的不可映射字符
+[ERROR] /E:/java/MES/src/main/java/com/fine/controller/SalesOrderController.java:[64,17] 编码UTF-8的不可映射字符
+[ERROR] /E:/java/MES/src/main/java/com/fine/controller/SalesOrderController.java:[70,31] 编码UTF-8的不可映射字符
+[ERROR] /E:/java/MES/src/main/java/com/fine/controller/SalesOrderController.java:[75,18] 编码UTF-8的不可映射字符
+[ERROR] /E:/java/MES/src/main/java/com/fine/controller/SalesOrderController.java:[81,31] 编码UTF-8的不可映射字符
+[ERROR] /E:/java/MES/src/main/java/com/fine/controller/QuotationController.java:[43,22] 编码UTF-8的不可映射字符
+[ERROR] /E:/java/MES/src/main/java/com/fine/controller/QuotationController.java:[51,16] 编码UTF-8的不可映射字符
+[ERROR] /E:/java/MES/src/main/java/com/fine/controller/QuotationController.java:[60,16] 编码UTF-8的不可映射字符
+[ERROR] /E:/java/MES/src/main/java/com/fine/controller/QuotationController.java:[69,16] 编码UTF-8的不可映射字符
+[ERROR] /E:/java/MES/src/main/java/com/fine/serviceIMPL/LoginServiceImpl.java:[78,36] 不兼容的类型: 无法推断com.fine.Utils.ResponseResult<>的类型参数
+[ERROR]     原因: 推论变量T具有不兼容的限制范围
+[ERROR]       等式约束条件: org.apache.poi.ss.formula.functions.T
+[ERROR]       下限: java.util.Map<java.lang.String,java.lang.Object>
+[ERROR] /E:/java/MES/src/main/java/com/fine/serviceIMPL/LoginServiceImpl.java:[123,42] 不兼容的类型: 无法推断com.fine.Utils.ResponseResult<>的类型参数
+[ERROR]     原因: 推论变量T具有不兼容的限制范围
+[ERROR]       等式约束条件: org.apache.poi.ss.formula.functions.T
+[ERROR]       下限: java.util.Map<java.lang.String,java.lang.Object>
+[ERROR] /E:/java/MES/src/main/java/com/fine/controller/LoginController.java:[30,34] 不兼容的类型: com.fine.Utils.ResponseResult<capture#1, 共 ?>无法转换为com.fine.Utils.ResponseResult<org.apache.poi.ss.formula.functions.T>
+[ERROR] /E:/java/MES/src/main/java/com/fine/controller/LoginController.java:[55,55] 不兼容的类型: com.fine.Utils.ResponseResult<capture#2, 共 ?>无法转换为com.fine.Utils.ResponseResult<org.apache.poi.ss.formula.functions.T>
+[ERROR] /E:/java/MES/src/main/java/com/fine/controller/LoginController.java:[63,58] 不兼容的类型: com.fine.Utils.ResponseResult<capture#3, 共 ?>无法转换为com.fine.Utils.ResponseResult<org.apache.poi.ss.formula.functions.T>
+[ERROR] /E:/java/MES/src/main/java/com/fine/controller/LoginController.java:[73,57] 不兼容的类型: com.fine.Utils.ResponseResult<capture#4, 共 ?>无法转换为com.fine.Utils.ResponseResult<org.apache.poi.ss.formula.functions.T>
+[ERROR] -> [Help 1]
+[ERROR] 
+[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.
+[ERROR] Re-run Maven using the -X switch to enable full debug logging.
+[ERROR] 
+[ERROR] For more information about the errors and possible solutions, please read the following articles:
+[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/MojoFailureException

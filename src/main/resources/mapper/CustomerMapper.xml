@@ -1,0 +1,187 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.fine.Dao.CustomerMapper">
+    
+    <!-- 结果映射 - CustomerDTO -->
+    <resultMap id="CustomerDTOMap" type="com.fine.modle.CustomerDTO">
+        <id property="id" column="id"/>
+        <result property="customerCode" column="customer_code"/>
+        <result property="customerName" column="customer_name"/>
+        <result property="shortName" column="short_name"/>
+        <result property="customerType" column="customer_type"/>
+        <result property="customerLevel" column="customer_level"/>
+        <result property="industry" column="industry"/>
+        <result property="taxNumber" column="tax_number"/>
+        <result property="legalPerson" column="legal_person"/>
+        <result property="registeredCapital" column="registered_capital"/>
+        <result property="registeredAddress" column="registered_address"/>
+        <result property="businessAddress" column="business_address"/>
+        <result property="contactAddress" column="contact_address"/>
+        <result property="businessScope" column="business_scope"/>
+        <result property="creditCode" column="credit_code"/>
+        <result property="companyPhone" column="company_phone"/>
+        <result property="companyFax" column="company_fax"/>
+        <result property="companyEmail" column="company_email"/>
+        <result property="website" column="website"/>
+        <result property="creditLimit" column="credit_limit"/>
+        <result property="paymentTerms" column="payment_terms"/>
+        <result property="taxRate" column="tax_rate"/>
+        <result property="bankName" column="bank_name"/>
+        <result property="bankAccount" column="bank_account"/>
+        <result property="source" column="source"/>
+        <result property="salesUserId" column="sales"/>
+        <result property="documentationPersonUserId" column="documentation_person"/>
+        <result property="salesUserName" column="sales_user_name"/>
+        <result property="documentationPersonUserName" column="documentation_person_user_name"/>
+        <result property="status" column="status"/>
+        <result property="remark" column="remark"/>
+        <result property="createBy" column="create_by"/>
+        <result property="createTime" column="create_time"/>
+        <result property="updateBy" column="update_by"/>
+        <result property="updateTime" column="update_time"/>
+        <!-- 主联系人信息 -->
+        <result property="primaryContactName" column="primary_contact_name"/>
+        <result property="primaryContactMobile" column="primary_contact_mobile"/>
+        <result property="primaryContactEmail" column="primary_contact_email"/>
+        <result property="contactCount" column="contact_count"/>
+    </resultMap>
+    
+    <!-- 结果映射 - CustomerDTO with contacts -->
+    <resultMap id="CustomerDetailMap" type="com.fine.modle.CustomerDTO" extends="CustomerDTOMap">
+        <collection property="contacts" ofType="com.fine.modle.CustomerContact">
+            <id property="id" column="contact_id"/>
+            <result property="customerId" column="customer_id"/>
+            <result property="contactName" column="contact_name"/>
+            <result property="contactGender" column="contact_gender"/>
+            <result property="contactPosition" column="contact_position"/>
+            <result property="contactDepartment" column="contact_department"/>
+            <result property="contactPhone" column="contact_phone"/>
+            <result property="contactMobile" column="contact_mobile"/>
+            <result property="contactEmail" column="contact_email"/>
+            <result property="contactWechat" column="contact_wechat"/>
+            <result property="contactQq" column="contact_qq"/>
+            <result property="contactAddress" column="contact_address"/>
+            <result property="isPrimary" column="is_primary"/>
+            <result property="isDecisionMaker" column="is_decision_maker"/>
+            <result property="birthday" column="birthday"/>
+            <result property="hobby" column="hobby"/>
+            <result property="sortOrder" column="sort_order"/>
+            <result property="remark" column="contact_remark"/>
+        </collection>
+    </resultMap>
+      <!-- 分页查询客户列表的COUNT查询（避免MyBatis-Plus生成错误COUNT SQL） -->
+    <select id="selectCustomerPage_COUNT" resultType="Long">
+        SELECT COUNT(*) 
+        FROM customers c
+        WHERE c.is_deleted = 0
+        <if test="query.customerName != null and query.customerName != ''">
+            AND c.customer_name LIKE CONCAT('%', #{query.customerName}, '%')
+        </if>
+        <if test="query.customerCode != null and query.customerCode != ''">
+            AND c.customer_code LIKE CONCAT('%', #{query.customerCode}, '%')
+        </if>
+        <if test="query.customerType != null and query.customerType != ''">
+            AND c.customer_type = #{query.customerType}
+        </if>
+        <if test="query.customerLevel != null and query.customerLevel != ''">
+            AND c.customer_level = #{query.customerLevel}
+        </if>
+        <if test="query.status != null and query.status != ''">
+            AND c.status = #{query.status}
+        </if>
+        <if test="query.salesUserId != null">
+            AND c.sales = #{query.salesUserId}
+        </if>
+    </select>
+
+    <!-- 分页查询客户列表（带主联系人信息） -->
+    <select id="selectCustomerPage" resultMap="CustomerDTOMap">
+        SELECT 
+            c.*,
+            cc.contact_name AS primary_contact_name,
+            cc.contact_mobile AS primary_contact_mobile,
+            cc.contact_email AS primary_contact_email,
+            (SELECT COUNT(*) FROM customer_contacts WHERE customer_id = c.id) AS contact_count,
+            u1.real_name AS sales_user_name,
+            u2.real_name AS documentation_person_user_name
+        FROM customers c
+        LEFT JOIN customer_contacts cc ON c.id = cc.customer_id AND cc.is_primary = 1
+        LEFT JOIN users u1 ON c.sales = u1.id
+        LEFT JOIN users u2 ON c.documentation_person = u2.id
+        WHERE c.is_deleted = 0
+        <if test="query.customerName != null and query.customerName != ''">
+            AND c.customer_name LIKE CONCAT('%', #{query.customerName}, '%')
+        </if>
+        <if test="query.customerCode != null and query.customerCode != ''">
+            AND c.customer_code LIKE CONCAT('%', #{query.customerCode}, '%')
+        </if>
+        <if test="query.customerType != null and query.customerType != ''">
+            AND c.customer_type = #{query.customerType}
+        </if>
+        <if test="query.customerLevel != null and query.customerLevel != ''">
+            AND c.customer_level = #{query.customerLevel}
+        </if>
+        <if test="query.status != null and query.status != ''">
+            AND c.status = #{query.status}
+        </if>
+        <if test="query.salesUserId != null">
+            AND c.sales = #{query.salesUserId}
+        </if>
+        ORDER BY c.create_time DESC
+    </select>
+      <!-- 根据ID查询客户详情（带联系人列表） -->
+    <select id="selectCustomerDetailById" resultMap="CustomerDetailMap">
+        SELECT 
+            c.*,
+            cc.id AS contact_id,
+            cc.customer_id,
+            cc.contact_name,
+            cc.contact_gender,
+            cc.contact_position,
+            cc.contact_department,
+            cc.contact_phone,
+            cc.contact_mobile,
+            cc.contact_email,
+            cc.contact_wechat,
+            cc.contact_qq,
+            cc.contact_address,
+            cc.is_primary,
+            cc.is_decision_maker,
+            cc.birthday,
+            cc.hobby,
+            cc.sort_order
+        FROM customers c
+        LEFT JOIN customer_contacts cc ON c.id = cc.customer_id
+        WHERE c.id = #{id} AND c.is_deleted = 0
+        ORDER BY cc.sort_order ASC, cc.id ASC
+    </select>
+    
+    <!-- 查询所有客户（带联系人，用于导出） -->
+    <select id="selectAllCustomersWithContacts" resultMap="CustomerDetailMap">
+        SELECT 
+            c.*,
+            cc.id AS contact_id,
+            cc.customer_id,
+            cc.contact_name,
+            cc.contact_gender,
+            cc.contact_position,
+            cc.contact_department,
+            cc.contact_phone,
+            cc.contact_mobile,
+            cc.contact_email,
+            cc.contact_wechat,
+            cc.contact_qq,
+            cc.contact_address,
+            cc.is_primary,
+            cc.is_decision_maker,
+            cc.birthday,
+            cc.hobby,
+            cc.sort_order,
+            cc.remark AS contact_remark
+        FROM customers c
+        LEFT JOIN customer_contacts cc ON c.id = cc.customer_id
+        WHERE c.is_deleted = 0
+        ORDER BY c.create_time DESC, cc.sort_order ASC, cc.id ASC
+    </select>
+    
+</mapper>

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.fine.Dao.production.ScheduleApprovalLogMapper">
+
+    <!-- 结果映射 -->
+    <resultMap id="BaseResultMap" type="com.fine.model.production.ScheduleApprovalLog">
+        <id column="id" property="id"/>
+        <result column="schedule_id" property="scheduleId"/>
+        <result column="schedule_no" property="scheduleNo"/>
+        <result column="action" property="action"/>
+        <result column="from_status" property="fromStatus"/>
+        <result column="to_status" property="toStatus"/>
+        <result column="operator_id" property="operatorId"/>
+        <result column="operator_name" property="operatorName"/>
+        <result column="opinion" property="opinion"/>
+        <result column="create_time" property="createTime"/>
+    </resultMap>
+
+    <!-- 基础字段 -->
+    <sql id="Base_Column_List">
+        id, schedule_id, schedule_no, action, from_status, to_status, 
+        operator_id, operator_name, opinion, create_time
+    </sql>
+
+    <!-- 根据排程ID查询审批记录 -->
+    <select id="selectByScheduleId" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM schedule_approval_log
+        WHERE schedule_id = #{scheduleId}
+        ORDER BY create_time DESC
+    </select>
+
+</mapper>

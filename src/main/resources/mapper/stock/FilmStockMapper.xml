@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.fine.Dao.stock.FilmStockMapper">
+    
+    <!-- 按规格查询薄膜库存 -->
+    <select id="selectBySpec" resultType="com.fine.model.stock.FilmStock">
+        SELECT * FROM film_stock
+        WHERE is_deleted = 0
+        <if test="thickness != null">
+            AND thickness = #{thickness}
+        </if>
+        <if test="width != null">
+            AND width = #{width}
+        </if>
+        ORDER BY create_time DESC
+    </select>
+    
+    <!-- 按状态查询薄膜库存 -->
+    <select id="selectByStatus" resultType="com.fine.model.stock.FilmStock">
+        SELECT * FROM film_stock
+        WHERE status = #{status}
+          AND is_deleted = 0
+        ORDER BY create_time DESC
+    </select>
+    
+    <!-- 锁定薄膜库存 -->
+    <update id="lockStock">
+        UPDATE film_stock
+        SET available_area = available_area - #{lockArea},
+            locked_area = locked_area + #{lockArea},
+            available_rolls = available_rolls - #{lockRolls},
+            locked_rolls = locked_rolls + #{lockRolls},
+            update_time = NOW()
+        WHERE id = #{id}
+          AND available_area >= #{lockArea}
+          AND available_rolls >= #{lockRolls}
+    </update>
+    
+    <!-- 解锁薄膜库存 -->
+    <update id="unlockStock">
+        UPDATE film_stock
+        SET available_area = available_area + #{unlockArea},
+            locked_area = locked_area - #{unlockArea},
+            available_rolls = available_rolls + #{unlockRolls},
+            locked_rolls = locked_rolls - #{unlockRolls},
+            update_time = NOW()
+        WHERE id = #{id}
+          AND locked_area >= #{unlockArea}
+          AND locked_rolls >= #{unlockRolls}
+    </update>
+    
+    <!-- 扣减库存（出库） -->
+    <update id="deductStock">
+        UPDATE film_stock
+        SET total_area = total_area - #{outArea},
+            locked_area = locked_area - #{outArea},
+            total_rolls = total_rolls - #{outRolls},
+            locked_rolls = locked_rolls - #{outRolls},
+            update_time = NOW()
+        WHERE id = #{id}
+          AND locked_area >= #{outArea}
+          AND locked_rolls >= #{outRolls}
+    </update>
+    
+</mapper>

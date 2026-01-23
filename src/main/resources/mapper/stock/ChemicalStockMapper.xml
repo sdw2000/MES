@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.fine.Dao.stock.ChemicalStockMapper">
+    
+    <!-- 按化工类型查询库存 -->
+    <select id="selectByType" resultType="com.fine.model.stock.ChemicalStock">
+        SELECT * FROM chemical_stock
+        WHERE chemical_type = #{chemicalType}
+        ORDER BY create_time DESC
+    </select>
+    
+    <!-- 按状态查询库存 -->
+    <select id="selectByStatus" resultType="com.fine.model.stock.ChemicalStock">
+        SELECT * FROM chemical_stock
+        WHERE status = #{status}
+        ORDER BY create_time DESC
+    </select>
+    
+    <!-- 锁定化工库存 -->
+    <update id="lockStock">
+        UPDATE chemical_stock
+        SET available_quantity = available_quantity - #{lockQuantity},
+            locked_quantity = locked_quantity + #{lockQuantity},
+            update_time = NOW()
+        WHERE id = #{id}
+          AND available_quantity >= #{lockQuantity}
+    </update>
+    
+    <!-- 解锁化工库存 -->
+    <update id="unlockStock">
+        UPDATE chemical_stock
+        SET available_quantity = available_quantity + #{unlockQuantity},
+            locked_quantity = locked_quantity - #{unlockQuantity},
+            update_time = NOW()
+        WHERE id = #{id}
+          AND locked_quantity >= #{unlockQuantity}
+    </update>
+    
+    <!-- 扣减库存（出库） -->
+    <update id="deductStock">
+        UPDATE chemical_stock
+        SET total_quantity = total_quantity - #{outQuantity},
+            locked_quantity = locked_quantity - #{outQuantity},
+            update_time = NOW()
+        WHERE id = #{id}
+          AND locked_quantity >= #{outQuantity}
+    </update>
+    
+</mapper>

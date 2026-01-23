@@ -1,0 +1,51 @@
+-- Purchase module schema (create if not exists)
+
+CREATE TABLE IF NOT EXISTS purchase_orders (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    order_no VARCHAR(64) NOT NULL,
+    supplier VARCHAR(255),
+    supplier_order_no VARCHAR(128),
+    buyer BIGINT,
+    handler BIGINT,
+    contact_name VARCHAR(128),
+    contact_phone VARCHAR(64),
+    total_amount DECIMAL(18,2) DEFAULT 0,
+    total_area DECIMAL(18,2) DEFAULT 0,
+    required_area DECIMAL(18,2) DEFAULT 0,
+    thickness INT,
+    width INT,
+    order_date DATE,
+    delivery_date DATE,
+    delivery_address VARCHAR(255),
+    status VARCHAR(32) DEFAULT 'pending',
+    remark TEXT,
+    created_by VARCHAR(64),
+    updated_by VARCHAR(64),
+    created_at DATETIME,
+    updated_at DATETIME,
+    is_deleted TINYINT DEFAULT 0,
+    UNIQUE KEY uk_purchase_order_no (order_no)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS purchase_order_items (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    order_id BIGINT NOT NULL,
+    material_code VARCHAR(128),
+    material_name VARCHAR(255),
+    color_code VARCHAR(64),
+    thickness DECIMAL(18,4),
+    width DECIMAL(18,4),
+    length DECIMAL(18,4),
+    rolls INT,
+    sqm DECIMAL(18,2),
+    unit_price DECIMAL(18,4),
+    amount DECIMAL(18,2),
+    remark VARCHAR(255),
+    created_by VARCHAR(64),
+    updated_by VARCHAR(64),
+    created_at DATETIME,
+    updated_at DATETIME,
+    is_deleted TINYINT DEFAULT 0,
+    KEY idx_purchase_order_items_order_id (order_id),
+    CONSTRAINT fk_purchase_order_items_order FOREIGN KEY (order_id) REFERENCES purchase_orders(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

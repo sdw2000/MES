@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.fine.Dao.production.SchedulePrintingMapper">
+
+    <!-- 结果映射 -->
+    <resultMap id="BaseResultMap" type="com.fine.model.production.SchedulePrinting">
+        <id column="id" property="id"/>
+        <result column="schedule_id" property="scheduleId"/>
+        <result column="task_no" property="taskNo"/>
+        <result column="equipment_id" property="equipmentId"/>
+        <result column="equipment_code" property="equipmentCode"/>
+        <result column="staff_id" property="staffId"/>
+        <result column="staff_name" property="staffName"/>
+        <result column="shift_code" property="shiftCode"/>
+        <result column="plan_date" property="planDate"/>
+        <result column="material_code" property="materialCode"/>
+        <result column="material_name" property="materialName"/>
+        <result column="color_code" property="colorCode"/>
+        <result column="color_name" property="colorName"/>
+        <result column="print_pattern" property="printPattern"/>
+        <result column="base_width" property="baseWidth"/>
+        <result column="plan_length" property="planLength"/>
+        <result column="plan_sqm" property="planSqm"/>
+        <result column="actual_length" property="actualLength"/>
+        <result column="actual_sqm" property="actualSqm"/>
+        <result column="printing_speed" property="printingSpeed"/>
+        <result column="ink_type" property="inkType"/>
+        <result column="drying_temp" property="dryingTemp"/>
+        <result column="plan_start_time" property="planStartTime"/>
+        <result column="plan_end_time" property="planEndTime"/>
+        <result column="plan_duration" property="planDuration"/>
+        <result column="actual_start_time" property="actualStartTime"/>
+        <result column="actual_end_time" property="actualEndTime"/>
+        <result column="actual_duration" property="actualDuration"/>
+        <result column="status" property="status"/>
+        <result column="output_batch_no" property="outputBatchNo"/>
+        <result column="remark" property="remark"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+        <result column="create_by" property="createBy"/>
+        <result column="update_by" property="updateBy"/>
+    </resultMap>
+
+    <!-- 基础字段 -->
+    <sql id="Base_Column_List">
+        id, schedule_id, task_no, equipment_id, equipment_code, staff_id, staff_name, shift_code,
+        plan_date, material_code, material_name, color_code, color_name, print_pattern,
+        base_width, plan_length, plan_sqm, actual_length, actual_sqm,
+        printing_speed, ink_type, drying_temp,
+        plan_start_time, plan_end_time, plan_duration,
+        actual_start_time, actual_end_time, actual_duration,
+        status, output_batch_no, remark, create_time, update_time, create_by, update_by
+    </sql>
+
+    <!-- 分页查询印刷任务列表 -->
+    <select id="selectPrintingTasks" parameterType="map" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM schedule_printing
+        <where>
+            <if test="taskNo != null and taskNo != ''">
+                AND task_no LIKE CONCAT('%', #{taskNo}, '%')
+            </if>
+            <if test="scheduleId != null">
+                AND schedule_id = #{scheduleId}
+            </if>
+            <if test="materialCode != null and materialCode != ''">
+                AND material_code LIKE CONCAT('%', #{materialCode}, '%')
+            </if>
+            <if test="status != null and status != ''">
+                AND status = #{status}
+            </if>
+            <if test="planDate != null">
+                AND plan_date = #{planDate}
+            </if>
+            <if test="startDate != null">
+                AND plan_date >= #{startDate}
+            </if>
+            <if test="endDate != null">
+                AND plan_date &lt;= #{endDate}
+            </if>
+        </where>
+        ORDER BY plan_date DESC, create_time DESC
+    </select>
+
+    <!-- 根据排程ID查询印刷任务 -->
+    <select id="selectByScheduleId" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM schedule_printing
+        WHERE schedule_id = #{scheduleId}
+        ORDER BY plan_start_time ASC
+    </select>
+
+</mapper>

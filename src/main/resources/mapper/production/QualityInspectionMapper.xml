@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.fine.Dao.production.QualityInspectionMapper">
+
+    <!-- 结果映射 -->
+    <resultMap id="BaseResultMap" type="com.fine.model.production.QualityInspection">
+        <id column="id" property="id"/>
+        <result column="inspection_no" property="inspectionNo"/>
+        <result column="task_type" property="taskType"/>
+        <result column="task_id" property="taskId"/>
+        <result column="task_no" property="taskNo"/>
+        <result column="batch_no" property="batchNo"/>
+        <result column="material_code" property="materialCode"/>
+        <result column="material_name" property="materialName"/>
+        <result column="inspection_type" property="inspectionType"/>
+        <result column="sample_qty" property="sampleQty"/>
+        <result column="inspector_id" property="inspectorId"/>
+        <result column="inspector_name" property="inspectorName"/>
+        <result column="inspection_time" property="inspectionTime"/>
+        <result column="appearance_result" property="appearanceResult"/>
+        <result column="appearance_desc" property="appearanceDesc"/>
+        <result column="thickness_actual" property="thicknessActual"/>
+        <result column="thickness_result" property="thicknessResult"/>
+        <result column="width_actual" property="widthActual"/>
+        <result column="width_result" property="widthResult"/>
+        <result column="length_actual" property="lengthActual"/>
+        <result column="length_result" property="lengthResult"/>
+        <result column="adhesion_result" property="adhesionResult"/>
+        <result column="adhesion_desc" property="adhesionDesc"/>
+        <result column="overall_result" property="overallResult"/>
+        <result column="defect_type" property="defectType"/>
+        <result column="defect_desc" property="defectDesc"/>
+        <result column="disposition" property="disposition"/>
+        <result column="disposition_remark" property="dispositionRemark"/>
+        <result column="remark" property="remark"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+        <result column="create_by" property="createBy"/>
+    </resultMap>
+
+    <!-- 基础字段 -->
+    <sql id="Base_Column_List">
+        id, inspection_no, task_type, task_id, task_no, batch_no, material_code, material_name,
+        inspection_type, sample_qty, inspector_id, inspector_name, inspection_time,
+        appearance_result, appearance_desc, thickness_actual, thickness_result,
+        width_actual, width_result, length_actual, length_result,
+        adhesion_result, adhesion_desc, overall_result, defect_type, defect_desc,
+        disposition, disposition_remark, remark, create_time, update_time, create_by
+    </sql>
+
+    <!-- 分页查询质检记录列表 -->
+    <select id="selectInspectionList" parameterType="map" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM quality_inspection
+        <where>
+            <if test="inspectionNo != null and inspectionNo != ''">
+                AND inspection_no LIKE CONCAT('%', #{inspectionNo}, '%')
+            </if>
+            <if test="taskType != null and taskType != ''">
+                AND task_type = #{taskType}
+            </if>
+            <if test="taskNo != null and taskNo != ''">
+                AND task_no LIKE CONCAT('%', #{taskNo}, '%')
+            </if>
+            <if test="batchNo != null and batchNo != ''">
+                AND batch_no LIKE CONCAT('%', #{batchNo}, '%')
+            </if>
+            <if test="materialCode != null and materialCode != ''">
+                AND material_code LIKE CONCAT('%', #{materialCode}, '%')
+            </if>
+            <if test="inspectionType != null and inspectionType != ''">
+                AND inspection_type = #{inspectionType}
+            </if>
+            <if test="overallResult != null and overallResult != ''">
+                AND overall_result = #{overallResult}
+            </if>
+            <if test="startTime != null">
+                AND inspection_time >= #{startTime}
+            </if>
+            <if test="endTime != null">
+                AND inspection_time &lt;= #{endTime}
+            </if>
+        </where>
+        ORDER BY create_time DESC
+    </select>
+
+    <!-- 根据任务查询质检记录 -->
+    <select id="selectByTask" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM quality_inspection
+        WHERE task_type = #{taskType} AND task_id = #{taskId}
+        ORDER BY inspection_time DESC
+    </select>
+
+    <!-- 根据批次号查询质检记录 -->
+    <select id="selectByBatchNo" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM quality_inspection
+        WHERE batch_no = #{batchNo}
+        ORDER BY inspection_time DESC
+    </select>
+
+</mapper>

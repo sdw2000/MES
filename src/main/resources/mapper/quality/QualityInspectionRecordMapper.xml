@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.fine.Dao.quality.QualityInspectionRecordMapper">
+
+    <select id="selectPaged" resultType="com.fine.model.quality.QualityInspectionRecord">
+        SELECT *
+        FROM quality_inspection
+        <where>
+            inspection_type = #{type}
+            AND is_deleted = 0
+            <if test="inspectionNo != null and inspectionNo != ''">
+                AND inspection_no LIKE CONCAT('%', #{inspectionNo}, '%')
+            </if>
+            <if test="batchNo != null and batchNo != ''">
+                AND batch_no LIKE CONCAT('%', #{batchNo}, '%')
+            </if>
+            <if test="rollCode != null and rollCode != ''">
+                AND roll_code LIKE CONCAT('%', #{rollCode}, '%')
+            </if>
+            <if test="result != null and result != ''">
+                AND overall_result = #{result}
+            </if>
+            <if test="startDate != null and startDate != ''">
+                AND inspection_time &gt;= #{startDate}
+            </if>
+            <if test="endDate != null and endDate != ''">
+                AND inspection_time &lt;= #{endDate}
+            </if>
+        </where>
+        ORDER BY inspection_time DESC, id DESC
+    </select>
+
+    <select id="selectTypeStats" resultType="com.fine.model.quality.dto.QualityReportTypeStat">
+        SELECT inspection_type AS inspectionType,
+               COUNT(*) AS totalCount,
+               SUM(CASE WHEN overall_result = 'pass' THEN 1 ELSE 0 END) AS passCount,
+               SUM(CASE WHEN overall_result = 'fail' THEN 1 ELSE 0 END) AS failCount
+        FROM quality_inspection
+        WHERE is_deleted = 0
+        GROUP BY inspection_type
+    </select>
+
+    <select id="selectDefectTop" resultType="com.fine.model.quality.dto.QualityReportDefectStat">
+        SELECT IFNULL(defect_type, '未填写') AS defectType,
+               COUNT(*) AS totalCount
+        FROM quality_inspection
+        WHERE is_deleted = 0
+          AND defect_type IS NOT NULL
+          AND defect_type != ''
+        GROUP BY defect_type
+        ORDER BY totalCount DESC
+        LIMIT #{limit}
+    </select>
+
+</mapper>

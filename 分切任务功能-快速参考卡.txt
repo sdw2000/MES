@@ -1,0 +1,111 @@
+# 分切任务功能 - 快速参考卡
+
+## 核心功能
+```
+✅ 11个业务字段显示
+✅ 10分钟时间精度(14:23→14:20)
+✅ 自动任务号生成(SLT-YYYYMMDD-XXXXX)
+✅ 自动规格生成(料号-宽度-长度-卷数)
+✅ 完整CRUD操作
+✅ 多条件查询+分页
+```
+
+## 3步快速启动
+
+### Step 1: 数据库
+```bash
+mysql -h ssdw8127.mysql.rds.aliyuncs.com -u david -pdadazhengzheng@feng erp < e:\java\MES\修改分切任务表结构.sql
+```
+
+### Step 2: 后端
+```bash
+cd e:\java\MES
+mvn clean package -DskipTests
+java -jar target\MES-0.0.1-SNAPSHOT.jar
+```
+
+### Step 3: 前端
+```bash
+cd e:\vue\ERP
+npm run dev
+# 打开: http://localhost:9527/production-management/slitting
+```
+
+## 6个API端点
+```
+GET    /api/production/schedule/slitting/list          # 查询
+POST   /api/production/schedule/slitting/add           # 新增
+PUT    /api/production/schedule/slitting/update        # 修改
+DELETE /api/production/schedule/slitting/delete/{id}   # 删除
+POST   /api/production/schedule/slitting/start/{id}    # 开始
+POST   /api/production/schedule/slitting/complete/{id} # 完成
+```
+
+## 修改的文件
+```
+后端Java:
+  ✏️ ProductionScheduleController.java (+100行)
+  ✏️ ProductionScheduleService.java (+5行)
+  ✏️ ProductionScheduleServiceImpl.java (+150行)
+
+前端Vue:
+  ✏️ slittingTasks.vue (修改引用)
+  ✓ slittingTasks.js (已存在)
+  ✓ SlittingTasksNew.vue (已存在)
+
+数据库:
+  ✏️ 修改分切任务表结构.sql (执行迁移)
+```
+
+## 常见问题速解
+
+| 问题 | 解决方案 |
+|------|--------|
+| 时间没有四舍五入? | 检查后端启动日志 |
+| 前端404? | 清除浏览器缓存,npm run dev |
+| 数据没保存? | 查看Network标签,检查SQL执行 |
+| 任务号没生成? | 检查addSlittingTask()是否调用 |
+
+## 文档速查
+
+| 需求 | 文档 |
+|------|------|
+| 快速部署 | 快速部署指南.md |
+| 理解实现 | 完整实现方案.md |
+| API调用 | 工作完成总结.md |
+| 查找内容 | 资源索引.md |
+| 快速了解 | README.md |
+
+## 编译验证 ✅
+```
+ProductionScheduleController.java - 0 errors
+ProductionScheduleService.java - 0 errors  
+ProductionScheduleServiceImpl.java - 0 errors
+前端: 无编译警告
+```
+
+## 预计时间
+- 数据库迁移: 5分钟
+- 后端编译: 10分钟
+- 服务启动: 3分钟
+- 功能测试: 15分钟
+- **总计: 1-2小时**
+
+## 检查清单 ✓
+- [ ] 数据库迁移完成
+- [ ] 后端启动无错误
+- [ ] 前端页面可访问
+- [ ] 新增任务成功
+- [ ] 时间精度正确
+- [ ] 任务号自动生成
+- [ ] 查询过滤正常
+
+## 获取帮助
+1. 遇到问题 → 查看快速部署指南
+2. 需要详情 → 查看完整实现方案
+3. 无法找到 → 查看资源索引
+
+---
+**状态**: ✅ 已完成,等待部署
+**时间**: 2024-12-20
+**下一步**: 执行部署!

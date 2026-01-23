@@ -1,0 +1,23 @@
+package com.fine.service;
+
+import java.util.List;
+
+import org.springframework.web.multipart.MultipartFile;
+
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.fine.Utils.ResponseResult;
+import com.fine.modle.Customer;
+
+public interface CustomerService {
+    ResponseResult getCustomerById(int customerId);
+    List<Customer> getAllCustomers();
+    void addCustomer(Customer customer);
+    ResponseResult updateCustomer(Customer customer);
+    ResponseResult deleteCustomer(int customerId);
+	IPage<Customer> getAllCustomers(Page<Customer> orderPage, QueryWrapper<Customer> queryWrapper);
+	List<Customer> getCustomersbyName(QueryWrapper<Customer> queryWrapper);
+	void save(MultipartFile file);
+	ResponseResult insert(Customer customer);
+}

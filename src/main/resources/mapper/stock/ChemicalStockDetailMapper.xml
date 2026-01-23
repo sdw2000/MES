@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.fine.Dao.stock.ChemicalStockDetailMapper">
+    
+    <!-- 按化工库存ID查询明细 -->
+    <select id="selectByChemicalStockId" resultType="com.fine.model.stock.ChemicalStockDetail">
+        SELECT * FROM chemical_stock_detail
+        WHERE chemical_stock_id = #{chemicalStockId}
+        ORDER BY create_time DESC
+    </select>
+    
+    <!-- 按状态查询可用明细 -->
+    <select id="selectByStatus" resultType="com.fine.model.stock.ChemicalStockDetail">
+        SELECT * FROM chemical_stock_detail
+        WHERE chemical_stock_id = #{chemicalStockId}
+          AND status = #{status}
+        ORDER BY create_time ASC
+    </select>
+    
+    <!-- 按批次号查询明细 -->
+    <select id="selectByBatchNo" resultType="com.fine.model.stock.ChemicalStockDetail">
+        SELECT * FROM chemical_stock_detail
+        WHERE batch_no = #{batchNo}
+        ORDER BY create_time DESC
+    </select>
+    
+    <!-- 查询即将过期的明细 -->
+    <select id="selectExpiringSoon" resultType="com.fine.model.stock.ChemicalStockDetail">
+        SELECT * FROM chemical_stock_detail
+        WHERE status = 'available'
+          AND expiry_date IS NOT NULL
+          AND DATEDIFF(expiry_date, NOW()) BETWEEN 0 AND #{days}
+        ORDER BY expiry_date ASC
+    </select>
+    
+    <!-- 查询已过期的明细 -->
+    <select id="selectExpired" resultType="com.fine.model.stock.ChemicalStockDetail">
+        SELECT * FROM chemical_stock_detail
+        WHERE expiry_date IS NOT NULL
+          AND expiry_date &lt; CURDATE()
+        ORDER BY expiry_date ASC
+    </select>
+    
+    <!-- 更新明细状态 -->
+    <update id="updateStatus">
+        UPDATE chemical_stock_detail
+        SET status = #{status},
+            update_time = NOW()
+        WHERE id = #{id}
+    </update>
+    
+    <!-- 批量更新明细状态 -->
+    <update id="batchUpdateStatus">
+        UPDATE chemical_stock_detail
+        SET status = #{status},
+            update_time = NOW()
+        WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </update>
+    
+</mapper>

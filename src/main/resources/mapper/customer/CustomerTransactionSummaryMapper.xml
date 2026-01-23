@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.fine.mapper.customer.CustomerTransactionSummaryMapper">
+    
+    <!-- 刷新所有客户的交易统计 -->
+    <update id="refreshAllStats">
+        INSERT INTO customer_transaction_summary (customer_id, recent_3m_total_amount, recent_3m_avg_amount, is_new_customer, stats_updated_at)
+        SELECT 
+            customer_id,
+            SUM(total_amount) as recent_3m_total_amount,
+            AVG(total_amount) as recent_3m_avg_amount,
+            CASE 
+                WHEN COUNT(*) &lt;= 1 THEN 1
+                ELSE 0
+            END as is_new_customer,
+            NOW() as stats_updated_at
+        FROM (
+            SELECT 
+                customer_id,
+                SUM(order_amount) as total_amount
+            FROM sales_order
+            WHERE order_date &gt;= DATE_SUB(NOW(), INTERVAL 3 MONTH)
+              AND status IN ('completed', 'shipped')
+            GROUP BY customer_id, DATE_FORMAT(order_date, '%Y-%m')
+        ) monthly_sales
+        GROUP BY customer_id
+        ON DUPLICATE KEY UPDATE
+            recent_3m_total_amount = VALUES(recent_3m_total_amount),
+            recent_3m_avg_amount = VALUES(recent_3m_avg_amount),
+            is_new_customer = VALUES(is_new_customer),
+            stats_updated_at = VALUES(stats_updated_at);
+    </update>
+    
+</mapper>

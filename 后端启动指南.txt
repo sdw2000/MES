@@ -1,0 +1,145 @@
+====================================================
+  后端启动失败 - 快速解决方案
+====================================================
+
+错误信息: 找不到或无法加载主类 com.fine.MesApplication
+
+原因: 这是因为直接用Java命令运行，但项目还没有正确编译打包。
+
+====================================================
+  解决方案 (选择其中一种)
+====================================================
+
+方案1: 使用BAT脚本启动 (最简单) ⭐
+--------------------------
+在命令行中执行:
+  cd e:\java\MES
+  start-backend.bat
+
+或者双击运行:
+  e:\java\MES\start-backend.bat
+
+这个脚本会自动完成所有步骤。
+
+方案2: 使用Maven命令启动
+--------------------------
+在PowerShell中执行:
+  cd e:\java\MES
+  mvn clean package -DskipTests
+  java -jar target\MES-0.0.1-SNAPSHOT.jar
+
+方案3: 使用IDE启动 (IntelliJ IDEA)
+--------------------------
+1. 打开 IntelliJ IDEA
+2. 打开项目 e:\java\MES
+3. 找到 src\main\java\com\fine\MesApplication.java
+4. 右键点击文件
+5. 选择 "Run 'MesApplication'"
+
+方案4: 使用IDE启动 (Eclipse/STS)
+--------------------------
+1. 打开 Eclipse/Spring Tool Suite
+2. 导入项目 e:\java\MES
+3. 找到 MesApplication.java
+4. 右键 -> Run As -> Spring Boot App
+
+====================================================
+  推荐步骤 (按顺序执行)
+====================================================
+
+步骤1: 编译项目
+--------------------------
+cd e:\java\MES
+mvn clean compile
+
+预期结果:
+  [INFO] BUILD SUCCESS
+
+步骤2: 打包项目
+--------------------------
+mvn package -DskipTests
+
+预期结果:
+  [INFO] Building jar: e:\java\MES\target\MES-0.0.1-SNAPSHOT.jar
+  [INFO] BUILD SUCCESS
+
+步骤3: 检查JAR包
+--------------------------
+dir target\*.jar
+
+预期结果:
+  应该看到 MES-0.0.1-SNAPSHOT.jar 文件
+
+步骤4: 启动服务
+--------------------------
+java -jar target\MES-0.0.1-SNAPSHOT.jar
+
+预期结果:
+  Started MesApplication in X.XXX seconds (JVM running for X.XXX)
+
+====================================================
+  快速命令 (复制粘贴执行)
+====================================================
+
+# 完整命令 (在PowerShell中)
+cd e:\java\MES; mvn clean package -DskipTests; java -jar target\MES-0.0.1-SNAPSHOT.jar
+
+# 或者使用BAT脚本
+cd e:\java\MES; .\start-backend.bat
+
+====================================================
+  常见问题
+====================================================
+
+Q1: 编译失败，提示找不到某个类？
+A: 确保所有Java文件都已保存，然后执行:
+   mvn clean compile
+
+Q2: 端口8090已被占用？
+A: 找到并结束占用的进程:
+   netstat -ano | findstr 8090
+   taskkill /F /PID <进程ID>
+
+Q3: 启动后立即退出？
+A: 查看日志文件或控制台错误信息:
+   - 检查数据库连接
+   - 检查application.properties配置
+
+Q4: 提示数据库连接失败？
+A: 确保MySQL服务正在运行:
+   - 检查MySQL服务状态
+   - 确认数据库名是 erp (不是 erp_system)
+   - 确认用户名密码: root/123456
+
+====================================================
+  验证启动成功
+====================================================
+
+1. 查看控制台输出
+   应该看到:
+   ✓ Started MesApplication in X.XXX seconds
+   ✓ Tomcat started on port(s): 8090
+
+2. 测试API接口
+   在浏览器中访问:
+   http://localhost:8090/api/sales/samples/generate-no
+
+   应该返回:
+   {"code":20000,"data":"SP20260105001"}
+
+3. 检查日志
+   应该没有ERROR级别的日志
+
+====================================================
+  下一步
+====================================================
+
+启动成功后:
+1. 在Navicat中执行: fix-sample-complete.sql
+2. 访问前端测试: http://localhost:8080/#/sales/samples
+
+====================================================
+
+现在请执行: cd e:\java\MES; .\start-backend.bat
+
+====================================================

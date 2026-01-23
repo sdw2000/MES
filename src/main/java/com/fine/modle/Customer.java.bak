@@ -1,0 +1,56 @@
+package com.fine.modle;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.Date;
+import java.util.List;
+
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableLogic;
+import com.baomidou.mybatisplus.annotation.TableName;
+
+import lombok.Data;
+
+@Data
+@TableName("customer")
+public class Customer {
+	 @TableId(type = IdType.AUTO)
+    private int customerId; // 自增长id
+    private String customerCode;
+    private String customerName;
+    private String shortName;
+    private String legalRepresentative;
+    private BigDecimal registeredCapital;
+    private String registeredAddress;
+    private String businessScope;
+    private Date registrationDate;
+    private String telephone;
+    private String fax;
+    private String email;
+    private int customerType;
+    private int customerLevel;
+    private String uniformSocialCreditCode;
+    private String website;
+    private String customerSource;
+    private String owner;
+    private String ownerDepartment;
+    private String lastFollower;
+    private String salesRepresentative;
+    private String createdBy;
+    private LocalDateTime createTime;
+    private LocalDateTime lastModifiedTime;
+    private String lastModifiedBy;
+    private int transferCount;
+    private BigDecimal creditLimit;
+    private BigDecimal balance;
+    private String paymentTerms;
+    @TableLogic
+    private int isDeleted; // 逻辑删除码
+    @TableField(exist = false)
+    private List<Contact> contacts;
+	
+
+    // 其他属性的getter和setter方法
+}

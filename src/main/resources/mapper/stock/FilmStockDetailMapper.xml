@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.fine.Dao.stock.FilmStockDetailMapper">
+    
+    <!-- 按薄膜库存ID查询明细（含规格信息） -->
+    <select id="selectByFilmStockId" resultType="com.fine.model.stock.FilmStockDetail">
+        SELECT 
+            id,
+            stock_id       AS filmStockId,
+            material_code  AS materialCode,
+            batch_no       AS batchNo,
+            roll_no        AS rollNo,
+            thickness,
+            width,
+            length,
+            diameter,
+            core_diameter  AS coreDiameter,
+            weight,
+            area,
+            quality_level  AS qualityLevel,
+            quality_status AS qcStatus,
+            warehouse,
+            location,
+            supplier,
+            purchase_order_no AS purchaseOrderNo,
+            arrival_date   AS arrivalDate,
+            storage_date   AS inboundDate,
+            unit_price     AS unitPrice,
+            status,
+            locked_by      AS lockedBy,
+            locked_time    AS lockedTime,
+            remark,
+            create_by      AS createBy,
+            create_time    AS createTime,
+            update_by      AS updateBy,
+            update_time    AS updateTime,
+            is_deleted     AS isDeleted
+        FROM film_stock_detail
+        WHERE stock_id = #{filmStockId}
+          AND is_deleted = 0
+        ORDER BY create_time DESC
+    </select>
+    
+    <!-- 按状态查询可用明细 -->
+    <select id="selectByStatus" resultType="com.fine.model.stock.FilmStockDetail">
+        SELECT 
+            id,
+            stock_id       AS filmStockId,
+            material_code  AS materialCode,
+            batch_no       AS batchNo,
+            roll_no        AS rollNo,
+            thickness,
+            width,
+            length,
+            diameter,
+            core_diameter  AS coreDiameter,
+            weight,
+            area,
+            quality_level  AS qualityLevel,
+            quality_status AS qcStatus,
+            warehouse,
+            location,
+            supplier,
+            purchase_order_no AS purchaseOrderNo,
+            arrival_date   AS arrivalDate,
+            storage_date   AS inboundDate,
+            unit_price     AS unitPrice,
+            status,
+            locked_by      AS lockedBy,
+            locked_time    AS lockedTime,
+            remark,
+            create_by      AS createBy,
+            create_time    AS createTime,
+            update_by      AS updateBy,
+            update_time    AS updateTime,
+            is_deleted     AS isDeleted
+        FROM film_stock_detail
+        WHERE stock_id = #{filmStockId}
+          AND status = #{status}
+          AND is_deleted = 0
+        ORDER BY create_time ASC
+    </select>
+    
+    <!-- 按批次号查询明细 -->
+    <select id="selectByBatchNo" resultType="com.fine.model.stock.FilmStockDetail">
+        SELECT 
+            id,
+            stock_id       AS filmStockId,
+            material_code  AS materialCode,
+            batch_no       AS batchNo,
+            roll_no        AS rollNo,
+            thickness,
+            width,
+            length,
+            diameter,
+            core_diameter  AS coreDiameter,
+            weight,
+            area,
+            quality_level  AS qualityLevel,
+            quality_status AS qcStatus,
+            warehouse,
+            location,
+            supplier,
+            purchase_order_no AS purchaseOrderNo,
+            arrival_date   AS arrivalDate,
+            storage_date   AS inboundDate,
+            unit_price     AS unitPrice,
+            status,
+            locked_by      AS lockedBy,
+            locked_time    AS lockedTime,
+            remark,
+            create_by      AS createBy,
+            create_time    AS createTime,
+            update_by      AS updateBy,
+            update_time    AS updateTime,
+            is_deleted     AS isDeleted
+        FROM film_stock_detail
+        WHERE batch_no = #{batchNo}
+          AND is_deleted = 0
+        ORDER BY create_time DESC
+    </select>
+    
+    <!-- 更新明细状态 -->
+    <update id="updateStatus">
+        UPDATE film_stock_detail
+        SET status = #{status},
+            update_time = NOW()
+        WHERE id = #{id}
+          AND is_deleted = 0
+    </update>
+    
+    <!-- 批量更新明细状态 -->
+    <update id="batchUpdateStatus">
+        UPDATE film_stock_detail
+        SET status = #{status},
+            update_time = NOW()
+        WHERE is_deleted = 0
+          AND id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </update>
+    
+</mapper>

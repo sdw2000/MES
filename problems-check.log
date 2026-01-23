@@ -1,0 +1,22 @@
+﻿[INFO] Scanning for projects...
+[INFO] 
+[INFO] ---------------------------< com.david:MES >----------------------------
+[INFO] Building MES 0.0.1-SNAPSHOT
+[INFO]   from pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[WARNING] The POM for com.alibaba:druid:jar:1.2.6 is invalid, transitive dependencies (if any) will not be available: 2 problems were encountered while building the effective model for com.alibaba:druid:1.2.6
+[ERROR] 'dependencies.dependency.systemPath' for com.sun:tools:jar must specify an absolute path but is ${project.basedir}/lib/openjdk-1.8-tools.jar @ 
+[ERROR] 'dependencies.dependency.systemPath' for com.sun:jconsole:jar must specify an absolute path but is ${project.basedir}/lib/openjdk-1.8-jconsole.jar @ 
+
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ MES ---
+[INFO] Copying 2 resources from src\main\resources to target\classes
+[INFO] 
+[INFO] --- compiler:3.8.1:compile (default-compile) @ MES ---
+[INFO] Nothing to compile - all classes are up to date
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD SUCCESS
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  4.364 s
+[INFO] Finished at: 2026-01-06T11:55:36+08:00
+[INFO] ------------------------------------------------------------------------

@@ -1,0 +1,25 @@
+-- 创建排程物料锁定表
+CREATE TABLE IF NOT EXISTS schedule_material_lock (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '主键ID',
+    schedule_id BIGINT NOT NULL COMMENT '排程ID',
+    film_stock_id BIGINT NOT NULL COMMENT '薄膜库存ID',
+    film_stock_detail_id BIGINT NOT NULL COMMENT '薄膜库存明细ID（卷号）',
+    locked_area DECIMAL(10,2) NOT NULL COMMENT '锁定面积（平方米）',
+    required_area DECIMAL(10,2) NOT NULL COMMENT '需要面积（平方米）',
+    lock_status VARCHAR(20) DEFAULT 'locked' COMMENT '锁定状态：locked-已锁定, released-已释放, consumed-已消耗',
+    locked_time DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '锁定时间',
+    released_time DATETIME NULL COMMENT '释放时间',
+    consumed_time DATETIME NULL COMMENT '消耗时间',
+    version INT DEFAULT 0 COMMENT '乐观锁版本号',
+    remark VARCHAR(500) COMMENT '备注',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    create_by VARCHAR(50) COMMENT '创建人',
+    update_by VARCHAR(50) COMMENT '更新人',
+    is_deleted TINYINT DEFAULT 0 COMMENT '是否删除：0-否，1-是',
+    INDEX idx_schedule_id (schedule_id),
+    INDEX idx_film_stock_id (film_stock_id),
+    INDEX idx_film_stock_detail_id (film_stock_detail_id),
+    INDEX idx_lock_status (lock_status),
+    INDEX idx_locked_time (locked_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='排程物料锁定记录表';

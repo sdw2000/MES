@@ -1,0 +1,111 @@
+
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+ :: Spring Boot ::               (v2.7.18)
+
+2026-01-19 14:53:41.351  INFO 24724 --- [           main] com.fine.MesApplication                  : Starting MesApplication using Java 1.8.0_192 on davidsun with PID 24724 (E:\java\MES\target\MES-0.0.1-SNAPSHOT.jar started by Administrator in E:\java\MES)
+2026-01-19 14:53:41.356  INFO 24724 --- [           main] com.fine.MesApplication                  : No active profile set, falling back to 1 default profile: "default"
+2026-01-19 14:53:42.894  INFO 24724 --- [           main] .s.d.r.c.RepositoryConfigurationDelegate : Multiple Spring Data modules found, entering strict repository configuration mode
+2026-01-19 14:53:42.898  INFO 24724 --- [           main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data Redis repositories in DEFAULT mode.
+2026-01-19 14:53:42.950  INFO 24724 --- [           main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 32 ms. Found 0 Redis repository interfaces.
+2026-01-19 14:53:44.926  INFO 24724 --- [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port(s): 8090 (http)
+2026-01-19 14:53:44.944  INFO 24724 --- [           main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
+2026-01-19 14:53:44.944  INFO 24724 --- [           main] org.apache.catalina.core.StandardEngine  : Starting Servlet engine: [Apache Tomcat/9.0.83]
+2026-01-19 14:53:45.161  INFO 24724 --- [           main] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring embedded WebApplicationContext
+2026-01-19 14:53:45.162  INFO 24724 --- [           main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 3718 ms
+Logging initialized using 'class org.apache.ibatis.logging.stdout.StdOutImpl' adapter.
+Registered plugin: 'com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor@59d4cd39'
+Parsed mapper file: 'class path resource [mapper/customer/CustomerMaterialStatsMapper.xml]'
+Parsed mapper file: 'class path resource [mapper/customer/CustomerTransactionSummaryMapper.xml]'
+Parsed mapper file: 'class path resource [mapper/CustomerMapper.xml]'
+Parsed mapper file: 'class path resource [mapper/inventory/OrderMaterialLockMapper.xml]'
+Parsed mapper file: 'class path resource [mapper/production/MaterialBasePriceMapper.xml]'
+Parsed mapper file: 'class path resource [mapper/production/QualityInspectionMapper.xml]'
+Parsed mapper file: 'class path resource [mapper/production/ScheduleApprovalLogMapper.xml]'
+Parsed mapper file: 'class path resource [mapper/production/SchedulePrintingMapper.xml]'
+Parsed mapper file: 'class path resource [mapper/production/UrgentOrderLogMapper.xml]'
+Parsed mapper file: 'class path resource [mapper/stock/ChemicalStockDetailMapper.xml]'
+Parsed mapper file: 'class path resource [mapper/stock/ChemicalStockMapper.xml]'
+Parsed mapper file: 'class path resource [mapper/stock/ChemicalStockOutMapper.xml]'
+Parsed mapper file: 'class path resource [mapper/stock/FilmStockDetailMapper.xml]'
+Parsed mapper file: 'class path resource [mapper/stock/FilmStockMapper.xml]'
+Parsed mapper file: 'class path resource [mapper/stock/FilmStockOutMapper.xml]'
+[com.fine.Dao.production.ScheduleOrderItemMapper.insert] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.Insert]
+[com.fine.Dao.production.ScheduleOrderItemMapper.selectPage] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.SelectPage]
+[com.fine.Dao.production.ScheduleOrderItemMapper.selectById] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.SelectById]
+[com.fine.Dao.production.ScheduleCoatingMapper.insert] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.Insert]
+[com.fine.Dao.production.ScheduleCoatingMapper.update] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.Update]
+[com.fine.Dao.production.ScheduleCoatingMapper.selectPage] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.SelectPage]
+[com.fine.Dao.production.ScheduleRewindingMapper.insert] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.Insert]
+[com.fine.Dao.production.ScheduleRewindingMapper.update] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.Update]
+[com.fine.Dao.production.ScheduleRewindingMapper.selectPage] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.SelectPage]
+[com.fine.Dao.production.ScheduleRewindingMapper.selectById] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.SelectById]
+[com.fine.Dao.production.ScheduleSlittingMapper.insert] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.Insert]
+[com.fine.Dao.production.ScheduleSlittingMapper.update] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.Update]
+[com.fine.Dao.production.ScheduleSlittingMapper.selectPage] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.SelectPage]
+[com.fine.Dao.production.ScheduleSlittingMapper.selectById] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.SelectById]
+[com.fine.Dao.production.ScheduleStrippingMapper.insert] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.Insert]
+[com.fine.Dao.production.ScheduleStrippingMapper.update] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.Update]
+[com.fine.Dao.production.ScheduleStrippingMapper.selectPage] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.SelectPage]
+[com.fine.Dao.production.ScheduleStrippingMapper.selectById] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.SelectById]
+This primary key of "id" is primitive !不建议如此请使用包装类 in Class: "com.fine.modle.Tape"
+This primary key of "quotationDetailId" is primitive !不建议如此请使用包装类 in Class: "com.fine.modle.QuotationDetail"
+[com.fine.Dao.QuotationDetailsMapper.selectList] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.SelectList]
+This primary key of "id" is primitive !不建议如此请使用包装类 in Class: "com.fine.modle.TapeInventory"
+Can not find table primary key in Class: "com.fine.modle.TapeMin".
+2026-01-19 14:53:50.181  WARN 24724 --- [           main] c.b.m.core.injector.DefaultSqlInjector   : class com.fine.modle.TapeMin ,Not found @TableId annotation, Cannot use Mybatis-Plus 'xxById' Method.
+2026-01-19 14:53:50.695  INFO 24724 --- [           main] o.s.s.web.DefaultSecurityFilterChain     : Will secure any request with [org.springframework.security.web.session.DisableEncodeUrlFilter@76012793, org.springframework.security.web.context.request.async.WebAsyncManagerIntegrationFilter@635572a7, org.springframework.security.web.context.SecurityContextPersistenceFilter@2b4c1d96, org.springframework.security.web.header.HeaderWriterFilter@2df6226d, org.springframework.web.filter.CorsFilter@30b6ffe0, org.springframework.security.web.authentication.logout.LogoutFilter@35229f85, com.fine.filler.JwtAuthenticationTokenFilter@3eb91815, org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter@63f8276e, org.springframework.security.web.savedrequest.RequestCacheAwareFilter@50468873, org.springframework.security.web.servletapi.SecurityContextHolderAwareRequestFilter@5f0e9815, org.springframework.security.web.authentication.AnonymousAuthenticationFilter@79d94571, org.springframework.security.web.session.SessionManagementFilter@49cb9cb5, org.springframework.security.web.access.ExceptionTranslationFilter@64b73e7a, org.springframework.security.web.access.intercept.FilterSecurityInterceptor@115667d]
+2026-01-19 14:53:51.587  INFO 24724 --- [           main] o.s.b.a.e.web.EndpointLinksResolver      : Exposing 1 endpoint(s) beneath base path '/actuator'
+2026-01-19 14:53:51.722  INFO 24724 --- [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat started on port(s): 8090 (http) with context path ''
+2026-01-19 14:53:51.748  INFO 24724 --- [           main] com.fine.MesApplication                  : Started MesApplication in 11.112 seconds (JVM running for 11.978)
+2026-01-19 14:54:09.230  INFO 24724 --- [nio-8090-exec-1] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring DispatcherServlet 'dispatcherServlet'
+2026-01-19 14:54:09.230  INFO 24724 --- [nio-8090-exec-1] o.s.web.servlet.DispatcherServlet        : Initializing Servlet 'dispatcherServlet'
+2026-01-19 14:54:09.232  INFO 24724 --- [nio-8090-exec-1] o.s.web.servlet.DispatcherServlet        : Completed initialization in 2 ms
+eyJhbGciOiJIUzI1NiJ9.eyJqdGkiOiI2Y2Y2MzE5M2Q5M2U0MTk5YWZiNDIxZDcyNmJlMjNjNyIsInN1YiI6IjEiLCJpc3MiOiJzZyIsImlhdCI6MTc2ODgwMzY0NywiZXhwIjoxNzY5MTYzNjQ3fQ.oVpzV1U82kPJkIFCC0xA9CPKt44KUSC3-JFlm_j3vwU这是传进来的token
+Creating a new SqlSession
+SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@22b5993a] was not registered for synchronization because synchronization is not active
+2026-01-19 14:54:11.214  INFO 24724 --- [nio-8090-exec-2] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Starting...
+2026-01-19 14:54:11.600  INFO 24724 --- [nio-8090-exec-2] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Start completed.
+JDBC Connection [HikariProxyConnection@548891029 wrapping com.mysql.cj.jdbc.ConnectionImpl@1d4993a4] will not be managed by Spring
+==>  Preparing: SELECT r.name FROM roles r INNER JOIN user_roles ur ON r.id = ur.role_id WHERE ur.user_id = ?
+==> Parameters: 1(Long)
+<==    Columns: name
+<==        Row: admin
+<==      Total: 1
+Closing non transactional SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@22b5993a]
+com.fine.Utils.ResponseResult@46f89edb
+Creating a new SqlSession
+SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@76600c92] was not registered for synchronization because synchronization is not active
+JDBC Connection [HikariProxyConnection@1812811676 wrapping com.mysql.cj.jdbc.ConnectionImpl@1d4993a4] will not be managed by Spring
+==>  Preparing: SELECT material_code, product_name, SUM(total_rolls) as total_rolls, SUM(total_sqm) as total_sqm FROM tape_stock WHERE status = 1 GROUP BY material_code, product_name ORDER BY material_code
+==> Parameters: 
+<==    Columns: material_code, product_name, total_rolls, total_sqm
+<==        Row: 1011-R02-0903-B05-0300, 12μm蓝色PET终止胶带, 110, 550.00
+<==        Row: 1011-R02-0903-G03-0300, 12μ无机翠绿PET胶带, 75, 540.00
+<==      Total: 2
+Closing non transactional SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@76600c92]
+eyJhbGciOiJIUzI1NiJ9.eyJqdGkiOiI2Y2Y2MzE5M2Q5M2U0MTk5YWZiNDIxZDcyNmJlMjNjNyIsInN1YiI6IjEiLCJpc3MiOiJzZyIsImlhdCI6MTc2ODgwMzY0NywiZXhwIjoxNzY5MTYzNjQ3fQ.oVpzV1U82kPJkIFCC0xA9CPKt44KUSC3-JFlm_j3vwU这是传进来的token
+Creating a new SqlSession
+SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@7d8e023c] was not registered for synchronization because synchronization is not active
+JDBC Connection [HikariProxyConnection@1934226429 wrapping com.mysql.cj.jdbc.ConnectionImpl@1d4993a4] will not be managed by Spring
+==>  Preparing: SELECT r.name FROM roles r INNER JOIN user_roles ur ON r.id = ur.role_id WHERE ur.user_id = ?
+==> Parameters: 1(Long)
+<==    Columns: name
+<==        Row: admin
+<==      Total: 1
+Closing non transactional SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@7d8e023c]
+com.fine.Utils.ResponseResult@3274f9c6
+Creating a new SqlSession
+SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@22826b33] was not registered for synchronization because synchronization is not active
+JDBC Connection [HikariProxyConnection@742756627 wrapping com.mysql.cj.jdbc.ConnectionImpl@1d4993a4] will not be managed by Spring
+==>  Preparing: SELECT material_code, product_name, SUM(total_rolls) as total_rolls, SUM(total_sqm) as total_sqm FROM tape_stock WHERE status = 1 GROUP BY material_code, product_name ORDER BY material_code
+==> Parameters: 
+<==    Columns: material_code, product_name, total_rolls, total_sqm
+<==        Row: 1011-R02-0903-B05-0300, 12μm蓝色PET终止胶带, 110, 550.00
+<==        Row: 1011-R02-0903-G03-0300, 12μ无机翠绿PET胶带, 75, 540.00
+<==      Total: 2
+Closing non transactional SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@22826b33]
