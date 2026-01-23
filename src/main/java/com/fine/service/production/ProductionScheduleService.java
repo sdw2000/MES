@@ -207,4 +207,9 @@ public interface ProductionScheduleService {
      * 生成涂布排程任务
      */
     Map<String, Object> generateCoatingTasks(Map<String, Object> data);
+
+    /**
+     * 获取复卷汇总（按料号+长度聚合待复卷支数）
+     */
+    List<Map<String, Object>> getRewindSummary();
 }

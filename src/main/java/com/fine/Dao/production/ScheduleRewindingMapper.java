@@ -93,4 +93,17 @@ public interface ScheduleRewindingMapper extends BaseMapper<ScheduleRewinding> {
             "ORDER BY sr.plan_start_time ASC " +
             "</script>")
     IPage<ScheduleRewinding> selectPage(Page<ScheduleRewinding> page, @Param("params") Map<String, Object> params);
+
+    @Select({
+            "<script>",
+            "SELECT sr.material_code AS materialCode, sr.material_name AS materialName, sr.slit_length AS length,",
+            "SUM(IFNULL(sr.plan_rolls,0)) AS requiredRolls, COUNT(*) AS taskCount, GROUP_CONCAT(DISTINCT sr.order_nos) AS orderNosConcat",
+            "FROM schedule_rewinding sr",
+            "WHERE 1=1",
+            "<if test='status != null and status != \"\"'> AND sr.status = #{status} </if>",
+            "GROUP BY sr.material_code, sr.slit_length",
+            "ORDER BY sr.material_code, sr.slit_length",
+            "</script>"
+    })
+    List<Map<String, Object>> selectRewindSummary(@Param("status") String status);
 }

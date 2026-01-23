@@ -324,7 +324,12 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
             }
             
             coating.setPlanLength(new BigDecimal(totalLength));
-            // coating.setPlanSqm(totalSqm); // Use if exists or calculate appropriately
+            // 记录计划面积，便于前端显示
+            try {
+                coating.setPlanSqm(totalSqm);
+            } catch (Exception ignore) {
+                // 如果实体没有 planSqm 字段则忽略
+            }
             
             // 默认工艺
             coating.setCoatingSpeed(new BigDecimal(40)); // 40m/min（线速度）
@@ -350,6 +355,40 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
             Date endTime = cal.getTime();
             coating.setPlanEndTime(endTime);
             
+            // 补全字段：宽度、长度、厚度（优先从 firstItem 获取，若无则使用计算值或默认）
+            try {
+                // 料卷宽度（mm）
+                if (firstItem.get("width") != null) {
+                    coating.setJumboWidth(((Number) firstItem.get("width")).intValue());
+                    coating.setFilmWidth(((Number) firstItem.get("width")).intValue());
+                } else if (avgWidth > 0) {
+                    coating.setJumboWidth(avgWidth);
+                    coating.setFilmWidth(avgWidth);
+                }
+
+                // 单卷裁切长度（mm 或 m 取决于上游，优先使用 firstItem.length）
+                if (firstItem.get("length") != null) {
+                    Object lenObj = firstItem.get("length");
+                    if (lenObj instanceof Number) {
+                        coating.setSlitLength(((Number) lenObj).intValue());
+                    } else {
+                        try { coating.setSlitLength(Integer.parseInt(lenObj.toString())); } catch (Exception ignore) {}
+                    }
+                }
+
+                // 厚度
+                if (firstItem.get("thickness") != null) {
+                    try { coating.setThickness(new java.math.BigDecimal(firstItem.get("thickness").toString())); } catch (Exception ignore) {}
+                }
+
+                // 面积（㎡）
+                if (totalSqm != null) {
+                    try { coating.setPlanSqm(totalSqm); } catch (Exception ignore) {}
+                }
+            } catch (Exception ex) {
+                log.warn("补全涂布任务显示字段时发生异常: {}", ex.getMessage());
+            }
+
             coating.setStatus("pending");
             coating.setCreateBy(operator);
             
@@ -878,6 +917,49 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
             for (ScheduleRewinding r : result.getRecords()) {
                 hydrateRewindingDefaults(r);
             }
+        }
+        return result;
+    }
+
+    @Override
+    public List<Map<String, Object>> getRewindSummary() {
+        List<Map<String, Object>> rows = rewindingMapper.selectRewindSummary("pending");
+        if (rows == null) return java.util.Collections.emptyList();
+
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Map<String, Object> r : rows) {
+            Map<String, Object> m = new HashMap<>();
+            String materialCode = r.get("materialCode") == null ? "" : r.get("materialCode").toString();
+            String materialName = r.get("materialName") == null ? "" : r.get("materialName").toString();
+            Object lenObj = r.get("length");
+            String length = lenObj == null ? "" : lenObj.toString();
+            Number req = (Number) r.get("requiredRolls");
+            int totalShortage = req == null ? 0 : req.intValue();
+            String orderNosConcat = r.get("orderNosConcat") == null ? "" : r.get("orderNosConcat").toString();
+            List<String> orderNos = new ArrayList<>();
+            if (!orderNosConcat.isEmpty()) {
+                String[] parts = orderNosConcat.split(",");
+                for (String p : parts) {
+                    String t = p == null ? "" : p.trim();
+                    if (!t.isEmpty()) {
+                        // order_nos may contain comma-separated lists per record; split further
+                        for (String sub : t.split(",")) {
+                            String s = sub.trim(); if (!s.isEmpty() && !orderNos.contains(s)) orderNos.add(s);
+                        }
+                    }
+                }
+            }
+
+            m.put("materialCode", materialCode);
+            m.put("materialName", materialName);
+            m.put("length", length);
+            m.put("totalShortage", totalShortage);
+            m.put("totalArea", 0);
+            m.put("orderCount", orderNos.size());
+            m.put("orderNos", orderNos);
+            m.put("poolIds", new ArrayList<Long>());
+            m.put("requiredRolls", totalShortage);
+            result.add(m);
         }
         return result;
     }
