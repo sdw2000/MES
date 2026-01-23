@@ -1389,6 +1389,20 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
             nextStartTime = generateRewindingTasks(schedule, hasStockOrders, operator, nextStartTime);
             nextStartTime = generateSlittingTasks(schedule, hasStockOrders, operator, nextStartTime);
             System.out.println("✅ 有料订单任务生成完成");
+            // 清理待涂布池：这些订单已有库存并已按复卷/分切排产，无需继续显示在涂布汇总
+            try {
+                if (pendingCoatingPoolMapper != null) {
+                    for (Map<String, Object> item : hasStockOrders) {
+                        Object oid = item.get("order_item_id");
+                        if (oid instanceof Number) {
+                            Long orderItemId = ((Number) oid).longValue();
+                            try {
+                                pendingCoatingPoolMapper.deleteByOrderItemId(orderItemId);
+                            } catch (Exception ignore) { }
+                        }
+                    }
+                }
+            } catch (Exception ignore) { }
         }
         
         // ========== 步骤4：处理无料订单（动态涂布排程） ==========
@@ -3193,7 +3207,21 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
             ((List<Map<String, Object>>) group.get("orders")).add(orderMap);
         }
 
-        return new ArrayList<>(grouped.values());
+        // 过滤掉缺口为 0 或负值的料号组（不需要涂布的料号不应出现在涂布汇总）
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Map<String, Object> g : grouped.values()) {
+            Object ts = g.get("totalShortage");
+            int totalShortage = 0;
+            if (ts instanceof Number) {
+                totalShortage = ((Number) ts).intValue();
+            } else if (ts instanceof String) {
+                try { totalShortage = Integer.parseInt((String) ts); } catch (Exception ignore) { }
+            }
+            if (totalShortage > 0) {
+                result.add(g);
+            }
+        }
+        return result;
     }
     
     @Override

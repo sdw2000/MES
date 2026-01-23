@@ -5,6 +5,7 @@ import com.fine.model.schedule.PendingCoatingOrderPool;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Delete;
 
 import java.util.List;
 
@@ -33,4 +34,10 @@ public interface PendingCoatingOrderPoolMapper extends BaseMapper<PendingCoating
          * 按池记录ID删除，提交排程后用来移除列表数据。
          */
         int deleteById(@Param("id") Long id);
+
+        /**
+         * 按订单明细ID删除（用于自动排产后清理已被排产且已锁定的订单池记录）
+         */
+        @Delete("DELETE FROM pending_coating_order_pool WHERE order_item_id = #{orderItemId}")
+        int deleteByOrderItemId(@Param("orderItemId") Long orderItemId);
 }
