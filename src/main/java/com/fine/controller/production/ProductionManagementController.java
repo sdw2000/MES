@@ -84,6 +84,14 @@ public class ProductionManagementController {
                 vo.setType("coating");
                 vo.setMaterialCode(t.getMaterialCode());
                 vo.setMaterialName(t.getMaterialName());
+                // 涂布任务关联单一订单号
+                vo.setOrderNo(t.getOrderNo());
+                vo.setOrderId(t.getOrderId());
+                vo.setOrderItemId(t.getOrderItemId());
+                vo.setColorName(t.getColorName());
+                vo.setThickness(t.getThickness());
+                vo.setJumboWidth(t.getJumboWidth());
+                vo.setPlanLength(t.getPlanLength());
                 vo.setEquipmentId(t.getEquipmentId());
                 vo.setEquipmentCode(t.getEquipmentCode());
                 vo.setStatus(t.getStatus());
@@ -91,6 +99,32 @@ public class ProductionManagementController {
                 vo.setPlanEndTime(t.getPlanEndTime());
                 vo.setPlanDuration(t.getPlanDuration());
                 vo.setQty(t.getPlanSqm());
+                if (t.getOrderItemId() != null) {
+                    Map<String, Object> full = salesOrderItemMapper.selectFullItemById(t.getOrderItemId());
+                    if (full != null) {
+                        if (vo.getOrderNo() == null && full.get("order_no") != null) {
+                            vo.setOrderNo(full.get("order_no").toString());
+                        }
+                        if (vo.getMaterialCode() == null && full.get("material_code") != null) {
+                            vo.setMaterialCode(full.get("material_code").toString());
+                        }
+                        if (vo.getMaterialName() == null && full.get("material_name") != null) {
+                            vo.setMaterialName(full.get("material_name").toString());
+                        }
+                        if (vo.getThickness() == null && full.get("thickness") != null) {
+                            vo.setThickness(new java.math.BigDecimal(full.get("thickness").toString()));
+                        }
+                        if (vo.getJumboWidth() == null && full.get("width") != null) {
+                            try { vo.setJumboWidth(((Number) full.get("width")).intValue()); } catch (Exception ignore) { }
+                        }
+                        if (vo.getPlanLength() == null && full.get("length") != null) {
+                            try {
+                                java.math.BigDecimal lenMm = new java.math.BigDecimal(full.get("length").toString());
+                                vo.setPlanLength(lenMm.divide(new java.math.BigDecimal(1000)));
+                            } catch (Exception ignore) { }
+                        }
+                    }
+                }
                 all.add(vo);
             }
         }
@@ -110,6 +144,8 @@ public class ProductionManagementController {
                 vo.setType("rewinding");
                 vo.setMaterialCode(t.getMaterialCode());
                 vo.setMaterialName(t.getMaterialName());
+                // 复卷任务可能关联多个订单，使用持久化的逗号分隔文本
+                vo.setOrderNo(t.getOrderNosText());
                 vo.setEquipmentId(t.getEquipmentId());
                 vo.setEquipmentCode(t.getEquipmentCode());
                 vo.setStatus(t.getStatus());
@@ -136,6 +172,7 @@ public class ProductionManagementController {
                 vo.setType("slitting");
                 vo.setMaterialCode(t.getMaterialCode());
                 vo.setMaterialName(t.getMaterialName());
+                vo.setOrderNo(t.getOrderNo());
                 vo.setEquipmentId(t.getEquipmentId());
                 vo.setEquipmentCode(t.getEquipmentCode());
                 vo.setStatus(t.getStatus());
@@ -171,6 +208,9 @@ public class ProductionManagementController {
         if (t.getOrderItemId() != null) {
             com.fine.model.production.ScheduleOrderItem soi = scheduleOrderItemMapper.selectById(t.getOrderItemId());
             if (soi != null) {
+                if (t.getOrderNo() == null && soi.getOrderNo() != null) { t.setOrderNo(soi.getOrderNo()); needUpdate = true; }
+                if (t.getMaterialCode() == null && soi.getMaterialCode() != null) { t.setMaterialCode(soi.getMaterialCode()); needUpdate = true; }
+                if (t.getMaterialName() == null && soi.getMaterialName() != null) { t.setMaterialName(soi.getMaterialName()); needUpdate = true; }
                 if (t.getColorCode() == null && soi.getColorCode() != null) { t.setColorCode(soi.getColorCode()); needUpdate = true; }
                 if (t.getThickness() == null && soi.getThickness() != null) { t.setThickness(soi.getThickness()); needUpdate = true; }
                 if (t.getJumboWidth() == null && soi.getWidth() != null) { t.setJumboWidth(soi.getWidth().intValue()); needUpdate = true; }
@@ -191,10 +231,21 @@ public class ProductionManagementController {
         if ((t.getThickness() == null || t.getJumboWidth() == null || t.getPlanLength() == null) && t.getOrderItemId() != null) {
             com.fine.modle.SalesOrderItem item = salesOrderItemMapper.selectById(t.getOrderItemId());
             if (item != null) {
+                if (t.getMaterialCode() == null && item.getMaterialCode() != null) { t.setMaterialCode(item.getMaterialCode()); needUpdate = true; }
+                if (t.getMaterialName() == null && item.getMaterialName() != null) { t.setMaterialName(item.getMaterialName()); needUpdate = true; }
                 if (t.getThickness() == null && item.getThickness() != null) { t.setThickness(item.getThickness()); needUpdate = true; }
                 if (t.getJumboWidth() == null && item.getWidth() != null) { t.setJumboWidth(item.getWidth().intValue()); needUpdate = true; }
                 if (t.getPlanLength() == null && item.getLength() != null) { t.setPlanLength(item.getLength().divide(new java.math.BigDecimal(1000))); needUpdate = true; }
                 if ((t.getColorName() == null || t.getColorName().isEmpty()) && item.getColorCode() != null) { t.setColorCode(item.getColorCode()); needUpdate = true; }
+            }
+        }
+
+        // 订单号兜底（从销售订单明细联表查询）
+        if ((t.getOrderNo() == null || t.getOrderNo().isEmpty()) && t.getOrderItemId() != null) {
+            Map<String, Object> full = salesOrderItemMapper.selectFullItemById(t.getOrderItemId());
+            if (full != null && full.get("order_no") != null) {
+                t.setOrderNo(full.get("order_no").toString());
+                needUpdate = true;
             }
         }
 
@@ -263,11 +314,18 @@ public class ProductionManagementController {
 
     /** 简单任务 VO */
     public static class TaskVO {
+        private String orderNo;
+        private Long orderId;
+        private Long orderItemId;
         private Long id;
         private String taskNo;
         private String type;
         private String materialCode;
         private String materialName;
+        private String colorName;
+        private java.math.BigDecimal thickness;
+        private Integer jumboWidth;
+        private java.math.BigDecimal planLength;
         private Long equipmentId;
         private String equipmentCode;
         private String status;
@@ -280,12 +338,26 @@ public class ProductionManagementController {
         public void setId(Long id) { this.id = id; }
         public String getTaskNo() { return taskNo; }
         public void setTaskNo(String taskNo) { this.taskNo = taskNo; }
+        public String getOrderNo() { return orderNo; }
+        public void setOrderNo(String orderNo) { this.orderNo = orderNo; }
+        public Long getOrderId() { return orderId; }
+        public void setOrderId(Long orderId) { this.orderId = orderId; }
+        public Long getOrderItemId() { return orderItemId; }
+        public void setOrderItemId(Long orderItemId) { this.orderItemId = orderItemId; }
         public String getType() { return type; }
         public void setType(String type) { this.type = type; }
         public String getMaterialCode() { return materialCode; }
         public void setMaterialCode(String materialCode) { this.materialCode = materialCode; }
         public String getMaterialName() { return materialName; }
         public void setMaterialName(String materialName) { this.materialName = materialName; }
+        public String getColorName() { return colorName; }
+        public void setColorName(String colorName) { this.colorName = colorName; }
+        public java.math.BigDecimal getThickness() { return thickness; }
+        public void setThickness(java.math.BigDecimal thickness) { this.thickness = thickness; }
+        public Integer getJumboWidth() { return jumboWidth; }
+        public void setJumboWidth(Integer jumboWidth) { this.jumboWidth = jumboWidth; }
+        public java.math.BigDecimal getPlanLength() { return planLength; }
+        public void setPlanLength(java.math.BigDecimal planLength) { this.planLength = planLength; }
         public Long getEquipmentId() { return equipmentId; }
         public void setEquipmentId(Long equipmentId) { this.equipmentId = equipmentId; }
         public String getEquipmentCode() { return equipmentCode; }

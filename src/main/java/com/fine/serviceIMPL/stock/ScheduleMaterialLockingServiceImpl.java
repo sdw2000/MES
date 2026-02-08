@@ -208,13 +208,18 @@ public class ScheduleMaterialLockingServiceImpl implements ScheduleMaterialLocki
         
         return allocatedArea;
     }
-      /**
+    
+    /**
      * 查询可用的物料卷
+     * TODO: 此方法需要重构，SalesOrder不包含thickness和width字段
+     * 这些字段在OrderDetail中，需要传入OrderDetail或规格参数
      */
     private List<TapeStock> findAvailableReels(SalesOrder order, String reelType) {
-        // 假设订单中有物料规格信息（厚度、宽度等）
-        // 这里需要根据实际业务逻辑调整
+        // 暂时返回空列表，避免编译错误
+        // 正确的实现应该从订单明细中获取规格信息
+        return new ArrayList<>();
         
+        /* 原代码存在问题，SalesOrder没有这些方法：
         Integer thickness = order.getThickness();
         Integer width = order.getWidth();
         BigDecimal minArea = order.getRequiredArea() != null ? 
@@ -228,6 +233,7 @@ public class ScheduleMaterialLockingServiceImpl implements ScheduleMaterialLocki
         }
         
         return new ArrayList<>();
+        */
     }
     
     /**

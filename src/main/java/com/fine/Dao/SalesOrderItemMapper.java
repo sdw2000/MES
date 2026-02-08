@@ -26,6 +26,17 @@ public interface SalesOrderItemMapper extends BaseMapper<SalesOrderItem> {
      */
     @Update("UPDATE sales_order_items SET scheduled_qty = COALESCE(scheduled_qty, 0) + #{quantity} WHERE id = #{id}")
     int updateScheduledQty(@Param("id") Long id, @Param("quantity") Integer quantity);
+
+    /**
+     * 更新已排程面积与待排面积
+     * @param id 订单明细ID
+     * @param area 新增排程面积
+     */
+    @Update("UPDATE sales_order_items SET "
+        + "scheduled_area = COALESCE(scheduled_area, 0) + #{area}, "
+        + "pending_area = GREATEST(COALESCE(sqm, 0) - (COALESCE(scheduled_area, 0) + #{area}) - COALESCE(delivered_area, 0), 0) "
+        + "WHERE id = #{id}")
+    int updateScheduledArea(@Param("id") Long id, @Param("area") java.math.BigDecimal area);
     
     /**
      * 查询订单明细完整信息（含订单和客户信息）

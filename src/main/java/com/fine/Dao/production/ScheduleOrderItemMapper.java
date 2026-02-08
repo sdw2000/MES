@@ -69,11 +69,12 @@ public interface ScheduleOrderItemMapper extends BaseMapper<ScheduleOrderItem> {
      * 注意：从tape_spec表关联查询颜色代码
      */    @Select("<script>" +
             "SELECT soi.id as order_item_id, soi.order_id, so.order_no, " +
-            "so.customer, c.customer_level, soi.material_code, soi.material_name, " +
+            "so.customer, c.id as customer_id, c.customer_code, c.customer_level, soi.material_code, soi.material_name, " +
             "COALESCE(ts.color_code, soi.color_code) as color_code, " +
             "COALESCE(ts.color_name, '') as color_name, " +
             "soi.thickness, soi.width, soi.length, " +
-            "soi.rolls as order_qty, soi.rolls as pending_qty, " +
+            "soi.rolls as order_qty, " +
+            "GREATEST(soi.rolls - COALESCE(soi.scheduled_qty,0), 0) as pending_qty, " +
             "so.delivery_date " +
             "FROM sales_order_items soi " +
             "LEFT JOIN sales_orders so ON soi.order_id = so.id " +
@@ -82,7 +83,7 @@ public interface ScheduleOrderItemMapper extends BaseMapper<ScheduleOrderItem> {
             "WHERE so.status != 'cancelled' " +
             "AND soi.is_deleted = 0 " +
             "AND so.is_deleted = 0 " +
-            "AND soi.rolls > 0 " +
+            "AND GREATEST(soi.rolls - COALESCE(soi.scheduled_qty,0), 0) > 0 " +
             "<if test='params.customerLevel != null and params.customerLevel != \"\"'>" +
             "AND c.customer_level = #{params.customerLevel} " +
             "</if>" +
@@ -100,11 +101,12 @@ public interface ScheduleOrderItemMapper extends BaseMapper<ScheduleOrderItem> {
      */
     @Select("<script>" +
             "SELECT soi.id as order_item_id, soi.order_id, so.order_no, " +
-            "so.customer, c.customer_level, soi.material_code, soi.material_name, " +
+            "so.customer, c.id as customer_id, c.customer_code, c.customer_level, soi.material_code, soi.material_name, " +
             "COALESCE(ts.color_code, soi.color_code) as color_code, " +
             "COALESCE(ts.color_name, '') as color_name, " +
             "soi.thickness, soi.width, soi.length, " +
-            "soi.rolls as order_qty, soi.rolls as pending_qty, " +
+            "soi.rolls as order_qty, " +
+            "GREATEST(soi.rolls - COALESCE(soi.scheduled_qty,0), 0) as pending_qty, " +
             "so.delivery_date " +
             "FROM sales_order_items soi " +
             "LEFT JOIN sales_orders so ON soi.order_id = so.id " +
@@ -113,7 +115,7 @@ public interface ScheduleOrderItemMapper extends BaseMapper<ScheduleOrderItem> {
             "WHERE so.status != 'cancelled' " +
             "AND soi.is_deleted = 0 " +
             "AND so.is_deleted = 0 " +
-            "AND soi.rolls > 0 " +
+            "AND GREATEST(soi.rolls - COALESCE(soi.scheduled_qty,0), 0) > 0 " +
             "<if test='params.customerLevel != null and params.customerLevel != \"\"'>" +
             "AND c.customer_level = #{params.customerLevel} " +
             "</if>" +

@@ -51,6 +51,9 @@ public class ScheduleMaterialLockServiceImpl extends ServiceImpl<ScheduleMateria
     @Autowired
     private ScheduleOrderItemMapper orderItemMapper;
     
+    @Autowired(required = false)
+    private com.fine.Dao.SalesOrderItemMapper salesOrderItemMapper;
+    
     @Override
     @Transactional(rollbackFor = Exception.class)
     public boolean lockMaterialForSchedule(ScheduleMaterialLockDTO lockDTO) {
@@ -140,36 +143,80 @@ public class ScheduleMaterialLockServiceImpl extends ServiceImpl<ScheduleMateria
             lockMapper.insert(lock);
         }
         
-        // 7. 查询关联的订单信息
-        QueryWrapper<ScheduleOrderItem> orderWrapper = new QueryWrapper<>();
-        orderWrapper.eq("schedule_id", lockDTO.getScheduleId());
-        orderWrapper.last("LIMIT 1");
-        ScheduleOrderItem orderItem = orderItemMapper.selectOne(orderWrapper);
-        
+        // 7. 查询排程的所有订单项（优先使用 schedule_order_item），若为空则尝试使用 sales_order_items
+        List<ScheduleOrderItem> orderItems = orderItemMapper.selectList(
+                new QueryWrapper<ScheduleOrderItem>().eq("schedule_id", lockDTO.getScheduleId())
+        );
+
+        if ((orderItems == null || orderItems.isEmpty()) && lockDTO.getOrderId() != null && salesOrderItemMapper != null) {
+            // 回退：从销售订单明细获取（order_id -> sales_order_items）
+            List<com.fine.modle.SalesOrderItem> salesItems = salesOrderItemMapper.selectList(
+                    new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<com.fine.modle.SalesOrderItem>()
+                            .eq("order_id", lockDTO.getOrderId())
+            );
+            if (salesItems != null && !salesItems.isEmpty()) {
+                // 将 salesItems 转换为 ScheduleOrderItem 只保留必要字段用于回填
+                orderItems = new ArrayList<>();
+                for (com.fine.modle.SalesOrderItem s : salesItems) {
+                    ScheduleOrderItem soi = new ScheduleOrderItem();
+                    soi.setOrderId(s.getOrderId());
+                    soi.setOrderItemId(s.getId());
+                    soi.setOrderNo(s.getOrderNo());
+                    soi.setMaterialCode(s.getMaterialCode());
+                    soi.setLength(s.getLength());
+                    soi.setWidth(s.getWidth());
+                    soi.setThickness(s.getThickness());
+                    soi.setOrderQty(s.getRolls() != null ? s.getRolls() : 0);
+                    orderItems.add(soi);
+                }
+            }
+        }
+
         // 8. 更新排程表的jumbo_width字段（根据schedule_id更新所有相关的涂布任务）
         QueryWrapper<ScheduleCoating> wrapper = new QueryWrapper<>();
         wrapper.eq("schedule_id", lockDTO.getScheduleId());
         List<ScheduleCoating> schedules = scheduleCoatingMapper.selectList(wrapper);
-        
+
         for (ScheduleCoating schedule : schedules) {
             schedule.setJumboWidth(selectedStock.getWidth());
             schedule.setFilmWidth(selectedStock.getWidth()); // 同时设置filmWidth（虽然不存数据库，但前端需要）
-            schedule.setFilmThickness(selectedStock.getThickness().intValue());
+            schedule.setFilmThickness(selectedStock.getThickness() != null ? selectedStock.getThickness().intValue() : null);
             schedule.setBaseFilmRolls(selectedDetailIds.size());
             schedule.setBaseFilmArea(lockDTO.getRequiredArea());
-            
-            // 设置订单信息（如果查询到）
-            if (orderItem != null) {
-                schedule.setOrderNo(orderItem.getOrderNo());
-                schedule.setOrderId(orderItem.getOrderId());
-                schedule.setOrderItemId(orderItem.getOrderItemId());
+
+            // 尝试根据物料编码匹配订单项并回填字段，减少对单一 orderItem 的耦合
+            if (orderItems != null && !orderItems.isEmpty()) {
+                ScheduleOrderItem match = null;
+                for (ScheduleOrderItem oi : orderItems) {
+                    if (oi.getMaterialCode() != null && oi.getMaterialCode().equals(schedule.getMaterialCode())) {
+                        match = oi; break;
+                    }
+                    if (oi.getOrderItemId() != null && oi.getOrderItemId().equals(schedule.getOrderItemId())) {
+                        match = oi; break;
+                    }
+                }
+                if (match != null) {
+                    schedule.setOrderNo(match.getOrderNo());
+                    schedule.setOrderId(match.getOrderId());
+                    schedule.setOrderItemId(match.getOrderItemId());
+                    // 回填长度/宽度（如果任务缺失）
+                    if (schedule.getPlanLength() == null && match.getLength() != null) {
+                        schedule.setPlanLength(match.getLength());
+                    }
+                    if (schedule.getJumboWidth() == null && match.getWidth() != null) {
+                        schedule.setJumboWidth(match.getWidth().intValue());
+                    }
+                    if (schedule.getThickness() == null && match.getThickness() != null) {
+                        schedule.setThickness(match.getThickness());
+                    }
+                }
             }
-            
-            // 设置计划面积（从涂布长度计算：长度m * 宽度mm / 1000000）
+
+            // 设置计划面积（从涂布长度计算：长度m * 宽度mm / 1000000），兼容 BigDecimal/整数等
             if (schedule.getPlanLength() != null && selectedStock.getWidth() != null) {
-                BigDecimal planSqm = schedule.getPlanLength()
-                    .multiply(new BigDecimal(selectedStock.getWidth()))
-                    .divide(new BigDecimal(1000000), 2, BigDecimal.ROUND_HALF_UP);
+                java.math.BigDecimal planSqm = schedule.getPlanLength()
+                    .multiply(new java.math.BigDecimal(selectedStock.getWidth()))
+                    .divide(new java.math.BigDecimal(1000000), 2, java.math.RoundingMode.HALF_UP);
                 schedule.setPlanSqm(planSqm);
             }
             scheduleCoatingMapper.updateById(schedule);

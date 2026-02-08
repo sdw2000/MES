@@ -402,6 +402,101 @@ public class ProductionScheduleController {
     /**
      * 获取分切任务列表
      */
+    @GetMapping("/slitting/list")
+    public ResponseResult<Map<String, Object>> getSlittingTasks(
+            @RequestParam(defaultValue = "1") Integer pageNum,
+            @RequestParam(defaultValue = "10") Integer pageSize,
+            @RequestParam(required = false) Long scheduleId,
+            @RequestParam(required = false) String planDate,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) Long equipmentId,
+            @RequestParam(required = false) String materialCode) {
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("pageNum", pageNum);
+        params.put("pageSize", pageSize);
+        params.put("scheduleId", scheduleId);
+        params.put("planDate", planDate);
+        params.put("status", status);
+        params.put("equipmentId", equipmentId);
+        params.put("materialCode", materialCode);
+
+        IPage<ScheduleSlitting> page = scheduleService.getSlittingTasks(params);
+        Map<String, Object> result = new HashMap<>();
+        result.put("list", page.getRecords());
+        result.put("total", page.getTotal());
+        result.put("pages", page.getPages());
+        result.put("pageNum", page.getCurrent());
+        result.put("pageSize", page.getSize());
+        result.put("hasNextPage", page.getCurrent() < page.getPages());
+        return ResponseResult.success(result);
+    }
+
+    /**
+     * 添加分切任务
+     */
+    @PostMapping("/slitting")
+    public ResponseResult<ScheduleSlitting> addSlittingTask(@RequestBody ScheduleSlitting slitting) {
+        try {
+            ScheduleSlitting created = scheduleService.addSlittingTask(slitting);
+            return ResponseResult.success(created);
+        } catch (Exception e) {
+            return ResponseResult.error("添加分切任务失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 更新分切任务
+     */
+    @PutMapping("/slitting/{id}")
+    public ResponseResult<String> updateSlittingTask(@PathVariable Long id, @RequestBody ScheduleSlitting slitting) {
+        slitting.setId(id);
+        int rows = scheduleService.updateSlittingTask(slitting);
+        return rows > 0 ? ResponseResult.success("更新成功") : ResponseResult.error("更新失败");
+    }
+
+    /**
+     * 删除分切任务
+     */
+    @DeleteMapping("/slitting/{id}")
+    public ResponseResult<String> deleteSlittingTask(@PathVariable Long id,
+                                                     @RequestParam(defaultValue = "admin") String operator) {
+        try {
+            int rows = scheduleService.deleteSlittingTask(id);
+            return rows > 0 ? ResponseResult.success("删除成功") : ResponseResult.error("删除失败");
+        } catch (Exception e) {
+            return ResponseResult.error(e.getMessage());
+        }
+    }
+
+    /**
+     * 启动分切任务
+     */
+    @PostMapping("/slitting/{id}/start")
+    public ResponseResult<String> startSlittingTask(@PathVariable Long id,
+                                                    @RequestParam(defaultValue = "admin") String operator) {
+        try {
+            int rows = scheduleService.startSlittingTask(id, operator);
+            return rows > 0 ? ResponseResult.success("任务已开始") : ResponseResult.error("操作失败");
+        } catch (Exception e) {
+            return ResponseResult.error(e.getMessage());
+        }
+    }
+
+    /**
+     * 完成分切任务
+     */
+    @PostMapping("/slitting/{id}/complete")
+    public ResponseResult<String> completeSlittingTask(@PathVariable Long id,
+                                                       @RequestParam(required = false) Integer actualRolls,
+                                                       @RequestParam(defaultValue = "admin") String operator) {
+        try {
+            int rows = scheduleService.completeSlittingTask(id, actualRolls, operator);
+            return rows > 0 ? ResponseResult.success("任务已完成") : ResponseResult.error("操作失败");
+        } catch (Exception e) {
+            return ResponseResult.error(e.getMessage());
+        }
+    }
     // ========== 分条任务接口 ==========
     
     /**
@@ -1114,116 +1209,4 @@ public class ProductionScheduleController {
         }
     }
     
-    // ========== 分切任务接口 ==========
-    
-    /**
-     * 获取分切任务列表
-     */
-    @GetMapping("/slitting/list")
-    public ResponseResult<Map<String, Object>> getSlittingTasks(
-            @RequestParam(defaultValue = "1") Integer pageNum,
-            @RequestParam(defaultValue = "20") Integer pageSize,
-            @RequestParam(required = false) String orderNo,
-            @RequestParam(required = false) String status,
-            @RequestParam(required = false) String planDate,
-            @RequestParam(required = false) Long equipmentId) {
-        
-        Map<String, Object> params = new HashMap<>();
-        params.put("pageNum", pageNum);
-        params.put("pageSize", pageSize);
-        params.put("orderNo", orderNo);
-        params.put("status", status);
-        params.put("planDate", planDate);
-        params.put("equipmentId", equipmentId);
-        
-        IPage<ScheduleSlitting> pageResult = scheduleService.getSlittingTasks(params);
-        
-        Map<String, Object> result = new HashMap<>();
-        result.put("list", pageResult.getRecords());
-        result.put("total", pageResult.getTotal());
-        result.put("pages", pageResult.getPages());
-        result.put("pageNum", pageResult.getCurrent());
-        result.put("pageSize", pageResult.getSize());
-        
-        return ResponseResult.success(result);
-    }
-    
-    /**
-     * 新增分切任务
-     */
-    @PostMapping("/slitting/add")
-    public ResponseResult<ScheduleSlitting> addSlittingTask(@RequestBody ScheduleSlitting slitting) {
-        try {
-            ScheduleSlitting result = scheduleService.addSlittingTask(slitting);
-            return ResponseResult.success(result);
-        } catch (Exception e) {
-            return ResponseResult.error("新增失败: " + e.getMessage());
-        }
-    }
-    
-    /**
-     * 更新分切任务
-     */
-    @PutMapping("/slitting/update")
-    public ResponseResult<String> updateSlittingTask(@RequestBody ScheduleSlitting slitting) {
-        try {
-            int result = scheduleService.updateSlittingTask(slitting);
-            return result > 0 ? ResponseResult.success("更新成功") : ResponseResult.error("更新失败");
-        } catch (Exception e) {
-            return ResponseResult.error("更新失败: " + e.getMessage());
-        }
-    }
-    
-    /**
-     * 删除分切任务
-     */
-    @DeleteMapping("/slitting/delete/{id}")
-    public ResponseResult<String> deleteSlittingTask(@PathVariable Long id) {
-        try {
-            int result = scheduleService.deleteSlittingTask(id);
-            return result > 0 ? ResponseResult.success("删除成功") : ResponseResult.error("删除失败");
-        } catch (Exception e) {
-            return ResponseResult.error("删除失败: " + e.getMessage());
-        }
-    }
-    
-    /**
-     * 开始分切任务
-     */
-    @PostMapping("/slitting/start/{id}")
-    public ResponseResult<String> startSlittingTask(
-            @PathVariable Long id,
-            @RequestParam(defaultValue = "admin") String operator) {
-        try {
-            ScheduleSlitting slitting = new ScheduleSlitting();
-            slitting.setId(id);
-            slitting.setStatus("in_progress");
-            slitting.setActualStartTime(new Date());
-            slitting.setUpdateBy(operator);
-            int result = scheduleService.updateSlittingTask(slitting);
-            return result > 0 ? ResponseResult.success("任务已开始") : ResponseResult.error("操作失败");
-        } catch (Exception e) {
-            return ResponseResult.error("操作失败: " + e.getMessage());
-        }
-    }
-    
-    /**
-     * 完成分切任务
-     */
-    @PostMapping("/slitting/complete/{id}")
-    public ResponseResult<String> completeSlittingTask(
-            @PathVariable Long id,
-            @RequestParam(defaultValue = "admin") String operator) {
-        try {
-            ScheduleSlitting slitting = new ScheduleSlitting();
-            slitting.setId(id);
-            slitting.setStatus("completed");
-            slitting.setActualEndTime(new Date());
-            slitting.setUpdateBy(operator);
-            int result = scheduleService.updateSlittingTask(slitting);
-            return result > 0 ? ResponseResult.success("任务已完成") : ResponseResult.error("操作失败");
-        } catch (Exception e) {
-            return ResponseResult.error("操作失败: " + e.getMessage());
-        }
-    }
 }

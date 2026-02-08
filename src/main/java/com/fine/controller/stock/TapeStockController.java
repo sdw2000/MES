@@ -53,6 +53,26 @@ public class TapeStockController {
         data.put("pages", result.getPages());
         return ResponseResult.success("查询成功", data);
     }
+
+    /**
+     * 成品（分切卷）库存快捷查询
+     */
+    @GetMapping("/finished/list")
+    @PreAuthorize("hasAnyAuthority('warehouse','admin','sales','production')")
+    public ResponseResult<?> getFinishedStockList(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String materialCode,
+            @RequestParam(required = false) String location) {
+        IPage<TapeStock> result = stockService.getStockPage(page, size, null, materialCode, "分切卷", location);
+        Map<String, Object> data = new HashMap<>();
+        data.put("records", result.getRecords());
+        data.put("total", result.getTotal());
+        data.put("current", result.getCurrent());
+        data.put("size", result.getSize());
+        data.put("pages", result.getPages());
+        return ResponseResult.success("查询成功", data);
+    }
     
     /**
      * 根据二维码查询库存（扫码查询）

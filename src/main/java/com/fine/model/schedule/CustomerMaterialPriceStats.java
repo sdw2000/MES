@@ -24,7 +24,10 @@ public class CustomerMaterialPriceStats implements Serializable {
     private Long customerId;
     private String materialCode;
     private String materialName;
+    @com.baomidou.mybatisplus.annotation.TableField("last_3m_total_qty")
     private Integer last3mTotalQty;         // 近3个月总成交数量
+
+    @com.baomidou.mybatisplus.annotation.TableField("last_3m_total_amount")
     private BigDecimal last3mTotalAmount;   // 近3个月总成交金额
     private BigDecimal avgUnitPrice;        // 平均单价
     private Date statsDate;                 // 统计日期

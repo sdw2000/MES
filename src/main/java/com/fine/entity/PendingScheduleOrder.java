@@ -42,6 +42,16 @@ public class PendingScheduleOrder {
     private String customer;
 
     /**
+     * 客户ID
+     */
+    private Long customerId;
+
+    /**
+     * 客户代码
+     */
+    private String customerCode;
+
+    /**
      * 订单数量
      */
     private Integer orderQty;
@@ -85,4 +95,9 @@ public class PendingScheduleOrder {
      * 推荐薄膜宽度(mm)
      */
     private Integer recommendedWidth;
+
+    /**
+     * 客户优先级总分
+     */
+    private BigDecimal priorityScore;
 }

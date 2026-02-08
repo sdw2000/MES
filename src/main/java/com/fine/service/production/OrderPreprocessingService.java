@@ -44,30 +44,34 @@ public interface OrderPreprocessingService extends IService<OrderPreprocessing> 
     /**
      * 查询可锁定的物料列表 (FIFO排序)
      */
-    List<AvailableMaterialDTO> getAvailableMaterials(String materialCode, Integer limit, Long orderItemId);
+    List<AvailableMaterialDTO> getAvailableMaterials(String materialCode, Integer limit, Long orderItemId,
+                                                     Integer requiredRolls, java.math.BigDecimal requiredArea);
 
     /**
      * 锁定物料
      */
-    void lockMaterials(Long preprocessingId, Long orderId, Long orderItemId, List<OrderMaterialLock> locks) throws Exception;
+    void lockMaterials(Long orderItemId, Long orderId, List<OrderMaterialLock> locks) throws Exception;
 
     /**
      * 解除锁定，释放库存
      */
-    void releaseLocks(Long preprocessingId) throws Exception;
+    void releaseLocks(Long orderItemId) throws Exception;
 
     /**
      * 提交预处理订单
      */
-    void submitPreprocessing(Long preprocessingId) throws Exception;
+    void submitPreprocessing(Long orderItemId) throws Exception;
 
     /**
      * 获取预处理的已锁定面积
      */
-    BigDecimal getLockedArea(Long preprocessingId);
+    BigDecimal getLockedArea(Long orderItemId);
 
     /**
      * 判断排程类型
      */
-    String determineScheduleType(Long preprocessingId);
+    String determineScheduleType(Long orderItemId);
+
+    /** 取消订单明细：释放锁定、清理待排池、标记状态 */
+    void cancelOrderItem(Long orderItemId) throws Exception;
 }

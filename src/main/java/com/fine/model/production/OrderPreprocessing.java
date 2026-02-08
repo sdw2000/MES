@@ -105,5 +105,6 @@ public class OrderPreprocessing implements Serializable {
         public static final String PREPROCESSING = "preprocessing";
         public static final String LOCKED = "locked";
         public static final String DISPATCHED = "dispatched";
+        public static final String CANCELLED = "cancelled";
     }
 }

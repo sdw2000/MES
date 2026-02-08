@@ -48,19 +48,21 @@ public class JwtAuthenticationTokenFilter extends OncePerRequestFilter {
             userid = claims.getSubject();
         } catch (Exception e) {
             e.printStackTrace();
-            throw new RuntimeException("token非法");        }
+            // 使用认证异常，以便交由 AuthenticationEntryPoint 统一处理为 401
+            throw new org.springframework.security.authentication.BadCredentialsException("token非法", e);
+        }
         
         //从redis中获取用户信息
         String redisKey = "login:" + userid;
         String loginUserJson = redisCache.getCacheObject(redisKey);
         if(!StringUtils.hasText(loginUserJson)){
-            throw new RuntimeException("用户未登录");
+            throw new org.springframework.security.authentication.BadCredentialsException("用户未登录");
         }
         
         // 将JSON字符串反序列化为LoginUser对象
         LoginUser loginUser = JSON.parseObject(loginUserJson, LoginUser.class);
         if(Objects.isNull(loginUser)){
-            throw new RuntimeException("用户未登录");
+            throw new org.springframework.security.authentication.BadCredentialsException("用户未登录");
         }
         
         //存入SecurityContextHolder

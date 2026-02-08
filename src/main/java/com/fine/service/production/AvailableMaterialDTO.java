@@ -48,4 +48,7 @@ public class AvailableMaterialDTO {
 
     /** 生产日期 */
     private String prodDate;
+
+    /** 库存来源表名（tape_stock_rolls / tape_stock） */
+    private String stockTableName;
 }

@@ -43,7 +43,7 @@ public class SalesOrderItem {
     // 宽度（mm）
     private BigDecimal width;
     
-    // 长度（mm，存储时已从m转换）
+    // 长度（m）
     private BigDecimal length;
     
     // 卷数

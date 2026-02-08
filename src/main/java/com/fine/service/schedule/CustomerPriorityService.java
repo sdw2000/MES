@@ -59,6 +59,8 @@ public interface CustomerPriorityService {
      */
     IPage<OrderCustomerPriority> getCustomerPriorityPage(Map<String, Object> params);
 
+    IPage<Map<String, Object>> getCustomerPriorityPageByCustomer(Map<String, Object> params);
+
     /**
      * 根据ID获取优先级信息
      */
@@ -78,5 +80,7 @@ public interface CustomerPriorityService {
      * 获取客户料号单价统计
      */
     Map<String, Object> getCustomerMaterialPriceStats(Long customerId, String materialCode);
+
+    Map<String, Object> getCustomerPriorityDetail(Long customerId);
 }
 

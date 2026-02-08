@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fine.Dao.production.*;
 import com.fine.Dao.SalesOrderItemMapper;
 import com.fine.model.production.*;
+import com.fine.modle.Customer;
 import com.fine.modle.stock.TapeStock;
 import com.fine.service.production.ProductionScheduleService;
 import org.slf4j.Logger;
@@ -83,12 +84,21 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
     // ========== 新增：动态排程核心Service ==========
     @Autowired(required = false)
     private com.fine.service.schedule.CustomerPriorityService customerPriorityService;
+
+    @Autowired(required = false)
+    private com.fine.Dao.CustomerMapper customerMapper;
     
     @Autowired(required = false)
     private com.fine.service.schedule.MaterialLockService materialLockService;
     
     @Autowired(required = false)
     private com.fine.mapper.schedule.PendingCoatingOrderPoolMapper pendingCoatingPoolMapper;
+
+    @Autowired(required = false)
+    private com.fine.mapper.schedule.PendingRewindingOrderPoolMapper pendingRewindingPoolMapper;
+
+    @Autowired(required = false)
+    private com.fine.mapper.schedule.PendingSlittingOrderPoolMapper pendingSlittingPoolMapper;
     
     // ========== 排程主表操作 ==========
     
@@ -559,17 +569,40 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
             slitting.setMaterialCode((String)item.get("material_code"));
             slitting.setMaterialName((String)item.get("material_name"));
             
-            if (item.get("thickness") != null) {
+            // 优先从订单明细表回填规格字段（保证来源为订单明细）
+            Integer planRolls = null;
+            if (item.get("order_item_id") != null) {
+                try {
+                    Long orderItemId = ((Number)item.get("order_item_id")).longValue();
+                    com.fine.modle.SalesOrderItem soi = salesOrderItemMapper.selectById(orderItemId);
+                    if (soi != null) {
+                        if (soi.getThickness() != null) slitting.setThickness(soi.getThickness());
+                        if (soi.getWidth() != null) slitting.setTargetWidth(soi.getWidth().intValue());
+                        if (soi.getLength() != null) {
+                            // sales_order_items.length 存储为 mm，转换为米
+                            slitting.setSlitLength(soi.getLength().divide(new java.math.BigDecimal(1000)).intValue());
+                        }
+                        if (soi.getRolls() != null) planRolls = soi.getRolls();
+                    }
+                } catch (Exception ex) {
+                    // 回退到 map 中的字段（若 conversion/查询出错）
+                }
+            }
+
+            // 回退：如果没有从订单明细获取到值，则使用传入的 item map
+            if (slitting.getThickness() == null && item.get("thickness") != null) {
                 slitting.setThickness(new BigDecimal(item.get("thickness").toString()));
             }
-            if (item.get("width") != null) {
+            if (slitting.getTargetWidth() == null && item.get("width") != null) {
                 slitting.setTargetWidth(((Number)item.get("width")).intValue());
             }
-            if (item.get("length") != null) {
+            if (slitting.getSlitLength() == null && item.get("length") != null) {
                 slitting.setSlitLength(((Number)item.get("length")).intValue());
             }
-            
-            int planRolls = ((Number)item.get("pending_qty")).intValue();
+
+            if (planRolls == null) {
+                planRolls = item.get("pending_qty") != null ? ((Number)item.get("pending_qty")).intValue() : 0;
+            }
             slitting.setPlanRolls(planRolls);
             
             // 设置规格综合显示字段
@@ -627,6 +660,40 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
         return cal.getTime();
     }
 
+    private java.time.LocalDateTime toLocalDateTime(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof java.time.LocalDateTime) {
+            return (java.time.LocalDateTime) value;
+        }
+        if (value instanceof Date) {
+            return java.time.LocalDateTime.ofInstant(((Date) value).toInstant(), java.time.ZoneId.systemDefault());
+        }
+        if (value instanceof java.sql.Timestamp) {
+            return ((java.sql.Timestamp) value).toLocalDateTime();
+        }
+        try {
+            return java.time.LocalDateTime.parse(value.toString().replace(" ", "T"));
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    private java.math.BigDecimal toBigDecimal(Object value) {
+        if (value == null) {
+            return java.math.BigDecimal.ZERO;
+        }
+        if (value instanceof java.math.BigDecimal) {
+            return (java.math.BigDecimal) value;
+        }
+        try {
+            return new java.math.BigDecimal(value.toString());
+        } catch (Exception ex) {
+            return java.math.BigDecimal.ZERO;
+        }
+    }
+
     @Override
     public IPage<Map<String, Object>> getPendingOrderItems(Map<String, Object> params) {
         Integer pageNum = 1;
@@ -639,9 +706,82 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
             pageSize = Integer.parseInt(params.get("pageSize").toString());
         }
         
+        List<Map<String, Object>> list = orderItemMapper.selectPendingOrderItems(params);
+
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        java.time.LocalDateTime deadline = now.plusHours(48);
+
+        for (Map<String, Object> row : list) {
+            if (row == null) {
+                continue;
+            }
+            if (customerPriorityService == null) {
+                row.put("priorityScore", java.math.BigDecimal.ZERO);
+                continue;
+            }
+
+            Long customerId = null;
+            Object customerIdObj = row.get("customer_id");
+            if (customerIdObj instanceof Number) {
+                customerId = ((Number) customerIdObj).longValue();
+            }
+            if (customerId == null && row.get("customer_code") != null && customerMapper != null) {
+                Customer customer = customerMapper.selectByCustomerCode(row.get("customer_code").toString());
+                if (customer != null) {
+                    customerId = customer.getId();
+                    row.put("customer_id", customerId);
+                }
+            }
+
+            Map<String, Object> detail = null;
+            try {
+                if (customerId != null) {
+                    detail = customerPriorityService.getCustomerPriorityDetail(customerId);
+                }
+            } catch (Exception ignore) {
+                detail = null;
+            }
+
+            if (detail != null && detail.get("totalScore") != null) {
+                try {
+                    row.put("priorityScore", new java.math.BigDecimal(detail.get("totalScore").toString()));
+                } catch (Exception ex) {
+                    row.put("priorityScore", java.math.BigDecimal.ZERO);
+                }
+            } else {
+                row.put("priorityScore", java.math.BigDecimal.ZERO);
+            }
+        }
+
+        list.sort((a, b) -> {
+            java.time.LocalDateTime da = toLocalDateTime(a != null ? a.get("delivery_date") : null);
+            java.time.LocalDateTime db = toLocalDateTime(b != null ? b.get("delivery_date") : null);
+
+            boolean aWithin = da != null && !da.isAfter(deadline);
+            boolean bWithin = db != null && !db.isAfter(deadline);
+
+            if (aWithin != bWithin) {
+                return aWithin ? -1 : 1; // 48h内优先
+            }
+            if (!aWithin && !bWithin) {
+                java.math.BigDecimal pa = toBigDecimal(a != null ? a.get("priorityScore") : null);
+                java.math.BigDecimal pb = toBigDecimal(b != null ? b.get("priorityScore") : null);
+                int cmp = pb.compareTo(pa);
+                if (cmp != 0) return cmp;
+            }
+            if (da == null && db == null) return 0;
+            if (da == null) return 1;
+            if (db == null) return -1;
+            return da.compareTo(db);
+        });
+
         Page<Map<String, Object>> page = new Page<>(pageNum, pageSize);
-        
-        return orderItemMapper.selectPendingOrderItemsPage(page, params);
+        int total = list.size();
+        int start = (pageNum - 1) * pageSize;
+        int end = Math.min(start + pageSize, total);
+        page.setRecords(start < total ? list.subList(start, end) : new ArrayList<>());
+        page.setTotal(total);
+        return page;
     }
     
     @Override
@@ -857,8 +997,9 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
         if (params.get("scheduleId") != null) {
             filters.put("scheduleId", params.get("scheduleId"));
         }
+        String planDateStr = null;
         if (params.get("planDate") != null) {
-            String planDateStr = params.get("planDate").toString();
+            planDateStr = params.get("planDate").toString();
             if (!planDateStr.isEmpty()) {
                 filters.put("planDate", planDateStr);
             }
@@ -877,6 +1018,15 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
         if (result != null && result.getRecords() != null) {
             for (ScheduleRewinding r : result.getRecords()) {
                 hydrateRewindingDefaults(r);
+            }
+            if (shouldRecalcRewinding(result.getRecords())) {
+                recalcRewindingFromRecords(result.getRecords(), planDateStr);
+                result = rewindingMapper.selectPage(page, filters);
+                if (result != null && result.getRecords() != null) {
+                    for (ScheduleRewinding r : result.getRecords()) {
+                        hydrateRewindingDefaults(r);
+                    }
+                }
             }
         }
         return result;
@@ -946,22 +1096,27 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
 
         // 如果带上了待涂布池ID（单个或列表），提交成功后将其移除，避免列表继续显示
         if (rewinding.getPendingPoolId() != null) {
-            try {
-                pendingCoatingPoolMapper.deleteById(rewinding.getPendingPoolId());
-            } catch (Exception ignore) {
-                // 删除异常不影响主流程
-            }
+            removePendingPoolRecord(rewinding.getPendingPoolId());
         }
         if (rewinding.getPendingPoolIds() != null && !rewinding.getPendingPoolIds().isEmpty()) {
             for (Long pid : rewinding.getPendingPoolIds()) {
-                try {
-                    pendingCoatingPoolMapper.deleteById(pid);
-                } catch (Exception ignore) {
-                    // 删除异常不影响主流程
-                }
+                removePendingPoolRecord(pid);
             }
         }
         return rewinding;
+    }
+
+    private void removePendingPoolRecord(Long poolId) {
+        if (poolId == null) return;
+        try {
+            if (pendingCoatingPoolMapper != null) pendingCoatingPoolMapper.deleteById(poolId);
+        } catch (Exception ignore) { }
+        try {
+            if (pendingRewindingPoolMapper != null) pendingRewindingPoolMapper.deleteById(poolId);
+        } catch (Exception ignore) { }
+        try {
+            if (pendingSlittingPoolMapper != null) pendingSlittingPoolMapper.deleteById(poolId);
+        } catch (Exception ignore) { }
     }
     
     @Override
@@ -977,11 +1132,94 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
             getParamInt(params, "pageNum", 1),
             getParamInt(params, "pageSize", 10)
         );
-        com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<ScheduleSlitting> query = new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<>();
+        Map<String, Object> filters = new HashMap<>();
         if (params.get("scheduleId") != null) {
-            query.eq("schedule_id", params.get("scheduleId"));
+            filters.put("scheduleId", params.get("scheduleId"));
         }
-        return slittingMapper.selectPage(page, query);
+        if (params.get("planDate") != null) {
+            String planDate = params.get("planDate").toString();
+            if (!planDate.isEmpty()) {
+                filters.put("planDate", planDate);
+            }
+        }
+        if (params.get("status") != null) {
+            filters.put("status", params.get("status"));
+        }
+        if (params.get("equipmentId") != null) {
+            filters.put("equipmentId", params.get("equipmentId"));
+        }
+        if (params.get("materialCode") != null) {
+            filters.put("materialCode", params.get("materialCode"));
+        }
+        IPage<ScheduleSlitting> pageResult = slittingMapper.selectPage(page, filters);
+
+        // 同步订单明细中的规格信息，优先使用订单明细表的数据
+        List<ScheduleSlitting> records = pageResult.getRecords();
+        if (records != null && !records.isEmpty()) {
+            for (ScheduleSlitting task : records) {
+                if (task.getOrderItemId() == null) continue;
+                try {
+                    Long orderItemId = task.getOrderItemId();
+                    Map<String, Object> item = salesOrderItemMapper.selectFullItemById(orderItemId);
+                    if (item == null) continue;
+
+                    // thickness (可能为数字或字符串)
+                    if (item.get("thickness") != null) {
+                        try {
+                            task.setThickness(new java.math.BigDecimal(item.get("thickness").toString()));
+                        } catch (Exception ignore) { }
+                    }
+
+                    // width -> targetWidth (存储为数字，单位 mm)
+                    if (item.get("width") != null) {
+                        try {
+                            task.setTargetWidth(((Number)item.get("width")).intValue());
+                        } catch (Exception ex) {
+                            try { task.setTargetWidth(Integer.parseInt(item.get("width").toString())); } catch (Exception ignore) { }
+                        }
+                    }
+
+                    // length: sales_order_items.length 存为 mm，转换为 m
+                    if (item.get("length") != null) {
+                        try {
+                            int lenMm = ((Number)item.get("length")).intValue();
+                            task.setSlitLength(lenMm / 1000);
+                        } catch (Exception ex) {
+                            try {
+                                int lenMm = Integer.parseInt(item.get("length").toString());
+                                task.setSlitLength(lenMm / 1000);
+                            } catch (Exception ignore) { }
+                        }
+                    }
+
+                    // rolls
+                    if (item.get("rolls") != null) {
+                        try { task.setPlanRolls(((Number)item.get("rolls")).intValue()); } catch (Exception ex) {
+                            try { task.setPlanRolls(Integer.parseInt(item.get("rolls").toString())); } catch (Exception ignore) { }
+                        }
+                    }
+
+                    // material code 从 task 或 item 回填
+                    if ((task.getMaterialCode() == null || task.getMaterialCode().isEmpty()) && item.get("material_code") != null) {
+                        try { task.setMaterialCode(item.get("material_code").toString()); } catch (Exception ignore) { }
+                    }
+
+                    // 重新构建显示用 spec 字段
+                    try {
+                        String mat = task.getMaterialCode() != null ? task.getMaterialCode() : (item.get("material_code") != null ? item.get("material_code").toString() : "");
+                        int w = task.getTargetWidth() != null ? task.getTargetWidth() : 0;
+                        int l = task.getSlitLength() != null ? task.getSlitLength() : 0;
+                        int r = task.getPlanRolls() != null ? task.getPlanRolls() : 0;
+                        task.setSpec(String.format("%s-%dmm x %dm x %d卷", mat, w, l, r));
+                    } catch (Exception ignore) { }
+
+                } catch (Exception ex) {
+                    // 单条失败不影响整体返回
+                }
+            }
+        }
+
+        return pageResult;
     }
     
     @Override
@@ -1035,6 +1273,50 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
             throw new RuntimeException("分切任务ID不能为空");
         }
         return slittingMapper.deleteById(id);
+    }
+
+    @Override
+    public int startSlittingTask(Long taskId, String operator) {
+        if (taskId == null) {
+            throw new RuntimeException("分切任务ID不能为空");
+        }
+        ScheduleSlitting task = slittingMapper.selectById(taskId);
+        if (task == null) {
+            throw new RuntimeException("分切任务不存在");
+        }
+        if (task.getActualStartTime() == null) {
+            task.setActualStartTime(new Date());
+        }
+        task.setStatus("in_progress");
+        task.setUpdateBy(operator);
+        return slittingMapper.updateById(task);
+    }
+
+    @Override
+    public int completeSlittingTask(Long taskId, Integer actualRolls, String operator) {
+        if (taskId == null) {
+            throw new RuntimeException("分切任务ID不能为空");
+        }
+        ScheduleSlitting task = slittingMapper.selectById(taskId);
+        if (task == null) {
+            throw new RuntimeException("分切任务不存在");
+        }
+        if (task.getActualStartTime() == null) {
+            task.setActualStartTime(new Date());
+        }
+        task.setActualEndTime(new Date());
+        if (actualRolls != null) {
+            task.setActualRolls(actualRolls);
+        } else if (task.getPlanRolls() != null) {
+            task.setActualRolls(task.getPlanRolls());
+        }
+        if (task.getActualStartTime() != null && task.getActualEndTime() != null) {
+            long minutes = java.util.concurrent.TimeUnit.MILLISECONDS.toMinutes(task.getActualEndTime().getTime() - task.getActualStartTime().getTime());
+            task.setActualDuration((int) Math.max(minutes, 0));
+        }
+        task.setStatus("completed");
+        task.setUpdateBy(operator);
+        return slittingMapper.updateById(task);
     }
     
     // ========== 分条计划 ==========
@@ -1784,11 +2066,73 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
             list = pendingOrderMapper.selectAll();
         }
         
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        java.time.LocalDateTime deadline = now.plusHours(48);
+
+        for (com.fine.entity.PendingScheduleOrder order : list) {
+            if (order == null) {
+                continue;
+            }
+            if (customerPriorityService == null) {
+                order.setPriorityScore(java.math.BigDecimal.ZERO);
+                continue;
+            }
+
+            Long customerId = order.getCustomerId();
+            if (customerId == null && order.getCustomerCode() != null && customerMapper != null) {
+                Customer customer = customerMapper.selectByCustomerCode(order.getCustomerCode());
+                if (customer != null) {
+                    customerId = customer.getId();
+                    order.setCustomerId(customerId);
+                }
+            }
+
+            java.util.Map<String, Object> detail = null;
+            try {
+                if (customerId != null) {
+                    detail = customerPriorityService.getCustomerPriorityDetail(customerId);
+                }
+            } catch (Exception ignore) {
+                detail = null;
+            }
+
+            if (detail != null && detail.get("totalScore") != null) {
+                try {
+                    order.setPriorityScore(new java.math.BigDecimal(detail.get("totalScore").toString()));
+                } catch (Exception ex) {
+                    order.setPriorityScore(java.math.BigDecimal.ZERO);
+                }
+            } else {
+                order.setPriorityScore(java.math.BigDecimal.ZERO);
+            }
+        }
+
+        list.sort((a, b) -> {
+            java.time.LocalDateTime da = a != null ? a.getDeliveryDate() : null;
+            java.time.LocalDateTime db = b != null ? b.getDeliveryDate() : null;
+            boolean aWithin = da != null && !da.isAfter(deadline);
+            boolean bWithin = db != null && !db.isAfter(deadline);
+
+            if (aWithin != bWithin) {
+                return aWithin ? -1 : 1; // 48h内优先
+            }
+            if (!aWithin && !bWithin) {
+                java.math.BigDecimal pa = a != null && a.getPriorityScore() != null ? a.getPriorityScore() : java.math.BigDecimal.ZERO;
+                java.math.BigDecimal pb = b != null && b.getPriorityScore() != null ? b.getPriorityScore() : java.math.BigDecimal.ZERO;
+                int cmp = pb.compareTo(pa);
+                if (cmp != 0) return cmp;
+            }
+            if (da == null && db == null) return 0;
+            if (da == null) return 1;
+            if (db == null) return -1;
+            return da.compareTo(db);
+        });
+
         // 手动分页
         int total = list.size();
         int start = (pageNum - 1) * pageSize;
         int end = Math.min(start + pageSize, total);
-        
+
         page.setRecords(start < total ? list.subList(start, end) : new ArrayList<>());
         page.setTotal(total);
         
@@ -2708,6 +3052,7 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
             return;
         }
         int gapMin = gapMinutes != null ? gapMinutes : 10;
+        Date freezeUntil = new Date();
 
         QueryWrapper<ScheduleRewinding> wrapper = new QueryWrapper<>();
         wrapper.eq("equipment_id", equipmentId);
@@ -2736,14 +3081,32 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
 
         tasks.sort(this::compareRewindingOrder);
 
+        Date maxFrozenEnd = null;
+        for (ScheduleRewinding t : tasks) {
+            if (isFrozenTask(t.getPlanStartTime(), t.getStatus(), freezeUntil)) {
+                Date end = t.getPlanEndTime();
+                if (end == null && t.getPlanStartTime() != null) {
+                    int d = estimateRewindingDurationMinutes(t);
+                    end = new Date(t.getPlanStartTime().getTime() + d * 60L * 1000L);
+                }
+                if (end != null && (maxFrozenEnd == null || end.after(maxFrozenEnd))) {
+                    maxFrozenEnd = end;
+                }
+            }
+        }
         Date firstStart = tasks.stream()
                 .map(ScheduleRewinding::getPlanStartTime)
                 .filter(Objects::nonNull)
                 .sorted(Date::compareTo)
                 .findFirst()
                 .orElse(null);
-        Date cursor = firstStart != null ? firstStart : todayAtEight();
+        Date cursor = maxFrozenEnd != null
+                ? new Date(maxFrozenEnd.getTime() + gapMin * 60L * 1000L)
+                : (firstStart != null ? firstStart : todayAtEight());
         for (ScheduleRewinding t : tasks) {
+            if (isFrozenTask(t.getPlanStartTime(), t.getStatus(), freezeUntil)) {
+                continue;
+            }
             int duration = estimateRewindingDurationMinutes(t);
             Date start = cursor;
             Date end = new Date(start.getTime() + duration * 60L * 1000L);
@@ -2767,6 +3130,7 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
             return;
         }
         int gapMin = gapMinutes != null ? gapMinutes : 10;
+        Date freezeUntil = new Date();
 
         QueryWrapper<ScheduleRewinding> wrapper = new QueryWrapper<>();
         wrapper.eq("equipment_id", equipmentId);
@@ -2791,6 +3155,11 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
             return;
         }
 
+        ScheduleRewinding anchor = tasks.get(anchorIdx);
+        if (isFrozenTask(anchor.getPlanStartTime(), anchor.getStatus(), freezeUntil)) {
+            return;
+        }
+
         // 光标从前一任务结束+gap开始；若无前一任务，则用锚点原始开始或08:00
         Date cursor = null;
         if (anchorIdx > 0) {
@@ -2806,6 +3175,17 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
 
         for (int i = anchorIdx; i < tasks.size(); i++) {
             ScheduleRewinding t = tasks.get(i);
+            if (isFrozenTask(t.getPlanStartTime(), t.getStatus(), freezeUntil)) {
+                Date end = t.getPlanEndTime();
+                if (end == null && t.getPlanStartTime() != null) {
+                    int d = estimateRewindingDurationMinutes(t);
+                    end = new Date(t.getPlanStartTime().getTime() + d * 60L * 1000L);
+                }
+                if (end != null) {
+                    cursor = new Date(end.getTime() + gapMin * 60L * 1000L);
+                }
+                continue;
+            }
             int duration = estimateRewindingDurationMinutes(t);
 
             Date start;
@@ -2851,6 +3231,67 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
             return 1;
         }
         return Long.compare(a.getId() != null ? a.getId() : 0L, b.getId() != null ? b.getId() : 0L);
+    }
+
+    private boolean shouldRecalcRewinding(List<ScheduleRewinding> records) {
+        if (records == null || records.size() < 2) {
+            return false;
+        }
+        Map<Long, List<ScheduleRewinding>> byEq = new HashMap<>();
+        for (ScheduleRewinding r : records) {
+            if (r == null || r.getEquipmentId() == null) {
+                continue;
+            }
+            byEq.computeIfAbsent(r.getEquipmentId(), k -> new ArrayList<>()).add(r);
+        }
+        for (List<ScheduleRewinding> list : byEq.values()) {
+            if (list.size() < 2) {
+                continue;
+            }
+            list.sort((a, b) -> {
+                Date sa = a.getPlanStartTime();
+                Date sb = b.getPlanStartTime();
+                if (sa == null && sb == null) return compareRewindingOrder(a, b);
+                if (sa == null) return 1;
+                if (sb == null) return -1;
+                int cmp = sa.compareTo(sb);
+                return cmp != 0 ? cmp : compareRewindingOrder(a, b);
+            });
+            Date prevEnd = null;
+            for (ScheduleRewinding t : list) {
+                Date start = t.getPlanStartTime();
+                if (start == null) {
+                    return true;
+                }
+                if (prevEnd != null && !start.after(prevEnd)) {
+                    return true;
+                }
+                Date end = t.getPlanEndTime();
+                if (end == null) {
+                    int d = estimateRewindingDurationMinutes(t);
+                    end = new Date(start.getTime() + d * 60L * 1000L);
+                }
+                prevEnd = end;
+            }
+        }
+        return false;
+    }
+
+    private void recalcRewindingFromRecords(List<ScheduleRewinding> records, String planDate) {
+        if (records == null || records.isEmpty()) {
+            return;
+        }
+        Set<Long> equipmentIds = new HashSet<>();
+        for (ScheduleRewinding r : records) {
+            if (r != null && r.getEquipmentId() != null) {
+                equipmentIds.add(r.getEquipmentId());
+            }
+        }
+        for (Long eqId : equipmentIds) {
+            try {
+                recalcRewindingPlanForEquipment(planDate, eqId, 10);
+            } catch (Exception ignore) { }
+        }
     }
 
     private Integer parseTaskSuffix(String taskNo) {
@@ -3055,6 +3496,7 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
     @Override
     public boolean recalculateCoatingPlan(String planDate, Integer gapMinutes) {
         int gap = (gapMinutes == null || gapMinutes < 0) ? 10 : gapMinutes;
+        Date freezeUntil = new Date(System.currentTimeMillis() + 48L * 60L * 60L * 1000L);
 
         QueryWrapper<ScheduleCoating> wrapper = new QueryWrapper<>();
         if (StringUtils.hasText(planDate)) {
@@ -3071,7 +3513,22 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
 
         // 起点时间：指定日期则从当日08:00开始；否则优先首条计划开始时间，否则今日08:00
         Date cursor;
-        if (StringUtils.hasText(planDate)) {
+        Date maxFrozenEnd = null;
+        for (ScheduleCoating t : tasks) {
+            if (isFrozenTask(t.getPlanStartTime(), t.getStatus(), freezeUntil)) {
+                Date end = t.getPlanEndTime();
+                if (end == null && t.getPlanStartTime() != null) {
+                    int d = Math.max(estimateDurationMinutes(t), 10);
+                    end = new Date(t.getPlanStartTime().getTime() + d * 60L * 1000L);
+                }
+                if (end != null && (maxFrozenEnd == null || end.after(maxFrozenEnd))) {
+                    maxFrozenEnd = end;
+                }
+            }
+        }
+        if (maxFrozenEnd != null) {
+            cursor = new Date(maxFrozenEnd.getTime() + gap * 60L * 1000L);
+        } else if (StringUtils.hasText(planDate)) {
             try {
                 cursor = new SimpleDateFormat("yyyy-MM-dd HH:mm").parse(planDate + " 08:00");
             } catch (Exception e) {
@@ -3086,6 +3543,9 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
         }
 
         for (ScheduleCoating task : tasks) {
+            if (isFrozenTask(task.getPlanStartTime(), task.getStatus(), freezeUntil)) {
+                continue;
+            }
             // 始终按面积/速度/宽度重算时长，避免历史异常值放大计划时间
             int durationMin = Math.max(estimateDurationMinutes(task), 10);
 
@@ -3100,6 +3560,16 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
         }
 
         return true;
+    }
+
+    private boolean isFrozenTask(Date planStart, String status, Date freezeUntil) {
+        if ("in_progress".equalsIgnoreCase(status) || "completed".equalsIgnoreCase(status)) {
+            return true;
+        }
+        if (planStart == null || freezeUntil == null) {
+            return false;
+        }
+        return !planStart.after(freezeUntil);
     }
 
     private Date todayAtEight() {
@@ -3222,6 +3692,98 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
             }
         }
         return result;
+    }
+
+    @Override
+    public List<Map<String, Object>> getRewindSummary() {
+        // 使用 mapper 的联表聚合查询，来源：pending_coating_order_pool JOIN sales_order_items
+        List<Map<String, Object>> rows = pendingCoatingPoolMapper.selectRewindSummary();
+        if (rows == null) return new ArrayList<>();
+
+        // 将拼接字段解析成数组/数值，兼容前端期望字段名
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Map<String, Object> r : rows) {
+            Map<String, Object> m = new HashMap<>();
+            m.put("materialCode", r.get("materialCode"));
+            m.put("materialName", r.get("materialName"));
+            // length 可能是 BigDecimal/Number
+            Object lenObj = r.get("length");
+            int len = 0;
+            if (lenObj instanceof Number) len = ((Number) lenObj).intValue();
+            else if (lenObj != null) {
+                try { len = Integer.parseInt(lenObj.toString()); } catch (Exception ignore) {}
+            }
+            m.put("length", len == 0 ? null : len);
+
+            // width
+            Object widObj = r.get("width");
+            int width = 0;
+            if (widObj instanceof Number) width = ((Number) widObj).intValue();
+            else if (widObj != null) {
+                try { width = Integer.parseInt(widObj.toString()); } catch (Exception ignore) {}
+            }
+            m.put("width", width == 0 ? null : width);
+
+            // thickness
+            Object thObj = r.get("thickness");
+            int thickness = 0;
+            if (thObj instanceof Number) thickness = ((Number) thObj).intValue();
+            else if (thObj != null) {
+                try { thickness = Integer.parseInt(thObj.toString()); } catch (Exception ignore) {}
+            }
+            m.put("thickness", thickness == 0 ? null : thickness);
+
+            // rolls
+            Object rollsObj = r.get("rolls");
+            int rolls = 0;
+            if (rollsObj instanceof Number) rolls = ((Number) rollsObj).intValue();
+            else if (rollsObj != null) {
+                try { rolls = Integer.parseInt(rollsObj.toString()); } catch (Exception ignore) {}
+            }
+            m.put("rolls", rolls == 0 ? null : rolls);
+
+            // totalArea 可能为 BigDecimal/Number
+            Object ta = r.get("totalArea");
+            double totalArea = 0.0;
+            if (ta instanceof Number) totalArea = ((Number) ta).doubleValue();
+            else if (ta != null) {
+                try { totalArea = Double.parseDouble(ta.toString()); } catch (Exception ignore) {}
+            }
+            m.put("totalArea", totalArea);
+
+            m.put("defaultWidth", r.getOrDefault("defaultWidth", 500));
+
+            Object ts = r.get("totalShortage");
+            int totalShortage = 0;
+            if (ts instanceof Number) totalShortage = ((Number) ts).intValue();
+            else if (ts != null) { try { totalShortage = Integer.parseInt(ts.toString()); } catch (Exception ignore) {} }
+            m.put("totalShortage", totalShortage);
+
+            m.put("orderCount", r.getOrDefault("orderCount", 0));
+
+            // orderNosConcat -> orderNos array
+            Object on = r.get("orderNosConcat");
+            List<String> orderNos = new ArrayList<>();
+            if (on != null) {
+                String s = on.toString();
+                for (String t : s.split(",")) { if (!t.trim().isEmpty()) orderNos.add(t.trim()); }
+            }
+            m.put("orderNos", orderNos);
+
+            // poolIdsConcat -> poolIds array
+            Object pid = r.get("poolIdsConcat");
+            List<Long> poolIds = new ArrayList<>();
+            if (pid != null) {
+                String s = pid.toString();
+                for (String t : s.split(",")) {
+                    try { poolIds.add(Long.valueOf(t.trim())); } catch (Exception ignore) {}
+                }
+            }
+            m.put("poolIds", poolIds);
+
+            out.add(m);
+        }
+        return out;
     }
     
     @Override

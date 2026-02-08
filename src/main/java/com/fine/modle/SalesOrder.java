@@ -55,15 +55,10 @@ public class SalesOrder {
       // 总面积（平方米）
     private BigDecimal totalArea;
     
-    // 所需面积（平方米）- 用于物料锁定
+    // 所需面积（平方米）- 用于物料锁定（数据库已移除字段，保留为业务计算字段）
+    @TableField(exist = false)
     private BigDecimal requiredArea;
-    
-    // 物料厚度（微米）
-    private Integer thickness;
-    
-    // 物料宽度（毫米）
-    private Integer width;
-    
+
     // 下单日期
     @JsonFormat(pattern = "yyyy-MM-dd", timezone = "GMT+8")
     private Date orderDate;

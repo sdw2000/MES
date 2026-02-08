@@ -1,8 +1,6 @@
 package com.fine.controller.production;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fine.model.schedule.OrderCustomerPriority;
 import com.fine.service.schedule.CustomerPriorityService;
 import com.fine.Utils.ResponseResult;
@@ -28,21 +26,21 @@ public class CustomerPriorityController {
      */
     @GetMapping("/list")
     public ResponseResult<Map<String, Object>> list(
-            @RequestParam(defaultValue = "1") Integer pageNum,
-            @RequestParam(defaultValue = "20") Integer pageSize,
-            @RequestParam(required = false) String orderNo,
-            @RequestParam(required = false) String customerName,
-            @RequestParam(required = false) String priorityRange
+            @RequestParam(value = "pageNum", defaultValue = "1") Integer pageNum,
+            @RequestParam(value = "pageSize", defaultValue = "20") Integer pageSize,
+            @RequestParam(value = "customerCode", required = false) String customerCode,
+            @RequestParam(value = "customerName", required = false) String customerName,
+            @RequestParam(value = "priorityRange", required = false) String priorityRange
     ) {
         try {
             Map<String, Object> params = new HashMap<>();
             params.put("pageNum", pageNum);
             params.put("pageSize", pageSize);
-            params.put("orderNo", orderNo);
+            params.put("customerCode", customerCode);
             params.put("customerName", customerName);
             params.put("priorityRange", priorityRange);
 
-            IPage<OrderCustomerPriority> page = customerPriorityService.getCustomerPriorityPage(params);
+            IPage<Map<String, Object>> page = customerPriorityService.getCustomerPriorityPageByCustomer(params);
             
             Map<String, Object> result = new HashMap<>();
             result.put("list", page.getRecords());
@@ -60,13 +58,13 @@ public class CustomerPriorityController {
      * 获取单个订单优先级详情
      */
     @GetMapping("/{orderId}")
-    public ResponseResult<OrderCustomerPriority> getDetail(@PathVariable Long orderId) {
+    public ResponseResult<Map<String, Object>> getDetail(@PathVariable Long orderId) {
         try {
-            OrderCustomerPriority priority = customerPriorityService.getById(orderId);
-            if (priority == null) {
-                return ResponseResult.error("订单优先级不存在");
+            Map<String, Object> detail = customerPriorityService.getCustomerPriorityDetail(orderId);
+            if (detail == null || detail.isEmpty()) {
+                return ResponseResult.error("客户优先级不存在");
             }
-            return ResponseResult.success(priority);
+            return ResponseResult.success(detail);
         } catch (Exception e) {
             return ResponseResult.error("获取优先级详情失败：" + e.getMessage());
         }
@@ -76,9 +74,15 @@ public class CustomerPriorityController {
      * 批量计算订单客户优先级
      */
     @PostMapping("/calculate")
-    public ResponseResult<String> calculate(@RequestBody List<Long> orderIds) {
+    public ResponseResult<String> calculate(@RequestBody CalculateRequest request) {
         try {
-            customerPriorityService.calculatePriorities(orderIds);
+            if (request == null || request.getOrderIds() == null || request.getOrderIds().isEmpty()) {
+                return ResponseResult.error("缺少客户ID");
+            }
+            // 客户维度：逐个刷新详情（不落单据表）
+            for (Long id : request.getOrderIds()) {
+                customerPriorityService.getCustomerPriorityDetail(id);
+            }
             return ResponseResult.success("优先级计算成功");
         } catch (Exception e) {
             return ResponseResult.error("优先级计算失败：" + e.getMessage());
@@ -124,6 +128,18 @@ public class CustomerPriorityController {
             return ResponseResult.success(stats);
         } catch (Exception e) {
             return ResponseResult.error("获取料号单价统计失败：" + e.getMessage());
+        }
+    }
+
+    public static class CalculateRequest {
+        private List<Long> orderIds;
+
+        public List<Long> getOrderIds() {
+            return orderIds;
+        }
+
+        public void setOrderIds(List<Long> orderIds) {
+            this.orderIds = orderIds;
         }
     }
 }

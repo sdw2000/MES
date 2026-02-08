@@ -18,9 +18,9 @@ import java.io.IOException;
 @Component
 public class AccessDeniedHandlerImpl implements AccessDeniedHandler {    @Override
     public void handle(HttpServletRequest request, HttpServletResponse response, AccessDeniedException accessDeniedException) throws IOException, ServletException {
+        response.setStatus(HttpServletResponse.SC_FORBIDDEN);
         ResponseResult<?> result = new ResponseResult<>(HttpStatus.FORBIDDEN.value(), "权限不足");
         String json = JSON.toJSONString(result);
         WebUtils.renderString(response,json);
-
     }
 }

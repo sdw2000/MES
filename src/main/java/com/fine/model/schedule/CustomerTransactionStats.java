@@ -24,7 +24,10 @@ public class CustomerTransactionStats implements Serializable {
     private Long customerId;
     private String customerName;
     private Integer paymentTerms;           // 账期（月数）
+    @com.baomidou.mybatisplus.annotation.TableField("last_3m_amount")
     private BigDecimal last3mAmount;        // 近3个月成交总金额
+
+    @com.baomidou.mybatisplus.annotation.TableField("last_3m_order_count")
     private Integer last3mOrderCount;       // 近3个月订单数量
     private BigDecimal avgMonthlyAmount;    // 月均成交金额
     private Date statsDate;                 // 统计日期

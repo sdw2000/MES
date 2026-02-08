@@ -163,6 +163,26 @@ public interface TapeStockMapper extends BaseMapper<TapeStock> {
     @Select("SELECT COALESCE(SUM(total_sqm), 0) as total_sqm FROM tape_stock " +
             "WHERE material_code = #{materialCode} AND status = 1 AND total_rolls > 0")
     BigDecimal selectTotalSqmByMaterial(@Param("materialCode") String materialCode);
+
+    /**
+     * 按料号与卷类型汇总可用面积（兼容 roll_type / reel_type / stock_type 字段）
+     */
+    @Select("SELECT COALESCE(SUM(available_area), 0) FROM tape_stock " +
+            "WHERE status = 1 AND material_code = #{materialCode} " +
+            "AND (reel_type = #{rollType} OR roll_type = #{rollType} OR stock_type = #{stockType})")
+    BigDecimal selectAvailableAreaByMaterialAndType(@Param("materialCode") String materialCode,
+                                                    @Param("rollType") String rollType,
+                                                    @Param("stockType") String stockType);
+
+    /**
+     * 复好卷库存超过24小时的可用面积
+     */
+    @Select("SELECT COALESCE(SUM(available_area), 0) FROM tape_stock " +
+            "WHERE status = 1 AND material_code = #{materialCode} " +
+            "AND stock_type = 'rewound' " +
+            "AND prod_date IS NOT NULL " +
+            "AND prod_date <= DATE_SUB(CURDATE(), INTERVAL 1 DAY)")
+    BigDecimal selectAvailableRewoundArea24h(@Param("materialCode") String materialCode);
     
     // ==========================================
     // 库存锁定机制方法（新增）

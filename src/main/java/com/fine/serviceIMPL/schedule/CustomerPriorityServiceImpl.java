@@ -11,6 +11,8 @@ import com.fine.model.schedule.CustomerTransactionStats;
 import com.fine.model.schedule.OrderCustomerPriority;
 import com.fine.service.schedule.CustomerPriorityService;
 import com.fine.Dao.production.SalesOrderMapper;
+import com.fine.Dao.CustomerMapper;
+import com.fine.modle.Customer;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -43,6 +45,9 @@ public class CustomerPriorityServiceImpl implements CustomerPriorityService {
     
     @Autowired
     private SalesOrderMapper salesOrderMapper;
+
+    @Autowired
+    private CustomerMapper customerMapper;
     
     @Override
     @Transactional
@@ -50,11 +55,16 @@ public class CustomerPriorityServiceImpl implements CustomerPriorityService {
                                                          String materialCode, BigDecimal unitPrice,
                                                          Date orderTime) {
         
-        // 1. 查询或创建客户交易统计
-        CustomerTransactionStats transStats = getOrCreateTransactionStats(customerId);
+        Customer customer = customerMapper.selectById(customerId);
+        String customerCode = customer != null ? customer.getCustomerCode() : null;
+        String customerName = customer != null ? customer.getCustomerName() : null;
+        Integer paymentTermsDays = customer != null ? parsePaymentTermsDays(customer.getPaymentTerms()) : 30;
+
+        // 1. 查询或创建客户交易统计（基于客户代码）
+        CustomerTransactionStats transStats = getOrCreateTransactionStats(customerId, customerCode, customerName, paymentTermsDays);
         
         // 2. 查询客户料号单价统计
-        CustomerMaterialPriceStats priceStats = getPriceStats(customerId, materialCode);
+        CustomerMaterialPriceStats priceStats = getPriceStats(customerId, customerCode, materialCode);
         
         // 3. 计算三项得分
         BigDecimal paymentTermsScore = calculatePaymentTermsScore(transStats.getPaymentTerms());
@@ -105,16 +115,30 @@ public class CustomerPriorityServiceImpl implements CustomerPriorityService {
         for (Long orderId : orderIds) {
             // 从销售订单表查询订单信息
             Map<String, Object> orderInfo = salesOrderMapper.selectOrderInfoById(orderId);
-            if (orderInfo != null) {
-                Long customerId = (Long) orderInfo.get("customer_id");
-                String orderNo = (String) orderInfo.get("order_no");
-                String materialCode = (String) orderInfo.get("material_code");
-                BigDecimal unitPrice = (BigDecimal) orderInfo.get("unit_price");
-                Date orderTime = (Date) orderInfo.get("created_at");
-                
-                OrderCustomerPriority priority = calculateOrderPriority(
-                    orderId, orderNo, customerId, materialCode, unitPrice, orderTime
-                );
+            if (orderInfo == null) {
+                continue;
+            }
+            Long customerId = toLong(orderInfo.get("customer_id"));
+            String customerCode = orderInfo.get("customer_code") != null ? orderInfo.get("customer_code").toString() : null;
+            if (customerId == null && customerCode != null && !customerCode.isEmpty()) {
+                Customer customer = customerMapper.selectByCustomerCode(customerCode);
+                if (customer != null) {
+                    customerId = customer.getId();
+                }
+            }
+            if (customerId == null) {
+                continue;
+            }
+
+            String orderNo = (String) orderInfo.get("order_no");
+            String materialCode = (String) orderInfo.get("material_code");
+            BigDecimal unitPrice = (BigDecimal) orderInfo.get("unit_price");
+            Date orderTime = toDate(orderInfo.get("created_at"));
+
+            OrderCustomerPriority priority = calculateOrderPriority(
+                orderId, orderNo, customerId, materialCode, unitPrice, orderTime
+            );
+            if (priority != null) {
                 results.add(priority);
             }
         }
@@ -245,7 +269,7 @@ public class CustomerPriorityServiceImpl implements CustomerPriorityService {
     /**
      * 获取或创建客户交易统计
      */
-    private CustomerTransactionStats getOrCreateTransactionStats(Long customerId) {
+    private CustomerTransactionStats getOrCreateTransactionStats(Long customerId, String customerCode, String customerName, Integer paymentTermsDays) {
         QueryWrapper<CustomerTransactionStats> wrapper = new QueryWrapper<>();
         wrapper.eq("customer_id", customerId);
         wrapper.orderByDesc("stats_date");
@@ -257,11 +281,20 @@ public class CustomerPriorityServiceImpl implements CustomerPriorityService {
             // 创建默认统计记录
             stats = new CustomerTransactionStats();
             stats.setCustomerId(customerId);
-            stats.setCustomerName("客户" + customerId);
-            stats.setPaymentTerms(30); // 默认30天
-            stats.setLast3mAmount(BigDecimal.ZERO);
-            stats.setLast3mOrderCount(0);
-            stats.setAvgMonthlyAmount(BigDecimal.ZERO);
+            stats.setCustomerName(customerName != null ? customerName : "客户" + customerId);
+            stats.setPaymentTerms(paymentTermsDays != null ? paymentTermsDays : 30); // 默认30天
+
+            if (customerCode != null && !customerCode.isEmpty()) {
+                Map<String, Object> agg = salesOrderMapper.selectCustomerTransactionStatsByCode(customerCode);
+                stats.setLast3mAmount(toBigDecimal(agg != null ? agg.get("last3m_amount") : null));
+                stats.setLast3mOrderCount(toInteger(agg != null ? agg.get("last3m_order_count") : null));
+                stats.setAvgMonthlyAmount(toBigDecimal(agg != null ? agg.get("avg_monthly_amount") : null));
+            } else {
+                stats.setLast3mAmount(BigDecimal.ZERO);
+                stats.setLast3mOrderCount(0);
+                stats.setAvgMonthlyAmount(BigDecimal.ZERO);
+            }
+
             stats.setStatsDate(new Date());
             transactionStatsMapper.insert(stats);
         }
@@ -272,14 +305,32 @@ public class CustomerPriorityServiceImpl implements CustomerPriorityService {
     /**
      * 获取客户料号单价统计
      */
-    private CustomerMaterialPriceStats getPriceStats(Long customerId, String materialCode) {
+    private CustomerMaterialPriceStats getPriceStats(Long customerId, String customerCode, String materialCode) {
         QueryWrapper<CustomerMaterialPriceStats> wrapper = new QueryWrapper<>();
         wrapper.eq("customer_id", customerId);
         wrapper.eq("material_code", materialCode);
         wrapper.orderByDesc("stats_date");
         wrapper.last("LIMIT 1");
         
-        return priceStatsMapper.selectOne(wrapper);
+        CustomerMaterialPriceStats stats = priceStatsMapper.selectOne(wrapper);
+        if (stats == null) {
+            stats = new CustomerMaterialPriceStats();
+            stats.setCustomerId(customerId);
+            stats.setMaterialCode(materialCode);
+            if (customerCode != null && !customerCode.isEmpty() && materialCode != null && !materialCode.isEmpty()) {
+                Map<String, Object> agg = salesOrderMapper.selectCustomerMaterialPriceStatsByCode(customerCode, materialCode);
+                stats.setLast3mTotalQty(toInteger(agg != null ? agg.get("last3m_total_qty") : null));
+                stats.setLast3mTotalAmount(toBigDecimal(agg != null ? agg.get("last3m_total_amount") : null));
+                stats.setAvgUnitPrice(toBigDecimal(agg != null ? agg.get("avg_unit_price") : null));
+            } else {
+                stats.setLast3mTotalQty(0);
+                stats.setLast3mTotalAmount(BigDecimal.ZERO);
+                stats.setAvgUnitPrice(BigDecimal.ZERO);
+            }
+            stats.setStatsDate(new Date());
+            priceStatsMapper.insert(stats);
+        }
+        return stats;
     }
 
     @Override
@@ -319,6 +370,56 @@ public class CustomerPriorityServiceImpl implements CustomerPriorityService {
     }
 
     @Override
+    public IPage<Map<String, Object>> getCustomerPriorityPageByCustomer(Map<String, Object> params) {
+        Integer pageNum = (Integer) params.getOrDefault("pageNum", 1);
+        Integer pageSize = (Integer) params.getOrDefault("pageSize", 20);
+        String customerCode = (String) params.get("customerCode");
+        String customerName = (String) params.get("customerName");
+        String priorityRange = (String) params.get("priorityRange");
+
+        com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<Customer> wrapper = new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<>();
+        wrapper.eq("is_deleted", 0);
+        if (customerCode != null && !customerCode.isEmpty()) {
+            wrapper.like("customer_code", customerCode);
+        }
+        if (customerName != null && !customerName.isEmpty()) {
+            wrapper.like("customer_name", customerName).or().like("short_name", customerName);
+        }
+
+        com.baomidou.mybatisplus.extension.plugins.pagination.Page<Customer> page = new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(pageNum, pageSize);
+        com.baomidou.mybatisplus.core.metadata.IPage<Customer> customerPage = customerMapper.selectPage(page, wrapper);
+
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (Customer customer : customerPage.getRecords()) {
+            if (customer == null) {
+                continue;
+            }
+            Map<String, Object> row = buildCustomerPriorityRow(customer);
+            if (priorityRange != null && !priorityRange.isEmpty()) {
+                BigDecimal score = (BigDecimal) row.get("totalScore");
+                if (score == null) score = BigDecimal.ZERO;
+                if ("high".equals(priorityRange) && score.compareTo(new BigDecimal("25")) < 0) {
+                    continue;
+                }
+                if ("medium".equals(priorityRange) && (score.compareTo(new BigDecimal("15")) < 0 || score.compareTo(new BigDecimal("25")) >= 0)) {
+                    continue;
+                }
+                if ("low".equals(priorityRange) && score.compareTo(new BigDecimal("15")) >= 0) {
+                    continue;
+                }
+            }
+            rows.add(row);
+        }
+
+        com.baomidou.mybatisplus.extension.plugins.pagination.Page<Map<String, Object>> result = new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>();
+        result.setCurrent(customerPage.getCurrent());
+        result.setSize(customerPage.getSize());
+        result.setTotal(customerPage.getTotal());
+        result.setRecords(rows);
+        return result;
+    }
+
+    @Override
     public OrderCustomerPriority getById(Long orderId) {
         QueryWrapper<OrderCustomerPriority> wrapper = new QueryWrapper<>();
         wrapper.eq("order_id", orderId);
@@ -328,18 +429,92 @@ public class CustomerPriorityServiceImpl implements CustomerPriorityService {
     @Override
     @Transactional
     public void recalculateAllPriorities() {
-        // 查询所有待排程订单并重新计算优先级
-        List<OrderCustomerPriority> allPriorities = priorityMapper.selectList(new QueryWrapper<>());
-        for (OrderCustomerPriority priority : allPriorities) {
-            // 重新计算该订单的优先级
-            calculateOrderPriority(
-                    priority.getOrderId(),
-                    priority.getOrderNo(),
-                    priority.getCustomerId(),
-                    null,
-                    null,
-                    priority.getOrderTime()
-            );
+        List<Long> orderIds = salesOrderMapper.selectAllOrderIds();
+        if (orderIds == null || orderIds.isEmpty()) {
+            return;
+        }
+        batchCalculateOrderPriority(orderIds);
+    }
+
+    private Long toLong(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).longValue();
+        }
+        try {
+            return Long.parseLong(value.toString());
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    private Integer toInteger(Object value) {
+        if (value == null) {
+            return 0;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).intValue();
+        }
+        try {
+            return Integer.parseInt(value.toString());
+        } catch (Exception ex) {
+            return 0;
+        }
+    }
+
+    private BigDecimal toBigDecimal(Object value) {
+        if (value == null) {
+            return BigDecimal.ZERO;
+        }
+        if (value instanceof BigDecimal) {
+            return (BigDecimal) value;
+        }
+        try {
+            return new BigDecimal(value.toString());
+        } catch (Exception ex) {
+            return BigDecimal.ZERO;
+        }
+    }
+
+    private Integer parsePaymentTermsDays(String paymentTerms) {
+        if (paymentTerms == null || paymentTerms.trim().isEmpty()) {
+            return 30;
+        }
+        String text = paymentTerms.trim();
+        if (text.contains("预付") || text.contains("现款")) {
+            return 0;
+        }
+        String digits = text.replaceAll("[^0-9]", "");
+        if (digits.isEmpty()) {
+            return 30;
+        }
+        try {
+            return Integer.parseInt(digits);
+        } catch (Exception ex) {
+            return 30;
+        }
+    }
+
+    private Date toDate(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Date) {
+            return (Date) value;
+        }
+        if (value instanceof java.time.LocalDateTime) {
+            java.time.LocalDateTime ldt = (java.time.LocalDateTime) value;
+            return Date.from(ldt.atZone(java.time.ZoneId.systemDefault()).toInstant());
+        }
+        if (value instanceof java.sql.Timestamp) {
+            return new Date(((java.sql.Timestamp) value).getTime());
+        }
+        try {
+            return new Date(java.sql.Timestamp.valueOf(value.toString()).getTime());
+        } catch (Exception ex) {
+            return null;
         }
     }
 
@@ -386,5 +561,45 @@ public class CustomerPriorityServiceImpl implements CustomerPriorityService {
         result.put("totalAmount", stats.getLast3mTotalAmount());
         result.put("statsDate", stats.getStatsDate());
         return result;
+    }
+
+    @Override
+    public Map<String, Object> getCustomerPriorityDetail(Long customerId) {
+        Customer customer = customerMapper.selectById(customerId);
+        if (customer == null) {
+            return new HashMap<>();
+        }
+        return buildCustomerPriorityRow(customer);
+    }
+
+    private Map<String, Object> buildCustomerPriorityRow(Customer customer) {
+        String customerCode = customer.getCustomerCode();
+        Map<String, Object> trans = customerCode != null ? salesOrderMapper.selectCustomerTransactionStatsByCode(customerCode) : null;
+        Map<String, Object> price = customerCode != null ? salesOrderMapper.selectCustomerPriceStatsByCode(customerCode) : null;
+
+        BigDecimal last3mAmount = toBigDecimal(trans != null ? trans.get("last3m_amount") : null);
+        Integer last3mOrderCount = toInteger(trans != null ? trans.get("last3m_order_count") : null);
+        BigDecimal avgMonthlyAmount = toBigDecimal(trans != null ? trans.get("avg_monthly_amount") : null);
+        BigDecimal avgUnitPrice = toBigDecimal(price != null ? price.get("avg_unit_price") : null);
+
+        Integer paymentTermsDays = parsePaymentTermsDays(customer.getPaymentTerms());
+        BigDecimal paymentTermsScore = calculatePaymentTermsScore(paymentTermsDays);
+        BigDecimal avgAmountScore = calculateAvgAmountScore(avgMonthlyAmount);
+        BigDecimal unitPriceScore = avgUnitPrice.compareTo(BigDecimal.ZERO) > 0 ? new BigDecimal("5") : new BigDecimal("3");
+        BigDecimal totalScore = paymentTermsScore.add(avgAmountScore).add(unitPriceScore);
+
+        Map<String, Object> row = new HashMap<>();
+        row.put("customerId", customer.getId());
+        row.put("customerCode", customer.getCustomerCode());
+        row.put("customerName", customer.getCustomerName());
+        row.put("paymentTermScore", paymentTermsScore);
+        row.put("avgAmountScore", avgAmountScore);
+        row.put("priceScore", unitPriceScore);
+        row.put("totalScore", totalScore);
+        row.put("last3mAmount", last3mAmount);
+        row.put("last3mOrderCount", last3mOrderCount);
+        row.put("avgUnitPrice", avgUnitPrice);
+        row.put("statsDate", new Date());
+        return row;
     }
 }

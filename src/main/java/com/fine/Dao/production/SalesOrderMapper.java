@@ -39,8 +39,8 @@ public interface SalesOrderMapper extends BaseMapper<SalesOrder> {
             "SELECT " +
             "  so.id, so.order_no, so.customer, so.customer_order_no, " +
             "  so.sales, so.documentation_person, " +
-            "  so.total_amount, so.total_area, so.required_area, " +
-            "  so.thickness, so.width, so.order_date, so.delivery_date, " +
+            "  so.total_amount, so.total_area, " +
+            "  so.order_date, so.delivery_date, " +
             "  so.delivery_address, so.status, so.created_by, so.updated_by, " +
             "  so.created_at, so.updated_at, so.is_deleted, " +
             "  COALESCE(su.real_name, '') as salesUserName, " +
@@ -79,12 +79,51 @@ public interface SalesOrderMapper extends BaseMapper<SalesOrder> {
      * @param orderId 订单ID
      * @return 订单信息Map
      */
-    @Select("SELECT so.id, so.order_no, so.customer_id, so.created_at, " +
+    @Select("SELECT so.id, so.order_no, c.id AS customer_id, so.customer AS customer_code, so.created_at, " +
             "soi.material_code, soi.unit_price " +
             "FROM sales_orders so " +
+            "LEFT JOIN customers c ON so.customer COLLATE utf8mb4_unicode_ci = c.customer_code COLLATE utf8mb4_unicode_ci " +
             "LEFT JOIN sales_order_items soi ON so.id = soi.order_id " +
             "WHERE so.id = #{orderId} AND so.is_deleted = 0 LIMIT 1")
     java.util.Map<String, Object> selectOrderInfoById(@Param("orderId") Long orderId);
+
+        @Select("SELECT id FROM sales_orders WHERE is_deleted = 0")
+        List<Long> selectAllOrderIds();
+
+    @Select("SELECT " +
+            "  IFNULL(SUM(so.total_amount),0) AS last3m_amount, " +
+            "  COUNT(*) AS last3m_order_count, " +
+            "  IFNULL(SUM(so.total_amount)/3,0) AS avg_monthly_amount " +
+            "FROM sales_orders so " +
+            "WHERE so.is_deleted = 0 AND so.customer = #{customerCode} " +
+            "  AND so.order_date >= DATE_SUB(CURDATE(), INTERVAL 3 MONTH)")
+    java.util.Map<String, Object> selectCustomerTransactionStatsByCode(@Param("customerCode") String customerCode);
+
+    @Select("SELECT " +
+            "  IFNULL(SUM(soi.rolls),0) AS last3m_total_qty, " +
+            "  IFNULL(SUM(soi.amount),0) AS last3m_total_amount, " +
+            "  CASE WHEN IFNULL(SUM(soi.rolls),0) = 0 THEN 0 " +
+            "       ELSE IFNULL(SUM(soi.amount),0) / IFNULL(SUM(soi.rolls),0) END AS avg_unit_price " +
+            "FROM sales_order_items soi " +
+            "INNER JOIN sales_orders so ON so.id = soi.order_id " +
+            "WHERE so.is_deleted = 0 AND so.customer = #{customerCode} " +
+            "  AND soi.material_code = #{materialCode} " +
+            "  AND so.order_date >= DATE_SUB(CURDATE(), INTERVAL 3 MONTH)")
+    java.util.Map<String, Object> selectCustomerMaterialPriceStatsByCode(
+            @Param("customerCode") String customerCode,
+            @Param("materialCode") String materialCode
+    );
+
+    @Select("SELECT " +
+            "  IFNULL(SUM(soi.rolls),0) AS last3m_total_qty, " +
+            "  IFNULL(SUM(soi.amount),0) AS last3m_total_amount, " +
+            "  CASE WHEN IFNULL(SUM(soi.rolls),0) = 0 THEN 0 " +
+            "       ELSE IFNULL(SUM(soi.amount),0) / IFNULL(SUM(soi.rolls),0) END AS avg_unit_price " +
+            "FROM sales_order_items soi " +
+            "INNER JOIN sales_orders so ON so.id = soi.order_id " +
+            "WHERE so.is_deleted = 0 AND so.customer = #{customerCode} " +
+            "  AND so.order_date >= DATE_SUB(CURDATE(), INTERVAL 3 MONTH)")
+    java.util.Map<String, Object> selectCustomerPriceStatsByCode(@Param("customerCode") String customerCode);
 
         @Select("SELECT * FROM sales_orders WHERE order_no = #{orderNo} AND is_deleted = 0 LIMIT 1")
         com.fine.modle.SalesOrder selectByOrderNo(@Param("orderNo") String orderNo);

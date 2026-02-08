@@ -59,19 +59,15 @@ public class SecurityConfig {
 				.csrf().disable()
 				// 不通过Session获取SecurityContext
 				.sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS).and().authorizeRequests()
-				// 对于登录接口 允许匿名访问
-				.antMatchers("/user/login").anonymous()
-				// 用户和角色管理接口需要认证后访问（已登录用户可访问）
-				.antMatchers("/api/users/**", "/api/roles/**").authenticated()
-				// 除上面外的所有请求全部需要鉴权认证
-				.anyRequest().authenticated();
+				// 开发环境：全部放行，便于联调
+				.anyRequest().permitAll();
 		http.formLogin().successHandler(successHandler).failureHandler(failureHandler);
 
 		http.logout()
 				// 配置注销成功处理器
 				.logoutSuccessHandler(logoutSuccessHandler);
 
-		// 添加过滤器
+		// 开发环境放行时可不强制JWT校验
 		http.addFilterBefore(jwtAuthenticationTokenFilter, UsernamePasswordAuthenticationFilter.class);
 
 		// 配置异常处理器

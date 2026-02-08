@@ -160,6 +160,17 @@ public class CoatingScheduleController {
         }
     }
 
+    @ApiOperation("复卷汇总（按料号+长度）")
+    @GetMapping("/rewind-summary")
+    public ResponseResult<List<Map<String, Object>>> getRewindSummary() {
+        try {
+            List<Map<String, Object>> summary = productionScheduleService.getRewindSummary();
+            return ResponseResult.success(summary);
+        } catch (Exception e) {
+            return ResponseResult.error(e.getMessage());
+        }
+    }
+
     @ApiOperation("更新涂布任务设备")
     @PostMapping("/equipment")
     public ResponseResult<Boolean> updateEquipment(@RequestBody Map<String, Object> body) {

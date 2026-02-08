@@ -16,6 +16,31 @@ public interface PreprocessingMaterialLockMapper extends BaseMapper<OrderMateria
     /**
      * 根据预处理ID查询锁定的物料列表
      */
+    @Results(id = "orderLockMap", value = {
+            @Result(property = "id", column = "id"),
+            @Result(property = "orderId", column = "order_id"),
+            @Result(property = "orderItemId", column = "order_item_id"),
+            @Result(property = "orderNo", column = "order_no"),
+            @Result(property = "preprocessingId", column = "preprocessing_id"),
+            @Result(property = "customerId", column = "customer_id"),
+            @Result(property = "customerName", column = "customer_name"),
+            @Result(property = "customerPriorityScore", column = "customer_priority_score"),
+            @Result(property = "materialCode", column = "material_code"),
+            @Result(property = "materialSpec", column = "material_spec"),
+            @Result(property = "qrCode", column = "material_qr_code"),
+            @Result(property = "stockType", column = "stock_type"),
+            @Result(property = "stockTableName", column = "stock_table_name"),
+            @Result(property = "tapeStockId", column = "stock_record_id"),
+            @Result(property = "lockQty", column = "locked_quantity"),
+            @Result(property = "lockArea", column = "locked_area"),
+            @Result(property = "fifoOrder", column = "fifo_order"),
+            @Result(property = "lockedBy", column = "locked_by"),
+            @Result(property = "sharedOrderCount", column = "shared_order_count"),
+            @Result(property = "sharedOrderDetails", column = "shared_order_details"),
+            @Result(property = "lockStatus", column = "lock_status"),
+            @Result(property = "lockedAt", column = "lock_time"),
+            @Result(property = "remark", column = "remark")
+    })
     @Select("SELECT * FROM order_material_lock WHERE preprocessing_id = #{preprocessingId} ORDER BY fifo_order ASC")
     List<OrderMaterialLock> selectByPreprocessingId(@Param("preprocessingId") Long preprocessingId);
 
@@ -47,6 +72,7 @@ public interface PreprocessingMaterialLockMapper extends BaseMapper<OrderMateria
      * 根据订单明细ID查询锁定的物料列表
      */
     @Select("SELECT * FROM order_material_lock WHERE order_item_id = #{orderItemId} ORDER BY fifo_order ASC")
+    @ResultMap("orderLockMap")
     List<OrderMaterialLock> selectByOrderItemId(@Param("orderItemId") Long orderItemId);
 
     /**
@@ -54,6 +80,14 @@ public interface PreprocessingMaterialLockMapper extends BaseMapper<OrderMateria
      */
     @Select("SELECT COALESCE(SUM(locked_area), 0) FROM order_material_lock WHERE preprocessing_id = #{preprocessingId} AND lock_status = 'locked'")
     BigDecimal sumLockedAreaByPreprocessingId(@Param("preprocessingId") Long preprocessingId);
+
+    /** 按订单明细ID统计锁定面积（主业务键） */
+    @Select("SELECT COALESCE(SUM(locked_area), 0) FROM order_material_lock WHERE order_item_id = #{orderItemId} AND lock_status = 'locked'")
+    BigDecimal sumLockedAreaByOrderItemId(@Param("orderItemId") Long orderItemId);
+
+    /** 统计卷级库存的锁定面积（stock_table_name = tape_stock_rolls） */
+    @Select("SELECT COALESCE(SUM(locked_area), 0) FROM order_material_lock WHERE stock_record_id = #{rollId} AND stock_table_name = 'tape_stock_rolls' AND lock_status = 'locked'")
+    BigDecimal sumLockedAreaByRollId(@Param("rollId") Long rollId);
 
     /**
      * 批量插入锁定记录

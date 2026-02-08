@@ -44,6 +44,8 @@ public interface ProductionScheduleService {
     ScheduleSlitting addSlittingTask(ScheduleSlitting slitting);
     int updateSlittingTask(ScheduleSlitting slitting);
     int deleteSlittingTask(Long id);
+    int startSlittingTask(Long taskId, String operator);
+    int completeSlittingTask(Long taskId, Integer actualRolls, String operator);
     
     // ========== 分条计划 ==========
     
@@ -135,6 +137,11 @@ public interface ProductionScheduleService {
      * 获取涂布统计数据
      */
     Map<String, Object> getCoatingStats();
+
+    /**
+     * 获取复卷汇总（按料号+长度聚合），用于前端复卷汇总视图
+     */
+    List<Map<String, Object>> getRewindSummary();
     
     /**
      * 获取涂布原材料锁定情况
