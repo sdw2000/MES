@@ -31,6 +31,47 @@ public class ProductionStaff implements Serializable {
     /** 联系电话 */
     private String phone;
 
+    /** 部门 */
+    private String department;
+
+    /** 岗位 */
+    private String positionName;
+
+    /** 学历 */
+    private String education;
+
+    /** 年龄 */
+    private Integer age;
+
+    /** 籍贯 */
+    private String nativePlace;
+
+    /** 身份证号码 */
+    private String idCardNo;
+
+    /** 户口所在地 */
+    private String householdAddress;
+
+    /** 现居住址 */
+    private String currentAddress;
+
+    /** 紧急联系人 */
+    private String emergencyContact;
+
+    /** 紧急联系人关系 */
+    private String emergencyRelation;
+
+    /** 签约日期 */
+    @JsonFormat(pattern = "yyyy-MM-dd", timezone = "GMT+8")
+    private Date contractSignDate;
+
+    /** 体检日期 */
+    @JsonFormat(pattern = "yyyy-MM-dd", timezone = "GMT+8")
+    private Date medicalExamDate;
+
+    /** 体检情况 */
+    private String medicalExamResult;
+
     /** 所属班组ID */
     private Long teamId;
 

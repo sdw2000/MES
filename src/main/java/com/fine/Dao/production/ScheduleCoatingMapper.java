@@ -21,6 +21,19 @@ public interface ScheduleCoatingMapper extends BaseMapper<ScheduleCoating> {
             "LEFT JOIN equipment e ON sc.equipment_id = e.id " +
             "WHERE sc.schedule_id = #{scheduleId} ORDER BY sc.plan_start_time ASC")
     List<ScheduleCoating> selectByScheduleId(@Param("scheduleId") Long scheduleId);
+
+    /**
+     * 批量查询任务号（按排程ID）
+     */
+    @Select("<script>" +
+            "SELECT schedule_id AS scheduleId, task_no AS taskNo FROM schedule_coating " +
+            "WHERE schedule_id IN " +
+            "<foreach collection='scheduleIds' item='id' open='(' separator=',' close=')'>" +
+            "#{id}" +
+            "</foreach> " +
+            "ORDER BY id DESC" +
+            "</script>")
+    List<Map<String, Object>> selectTaskNoByScheduleIds(@Param("scheduleIds") List<Long> scheduleIds);
     
     /**
      * 根据ID查询（带设备名称）
@@ -39,10 +52,11 @@ public interface ScheduleCoatingMapper extends BaseMapper<ScheduleCoating> {
     /**
      * 生成任务单号
      */
-    @Select("SELECT CONCAT('CT-', DATE_FORMAT(NOW(), '%Y%m%d'), '-', " +
-            "LPAD(IFNULL(MAX(CAST(SUBSTRING(task_no, -3) AS UNSIGNED)), 0) + 1, 3, '0')) " +
-            "FROM schedule_coating WHERE task_no LIKE CONCAT('CT-', DATE_FORMAT(NOW(), '%Y%m%d'), '%')")
-    String generateTaskNo();
+    @Select("SELECT CONCAT('TB-', DATE_FORMAT(COALESCE(#{planDate}, NOW()), '%y%m%d'), '-', " +
+            "LPAD(IFNULL(MAX(CAST(SUBSTRING(task_no, -2) AS UNSIGNED)), 0) + 1, 2, '0')) " +
+            "FROM schedule_coating " +
+            "WHERE task_no LIKE CONCAT('TB-', DATE_FORMAT(COALESCE(#{planDate}, NOW()), '%y%m%d'), '-%')")
+    String generateTaskNo(@Param("planDate") java.util.Date planDate);
     
     /**
      * 插入涂布计划

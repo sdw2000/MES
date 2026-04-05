@@ -52,4 +52,9 @@ public interface ChemicalStockMapper extends BaseMapper<ChemicalStock> {
      * @return 影响行数
      */
     int deductStock(@Param("id") Long id, @Param("outQuantity") Integer outQuantity);
+
+    /**
+     * 到货入库：增加总量和可用量
+     */
+    int addStock(@Param("id") Long id, @Param("inQuantity") Integer inQuantity);
 }

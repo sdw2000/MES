@@ -15,13 +15,15 @@ public interface ProductionStaffService extends IService<ProductionStaff> {
      * 获取生产人员列表
      */
     Map<String, Object> getStaffList(String staffCode, String staffName, Long teamId,
-                                     Long workshopId, String status, Integer page, Integer size);
+                                     Long workshopId, String status, String department,
+                                     String positionName, Integer page, Integer size);
     
     /**
      * 获取生产人员分页
      */
     IPage<ProductionStaff> getStaffPage(String staffCode, String staffName, Long teamId,
-                                        Long workshopId, String status, Integer page, Integer size);
+                                        Long workshopId, String status, String department,
+                                        String positionName, Integer page, Integer size);
     
     /**
      * 获取生产人员详情
@@ -76,10 +78,16 @@ public interface ProductionStaffService extends IService<ProductionStaff> {
     /**
      * 导出人员列表
      */
-    List<ProductionStaff> getStaffListForExport(Long teamId, Long workshopId, String status);
+    List<ProductionStaff> getStaffListForExport(Long teamId, Long workshopId, String status,
+                                                String department, String positionName);
     
     /**
      * 导入人员
      */
     Map<String, Object> importStaff(MultipartFile file) throws Exception;
+
+    /**
+     * 一次性按身份证回填性别与年龄
+     */
+    Map<String, Object> backfillGenderAgeByIdCard();
 }

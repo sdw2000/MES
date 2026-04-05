@@ -200,7 +200,8 @@ public class PurchaseOrderServiceImpl extends ServiceImpl<PurchaseOrderMapper, P
                 if (item.getAmount() != null) {
                     totalAmount = totalAmount.add(item.getAmount());
                 }
-                if (item.getSqm() != null) {
+                // 仅薄膜类（有宽度+长度）计入总面积；其他原材料的sqm用于承载总重，不计入面积
+                if (item.getSqm() != null && item.getWidth() != null && item.getLength() != null) {
                     totalArea = totalArea.add(item.getSqm());
                 }
             }
@@ -218,6 +219,12 @@ public class PurchaseOrderServiceImpl extends ServiceImpl<PurchaseOrderMapper, P
             if (item.getUnitPrice() != null) {
                 item.setAmount(area.multiply(item.getUnitPrice()).setScale(2, BigDecimal.ROUND_HALF_UP));
             }
+            return;
+        }
+
+        // 其他原材料：前端将总重传入sqm，后端按 总重 * 单价 计算金额
+        if (item.getSqm() != null && item.getUnitPrice() != null) {
+            item.setAmount(item.getSqm().multiply(item.getUnitPrice()).setScale(2, BigDecimal.ROUND_HALF_UP));
         }
     }
 
@@ -231,8 +238,22 @@ public class PurchaseOrderServiceImpl extends ServiceImpl<PurchaseOrderMapper, P
 
     @Override
     public String generateOrderNo() {
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMddHHmmss");
-        return "PO" + sdf.format(new Date()) + (int) (Math.random() * 1000);
+        String dateCode = new SimpleDateFormat("yyMMdd").format(new Date());
+        String prefix = "CD" + dateCode;
+
+        String lastOrderNo = purchaseOrderMapper.selectLastOrderNoByPrefix(prefix);
+        int nextSeq = 1;
+        if (lastOrderNo != null && lastOrderNo.length() > prefix.length()) {
+            String seqPart = lastOrderNo.substring(prefix.length());
+            try {
+                nextSeq = Integer.parseInt(seqPart) + 1;
+            } catch (Exception ignored) {
+                nextSeq = 1;
+            }
+        }
+
+        // 序号按2位起，不足补0（如 01、02...）
+        return prefix + String.format("%02d", nextSeq);
     }
 
     @Override

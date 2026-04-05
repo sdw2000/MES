@@ -25,7 +25,7 @@ import java.util.Map;
  */
 @RestController
 @RequestMapping("/api/tape-stock")
-@PreAuthorize("hasAnyAuthority('warehouse','admin','sales','production')")
+@PreAuthorize("hasAnyAuthority('warehouse','admin','sales','production','finance','quality')")
 public class TapeStockController {
     
     @Autowired
@@ -37,7 +37,7 @@ public class TapeStockController {
      * 分页查询库存
      */
     @GetMapping("/list")
-    @PreAuthorize("hasAnyAuthority('warehouse','admin','sales')")
+    @PreAuthorize("hasAnyAuthority('warehouse','admin','sales','finance','quality')")
     public ResponseResult<?> getStockList(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size,
@@ -55,10 +55,10 @@ public class TapeStockController {
     }
 
     /**
-     * 成品（分切卷）库存快捷查询
+    * 成品（分切卷）库存快捷查询
      */
     @GetMapping("/finished/list")
-    @PreAuthorize("hasAnyAuthority('warehouse','admin','sales','production')")
+    @PreAuthorize("hasAnyAuthority('warehouse','admin','sales','production','finance','quality')")
     public ResponseResult<?> getFinishedStockList(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size,
@@ -75,10 +75,10 @@ public class TapeStockController {
     }
     
     /**
-     * 根据二维码查询库存（扫码查询）
+    * 根据二维码查询库存（扫码查询）
      */
     @GetMapping("/scan/{qrCode}")
-    @PreAuthorize("hasAnyAuthority('warehouse','admin','sales','production')")
+    @PreAuthorize("hasAnyAuthority('warehouse','admin','sales','production','finance','quality')")
     public ResponseResult<?> getStockByQrCode(@PathVariable String qrCode) {
         // 先按二维码查，再按批次号查
         LambdaQueryWrapper<TapeStock> wrapper = new LambdaQueryWrapper<>();
@@ -95,26 +95,66 @@ public class TapeStockController {
     private com.fine.Dao.stock.TapeStockMapper stockMapper;
     
     /**
-     * 按料号汇总库存
+    * 按料号汇总库存
      */
     @GetMapping("/summary")
-    @PreAuthorize("hasAnyAuthority('warehouse','admin','sales')")    public ResponseResult<?> getStockSummary() {
+    @PreAuthorize("hasAnyAuthority('warehouse','admin','sales','finance','quality')")
+    public ResponseResult<?> getStockSummary() {
         List<TapeStock> list = stockService.getStockSummary();
         return ResponseResult.success("查询成功", list);
     }
+
+    /**
+    * 按料号汇总库存（分页）
+     */
+    @GetMapping("/summary/page")
+    @PreAuthorize("hasAnyAuthority('warehouse','admin','sales','finance','quality')")
+    public ResponseResult<?> getStockSummaryPage(
+            @RequestParam(defaultValue = "1") int current,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String materialCode) {
+        IPage<TapeStock> result = stockService.getStockSummaryPage(current, size, materialCode);
+        Map<String, Object> data = new HashMap<>();
+        data.put("records", result.getRecords());
+        data.put("total", result.getTotal());
+        data.put("current", result.getCurrent());
+        data.put("size", result.getSize());
+        data.put("pages", result.getPages());
+        return ResponseResult.success("查询成功", data);
+    }
     
     /**
-     * 根据料号查询所有批次（FIFO排序）
+    * 根据料号查询所有批次（FIFO排序）
      */
-    @GetMapping("/by-material/{materialCode}")    public ResponseResult<?> getStockByMaterial(@PathVariable String materialCode) {
+    @GetMapping("/by-material/{materialCode}")
+    public ResponseResult<?> getStockByMaterial(@PathVariable String materialCode) {
         List<TapeStock> list = stockService.getStockByMaterialFIFO(materialCode);
         return ResponseResult.success("查询成功", list);
+    }
+
+    /**
+    * 根据料号查询库存明细（分页）
+     */
+    @GetMapping("/by-material/page")
+    public ResponseResult<?> getStockByMaterialPage(
+            @RequestParam String materialCode,
+            @RequestParam(defaultValue = "1") int current,
+            @RequestParam(defaultValue = "20") int size) {
+        IPage<TapeStock> result = stockService.getStockByMaterialPage(current, size, materialCode);
+        Map<String, Object> data = new HashMap<>();
+        data.put("records", result.getRecords());
+        data.put("total", result.getTotal());
+        data.put("current", result.getCurrent());
+        data.put("size", result.getSize());
+        data.put("pages", result.getPages());
+        return ResponseResult.success("查询成功", data);
     }
     
     /**
      * 根据ID查询库存详情
      */
-    @GetMapping("/{id}")    public ResponseResult<?> getStockById(@PathVariable Long id) {
+    @GetMapping("/{id}")
+    public ResponseResult<?> getStockById(@PathVariable Long id) {
         TapeStock stock = stockService.getStockById(id);
         return ResponseResult.success("查询成功", stock);
     }
@@ -123,7 +163,8 @@ public class TapeStockController {
      * 导入Excel库存数据
      */
     @PostMapping("/import")
-    @PreAuthorize("hasAnyAuthority('warehouse','admin')")    public ResponseResult<?> importExcel(@RequestParam("file") MultipartFile file) {
+    @PreAuthorize("hasAnyAuthority('warehouse','admin')")
+    public ResponseResult<?> importExcel(@RequestParam("file") MultipartFile file) {
         try {
             Map<String, Object> result = stockService.importExcel(file);
             if ((boolean) result.get("success")) {
@@ -153,7 +194,7 @@ public class TapeStockController {
         // 表头
         Row header = sheet.createRow(0);
         String[] headers = {"料号", "产品名称", "生产批次号", "二维码", "卷类型", "厚度μm", "宽度mm", 
-                           "长度M", "原始长度", "当前长度", "库存卷数", "总平米数", "卡板位", "生产日期"};
+                   "长度M", "原始长度", "当前长度", "库存卷数", "总平米数", "卡板号", "生产日期"};
         for (int i = 0; i < headers.length; i++) {
             header.createCell(i).setCellValue(headers[i]);
         }
@@ -198,7 +239,7 @@ public class TapeStockController {
         // 表头
         Row header = sheet.createRow(0);
         String[] headers = {"料号", "产品名称", "生产批次号", "二维码", "卷类型", "厚度μm", "宽度mm", "长度M", 
-                           "库存卷数", "卡板位", "生产年份", "生产月份", "生产日期", "备注"};
+                   "库存卷数", "卡板号", "生产年份", "生产月份", "生产日期", "备注"};
         for (int i = 0; i < headers.length; i++) {
             header.createCell(i).setCellValue(headers[i]);
         }
@@ -208,7 +249,7 @@ public class TapeStockController {
         row.createCell(0).setCellValue("1011-R02-2307-G03-0350");
         row.createCell(1).setCellValue("30u无机翠绿PET胶带");
         row.createCell(2).setCellValue("2601032B01");
-        row.createCell(3).setCellValue("2601032B01");  // 二维码默认=批次号
+        row.createCell(3).setCellValue("2601032B01");  // 二维码默认批次号
         row.createCell(4).setCellValue("母卷");         // 卷类型
         row.createCell(5).setCellValue(30);
         row.createCell(6).setCellValue(500);
@@ -269,11 +310,40 @@ public class TapeStockController {
             @PathVariable Long id,
             @RequestParam boolean approved,
             @RequestParam String auditor,
-            @RequestParam(required = false) String auditRemark) {        try {
-            stockService.approveInbound(id, approved, auditor, auditRemark);
+            @RequestParam(required = false) String auditRemark,
+            @RequestParam(required = false) String scannedRollCode,
+            @RequestParam(required = false) String scannedLocation) {        try {
+            stockService.approveInbound(id, approved, auditor, auditRemark, scannedRollCode, scannedLocation);
             return ResponseResult.success(approved ? "审批通过" : "已拒绝", null);
         } catch (Exception e) {
             return ResponseResult.error("审批失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 批量扫码审批入库（同一卡板）
+     */
+    @PostMapping("/inbound/approve-by-roll-codes")
+    @PreAuthorize("hasAnyAuthority('admin', 'warehouse')")
+    public ResponseResult<?> approveInboundByRollCodes(@RequestBody Map<String, Object> params) {
+        try {
+            Object codesObj = params.get("rollCodes");
+            List<String> rollCodes = new java.util.ArrayList<>();
+            if (codesObj instanceof List) {
+                for (Object o : (List<?>) codesObj) {
+                    if (o != null) {
+                        rollCodes.add(String.valueOf(o));
+                    }
+                }
+            }
+            String auditor = params.get("auditor") == null ? null : String.valueOf(params.get("auditor"));
+            String auditRemark = params.get("auditRemark") == null ? null : String.valueOf(params.get("auditRemark"));
+            String scannedLocation = params.get("scannedLocation") == null ? null : String.valueOf(params.get("scannedLocation"));
+
+            Map<String, Object> result = stockService.approveInboundByRollCodes(rollCodes, auditor, auditRemark, scannedLocation);
+            return ResponseResult.success("批量审批完成", result);
+        } catch (Exception e) {
+            return ResponseResult.error("批量审批失败: " + e.getMessage());
         }
     }
     
@@ -291,7 +361,7 @@ public class TapeStockController {
     }
     
     /**
-     * 待审批入库数量
+    * 待审批入库数量
      */
     @GetMapping("/inbound/pending-count")
     @PreAuthorize("hasAnyAuthority('warehouse','admin','production')")    public ResponseResult<?> countPendingInbound() {
@@ -305,7 +375,7 @@ public class TapeStockController {
      * 分页查询出库申请
      */
     @GetMapping("/outbound/list")
-    @PreAuthorize("hasAnyAuthority('warehouse','admin','sales')")
+    @PreAuthorize("hasAnyAuthority('warehouse','admin','sales','finance','quality')")
     public ResponseResult<?> getOutboundList(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size,
@@ -320,10 +390,10 @@ public class TapeStockController {
     }
     
     /**
-     * 创建出库申请（手动选择批次）
+    * 创建出库申请（手动选择批次）
      */
     @PostMapping("/outbound")
-    @PreAuthorize("hasAnyAuthority('warehouse','admin','sales')")    public ResponseResult<?> createOutboundRequest(@RequestBody TapeOutboundRequest request) {
+    @PreAuthorize("hasAnyAuthority('warehouse','admin','sales','finance','quality')")    public ResponseResult<?> createOutboundRequest(@RequestBody TapeOutboundRequest request) {
         try {
             TapeOutboundRequest result = stockService.createOutboundRequest(request);
             return ResponseResult.success("申请提交成功", result);
@@ -333,10 +403,10 @@ public class TapeStockController {
     }
     
     /**
-     * 创建出库申请（FIFO自动分配）
+    * 创建出库申请（FIFO自动分配）
      */
     @PostMapping("/outbound/fifo")
-    @PreAuthorize("hasAnyAuthority('warehouse','admin','sales')")
+    @PreAuthorize("hasAnyAuthority('warehouse','admin','sales','finance','quality')")
     public ResponseResult<?> createOutboundRequestFIFO(
             @RequestParam String materialCode,
             @RequestParam int totalRolls,
@@ -360,11 +430,38 @@ public class TapeStockController {
             @PathVariable Long id,
             @RequestParam boolean approved,
             @RequestParam String auditor,
-            @RequestParam(required = false) String auditRemark) {        try {
-            stockService.approveOutbound(id, approved, auditor, auditRemark);
+            @RequestParam(required = false) String auditRemark,
+            @RequestParam(required = false) String scannedRollCode) {        try {
+            stockService.approveOutbound(id, approved, auditor, auditRemark, scannedRollCode);
             return ResponseResult.success(approved ? "审批通过" : "已拒绝", null);
         } catch (Exception e) {
             return ResponseResult.error("审批失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 批量扫码审批出库
+     */
+    @PostMapping("/outbound/approve-by-roll-codes")
+    @PreAuthorize("hasAnyAuthority('admin', 'warehouse')")
+    public ResponseResult<?> approveOutboundByRollCodes(@RequestBody Map<String, Object> params) {
+        try {
+            Object codesObj = params.get("rollCodes");
+            List<String> rollCodes = new java.util.ArrayList<>();
+            if (codesObj instanceof List) {
+                for (Object o : (List<?>) codesObj) {
+                    if (o != null) {
+                        rollCodes.add(String.valueOf(o));
+                    }
+                }
+            }
+            String auditor = params.get("auditor") == null ? null : String.valueOf(params.get("auditor"));
+            String auditRemark = params.get("auditRemark") == null ? null : String.valueOf(params.get("auditRemark"));
+
+            Map<String, Object> result = stockService.approveOutboundByRollCodes(rollCodes, auditor, auditRemark);
+            return ResponseResult.success("批量审批完成", result);
+        } catch (Exception e) {
+            return ResponseResult.error("批量审批失败: " + e.getMessage());
         }
     }
     
@@ -372,7 +469,7 @@ public class TapeStockController {
      * 取消出库申请
      */
     @PostMapping("/outbound/{id}/cancel")
-    @PreAuthorize("hasAnyAuthority('warehouse','admin','sales')")    public ResponseResult<?> cancelOutbound(@PathVariable Long id) {
+    @PreAuthorize("hasAnyAuthority('warehouse','admin','sales','finance','quality')")    public ResponseResult<?> cancelOutbound(@PathVariable Long id) {
         try {
             stockService.cancelOutbound(id);
             return ResponseResult.success("已取消", null);
@@ -382,10 +479,10 @@ public class TapeStockController {
     }
     
     /**
-     * 待审批出库数量
+    * 待审批出库数量
      */
     @GetMapping("/outbound/pending-count")
-    @PreAuthorize("hasAnyAuthority('warehouse','admin','sales')")    public ResponseResult<?> countPendingOutbound() {
+    @PreAuthorize("hasAnyAuthority('warehouse','admin','sales','finance','quality')")    public ResponseResult<?> countPendingOutbound() {
         int count = stockService.countPendingOutbound();
         return ResponseResult.success("查询成功", count);
     }
@@ -396,7 +493,7 @@ public class TapeStockController {
      * 分页查询库存流水
      */
     @GetMapping("/log/list")
-    @PreAuthorize("hasAnyAuthority('warehouse','admin','sales','production')")
+    @PreAuthorize("hasAnyAuthority('warehouse','admin','sales','production','finance','quality')")
     public ResponseResult<?> getStockLogList(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size,
@@ -428,7 +525,7 @@ public class TapeStockController {
         
         Row header = sheet.createRow(0);
         String[] headers = {"时间", "类型", "料号", "产品名称", "批次号", 
-                           "变动卷数", "变动前", "变动后", "关联单号", "操作人", "备注"};
+                   "变动卷数", "变动前", "变动后", "关联单号", "操作人", "备注"};
         for (int i = 0; i < headers.length; i++) {
             header.createCell(i).setCellValue(headers[i]);
         }

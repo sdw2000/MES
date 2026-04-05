@@ -1,6 +1,8 @@
 package com.fine.serviceIMPL;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fine.Dao.RoleMapper;
 import com.fine.Dao.UserRoleMapper;
 import com.fine.Dao.UserMapper;
@@ -13,7 +15,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 角色Service实现类
@@ -37,6 +41,36 @@ public class RoleServiceImpl implements RoleService {
             wrapper.orderByAsc(Role::getId);
             List<Role> roles = roleMapper.selectList(wrapper);
             return new ResponseResult<>(200, "查询成功", roles);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return new ResponseResult<>(500, "查询失败: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public ResponseResult<?> getRolePage(Integer page, Integer size, String keyword) {
+        try {
+            int current = (page == null || page < 1) ? 1 : page;
+            int pageSize = (size == null || size < 1) ? 10 : size;
+
+            LambdaQueryWrapper<Role> wrapper = new LambdaQueryWrapper<>();
+            if (keyword != null && !keyword.trim().isEmpty()) {
+                wrapper.and(w -> w.like(Role::getName, keyword.trim())
+                                  .or()
+                                  .like(Role::getDisplayName, keyword.trim()));
+            }
+            wrapper.orderByAsc(Role::getId);
+
+            Page<Role> pageParam = new Page<>(current, pageSize);
+            pageParam.setOptimizeCountSql(false);
+            IPage<Role> result = roleMapper.selectPage(pageParam, wrapper);
+
+            Map<String, Object> data = new HashMap<>();
+            data.put("list", result.getRecords());
+            data.put("total", result.getTotal());
+            data.put("page", result.getCurrent());
+            data.put("size", result.getSize());
+            return new ResponseResult<>(200, "查询成功", data);
         } catch (Exception e) {
             e.printStackTrace();
             return new ResponseResult<>(500, "查询失败: " + e.getMessage());

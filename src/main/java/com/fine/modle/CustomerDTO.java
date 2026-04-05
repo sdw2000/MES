@@ -17,12 +17,15 @@ public class CustomerDTO {
     private Long id;
     
     // 基本信息
+    private String customerKeyword;
     private String customerCode;
     private String customerName;
     private String shortName;
     private String customerType;
     private String customerLevel;
     private String industry;
+    private String orderNoPrefix;
+    private String orderNoSuffix;
     
     // 企业信息
     private String taxNumber;
@@ -31,6 +34,7 @@ public class CustomerDTO {
     private String registeredAddress;
     private String businessAddress;
     private String contactAddress;
+    private String receiveAddress;
     private String businessScope;
     private String creditCode;
     

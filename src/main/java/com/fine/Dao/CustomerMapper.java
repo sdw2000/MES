@@ -68,4 +68,46 @@ public interface CustomerMapper extends BaseMapper<Customer> {
      * 查询所有客户（带联系人，用于导出）
      */
     java.util.List<CustomerDTO> selectAllCustomersWithContacts();
+
+    /**
+     * 根据用户ID查询可访问的客户ID列表（销售/跟单）
+     */
+    @Select("SELECT id FROM customers WHERE is_deleted = 0 AND (sales = #{userId} OR documentation_person = #{userId})")
+    java.util.List<Long> selectCustomerIdsByOwner(@Param("userId") Long userId);
+
+    /**
+     * 根据用户ID查询可访问的客户名称列表（销售/跟单）
+     */
+    @Select("SELECT customer_name FROM customers WHERE is_deleted = 0 AND (sales = #{userId} OR documentation_person = #{userId})")
+    java.util.List<String> selectCustomerNamesByOwner(@Param("userId") Long userId);
+
+    /**
+     * 根据用户ID查询可访问的客户代码列表（销售/跟单）
+     */
+    @Select("SELECT customer_code FROM customers WHERE is_deleted = 0 AND (sales = #{userId} OR documentation_person = #{userId})")
+    java.util.List<String> selectCustomerCodesByOwner(@Param("userId") Long userId);
+
+    /**
+     * 获取客户表中出现的销售用户ID列表
+     */
+    @Select("SELECT DISTINCT sales FROM customers WHERE is_deleted = 0 AND sales IS NOT NULL")
+    java.util.List<Long> selectDistinctSalesUserIds();
+
+    /**
+     * 获取客户表中出现的跟单用户ID列表
+     */
+    @Select("SELECT DISTINCT documentation_person FROM customers WHERE is_deleted = 0 AND documentation_person IS NOT NULL")
+    java.util.List<Long> selectDistinctDocumentationUserIds();
+
+    /**
+     * 获取某销售用户关联的跟单用户ID列表
+     */
+    @Select("SELECT DISTINCT documentation_person FROM customers WHERE is_deleted = 0 AND sales = #{salesUserId} AND documentation_person IS NOT NULL")
+    java.util.List<Long> selectDistinctDocumentationUserIdsBySalesUser(@Param("salesUserId") Long salesUserId);
+
+    /**
+     * 获取某跟单用户关联的销售用户ID列表
+     */
+    @Select("SELECT DISTINCT sales FROM customers WHERE is_deleted = 0 AND documentation_person = #{docUserId} AND sales IS NOT NULL")
+    java.util.List<Long> selectDistinctSalesUserIdsByDocumentationUser(@Param("docUserId") Long docUserId);
 }

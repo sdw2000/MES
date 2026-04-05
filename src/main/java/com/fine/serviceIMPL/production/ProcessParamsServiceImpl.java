@@ -3,7 +3,9 @@ package com.fine.serviceIMPL.production;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.fine.Dao.rd.TapeSpecMapper;
 import com.fine.Dao.production.ProcessParamsMapper;
+import com.fine.modle.rd.TapeSpec;
 import com.fine.model.production.ProcessParams;
 import com.fine.service.production.ProcessParamsService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,13 +24,16 @@ public class ProcessParamsServiceImpl extends ServiceImpl<ProcessParamsMapper, P
     @Autowired
     private ProcessParamsMapper paramsMapper;
 
+    @Autowired
+    private TapeSpecMapper tapeSpecMapper;
+
     @Override
-    public IPage<ProcessParams> getProcessParamsPage(String materialCode, String processType, Integer page, Integer size) {
+    public IPage<ProcessParams> getProcessParamsPage(String materialCode, String processType, String equipmentCode, Integer page, Integer size) {
         IPage<ProcessParams> pageRequest = new Page<>(page, size);
         
         // 使用MyBatis-Plus的分页查询
         IPage<ProcessParams> pageResult = paramsMapper.selectProcessParamsPageList(
-            pageRequest, materialCode, processType);
+            pageRequest, materialCode, processType, equipmentCode);
         
         // 设置工序类型名称
         for (ProcessParams params : pageResult.getRecords()) {
@@ -39,9 +44,9 @@ public class ProcessParamsServiceImpl extends ServiceImpl<ProcessParamsMapper, P
     }
 
     @Override
-    public Map<String, Object> getParamsList(String materialCode, String processType, Integer page, Integer size) {
+    public Map<String, Object> getParamsList(String materialCode, String processType, String equipmentCode, Integer page, Integer size) {
         IPage<ProcessParams> pageRequest = new Page<>(page, size);
-        IPage<ProcessParams> pageResult = paramsMapper.selectProcessParamsPageList(pageRequest, materialCode, processType);
+        IPage<ProcessParams> pageResult = paramsMapper.selectProcessParamsPageList(pageRequest, materialCode, processType, equipmentCode);
 
         List<ProcessParams> list = pageResult.getRecords();
         // 设置工序类型名称
@@ -58,8 +63,8 @@ public class ProcessParamsServiceImpl extends ServiceImpl<ProcessParamsMapper, P
     }
 
     @Override
-    public ProcessParams getByMaterialAndProcess(String materialCode, String processType) {
-        ProcessParams params = paramsMapper.selectByMaterialAndProcess(materialCode, processType);
+    public ProcessParams getByMaterialAndProcess(String materialCode, String processType, String equipmentCode) {
+        ProcessParams params = paramsMapper.selectByMaterialAndProcess(materialCode, processType, equipmentCode);
         if (params != null) {
             params.setProcessTypeName(getProcessTypeName(params.getProcessType()));
         }
@@ -78,10 +83,21 @@ public class ProcessParamsServiceImpl extends ServiceImpl<ProcessParamsMapper, P
     @Override
     @Transactional
     public boolean addParams(ProcessParams params) {
+        validateMaterialCodeFromRd(params.getMaterialCode());
+        params.setEquipmentCode(normalizeEquipmentCode(params.getEquipmentCode()));
         // 检查是否已存在
-        int count = paramsMapper.checkExists(params.getMaterialCode(), params.getProcessType(), 0L);
+        int count = paramsMapper.checkExists(params.getMaterialCode(), params.getProcessType(), params.getEquipmentCode(), 0L);
         if (count > 0) {
             throw new RuntimeException("该料号的" + getProcessTypeName(params.getProcessType()) + "工艺参数已存在");
+        }
+
+        // 若唯一键记录已存在但状态=0，则直接复用并激活，避免唯一索引冲突
+        ProcessParams existed = paramsMapper.selectAnyByUnique(params.getMaterialCode(), params.getProcessType(), params.getEquipmentCode());
+        if (existed != null) {
+            params.setId(existed.getId());
+            params.setStatus(1);
+            params.setUpdateTime(new Date());
+            return paramsMapper.updateById(params) > 0;
         }
 
         params.setStatus(1);
@@ -93,8 +109,10 @@ public class ProcessParamsServiceImpl extends ServiceImpl<ProcessParamsMapper, P
     @Override
     @Transactional
     public boolean updateParams(ProcessParams params) {
+        validateMaterialCodeFromRd(params.getMaterialCode());
+        params.setEquipmentCode(normalizeEquipmentCode(params.getEquipmentCode()));
         // 检查是否重复
-        int count = paramsMapper.checkExists(params.getMaterialCode(), params.getProcessType(), params.getId());
+        int count = paramsMapper.checkExists(params.getMaterialCode(), params.getProcessType(), params.getEquipmentCode(), params.getId());
         if (count > 0) {
             throw new RuntimeException("该料号的" + getProcessTypeName(params.getProcessType()) + "工艺参数已存在");
         }
@@ -116,6 +134,7 @@ public class ProcessParamsServiceImpl extends ServiceImpl<ProcessParamsMapper, P
     @Override
     @Transactional
     public boolean batchSaveParams(String materialCode, List<ProcessParams> paramsList) {
+        validateMaterialCodeFromRd(materialCode);
         // 删除原有参数
         List<ProcessParams> existing = paramsMapper.selectByMaterialCode(materialCode);
         for (ProcessParams p : existing) {
@@ -127,10 +146,21 @@ public class ProcessParamsServiceImpl extends ServiceImpl<ProcessParamsMapper, P
         // 新增参数
         for (ProcessParams params : paramsList) {
             params.setMaterialCode(materialCode);
-            params.setStatus(1);
-            params.setCreateTime(new Date());
-            params.setUpdateTime(new Date());
-            paramsMapper.insert(params);
+            validateMaterialCodeFromRd(params.getMaterialCode());
+            params.setEquipmentCode(normalizeEquipmentCode(params.getEquipmentCode()));
+
+            ProcessParams existed = paramsMapper.selectAnyByUnique(params.getMaterialCode(), params.getProcessType(), params.getEquipmentCode());
+            if (existed != null) {
+                params.setId(existed.getId());
+                params.setStatus(1);
+                params.setUpdateTime(new Date());
+                paramsMapper.updateById(params);
+            } else {
+                params.setStatus(1);
+                params.setCreateTime(new Date());
+                params.setUpdateTime(new Date());
+                paramsMapper.insert(params);
+            }
         }
 
         return true;
@@ -150,8 +180,8 @@ public class ProcessParamsServiceImpl extends ServiceImpl<ProcessParamsMapper, P
     // ==================== 导入导出 ====================
 
     @Override
-    public List<ProcessParams> getParamsListForExport(String materialCode, String processType) {
-        List<ProcessParams> list = paramsMapper.selectParamsList(materialCode, processType);
+    public List<ProcessParams> getParamsListForExport(String materialCode, String processType, String equipmentCode) {
+        List<ProcessParams> list = paramsMapper.selectParamsList(materialCode, processType, equipmentCode);
         for (ProcessParams params : list) {
             params.setProcessTypeName(getProcessTypeName(params.getProcessType()));
         }
@@ -183,6 +213,13 @@ public class ProcessParamsServiceImpl extends ServiceImpl<ProcessParamsMapper, P
                         failCount++;
                         continue;
                     }
+                    try {
+                        validateMaterialCodeFromRd(params.getMaterialCode());
+                    } catch (RuntimeException ex) {
+                        errorMsg.append("第").append(i + 1).append("行：").append(ex.getMessage()).append("\n");
+                        failCount++;
+                        continue;
+                    }
 
                     // 工序类型
                     params.setProcessType(getCellStringValue(row.getCell(1)));
@@ -192,8 +229,10 @@ public class ProcessParamsServiceImpl extends ServiceImpl<ProcessParamsMapper, P
                         continue;
                     }
 
+                    params.setEquipmentCode(normalizeEquipmentCode(params.getEquipmentCode()));
+
                     // 检查是否已存在
-                    if (paramsMapper.checkExists(params.getMaterialCode(), params.getProcessType(), 0L) > 0) {
+                    if (paramsMapper.checkExists(params.getMaterialCode(), params.getProcessType(), params.getEquipmentCode(), 0L) > 0) {
                         errorMsg.append("第").append(i + 1).append("行：该工艺参数已存在\n");
                         failCount++;
                         continue;
@@ -232,7 +271,13 @@ public class ProcessParamsServiceImpl extends ServiceImpl<ProcessParamsMapper, P
                     params.setCreateTime(new Date());
                     params.setUpdateTime(new Date());
 
-                    paramsMapper.insert(params);
+                    ProcessParams existed = paramsMapper.selectAnyByUnique(params.getMaterialCode(), params.getProcessType(), params.getEquipmentCode());
+                    if (existed != null) {
+                        params.setId(existed.getId());
+                        paramsMapper.updateById(params);
+                    } else {
+                        paramsMapper.insert(params);
+                    }
                     successCount++;
                 } catch (Exception e) {
                     errorMsg.append("第").append(i + 1).append("行：").append(e.getMessage()).append("\n");
@@ -246,6 +291,19 @@ public class ProcessParamsServiceImpl extends ServiceImpl<ProcessParamsMapper, P
         result.put("failCount", failCount);
         result.put("message", failCount > 0 ? errorMsg.toString() : "导入成功");
         return result;
+    }
+
+    private void validateMaterialCodeFromRd(String materialCode) {
+        if (materialCode == null || materialCode.trim().isEmpty()) {
+            throw new RuntimeException("料号不能为空");
+        }
+        TapeSpec spec = tapeSpecMapper.selectByMaterialCode(materialCode.trim());
+        if (spec == null) {
+            throw new RuntimeException("料号不存在于研发表，请先维护研发规格");
+        }
+        if (spec.getStatus() == null || spec.getStatus() != 1) {
+            throw new RuntimeException("料号在研发表中未启用，不能用于工艺参数");
+        }
     }
 
     // 辅助方法：获取单元格字符串值
@@ -283,5 +341,13 @@ public class ProcessParamsServiceImpl extends ServiceImpl<ProcessParamsMapper, P
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private String normalizeEquipmentCode(String equipmentCode) {
+        if (equipmentCode == null) {
+            return null;
+        }
+        String s = equipmentCode.trim();
+        return s.isEmpty() ? null : s;
     }
 }

@@ -146,6 +146,46 @@ public interface TapeFormulaMapper {
     })
     List<TapeRawMaterial> selectAllRawMaterials();
 
+    @Select("<script>" +
+            "SELECT * FROM tape_raw_material WHERE 1=1" +
+            "<if test='materialCode != null and materialCode != \"\"'> AND material_code LIKE CONCAT('%',#{materialCode},'%')</if>" +
+            "<if test='materialName != null and materialName != \"\"'> AND material_name LIKE CONCAT('%',#{materialName},'%')</if>" +
+            "<if test='materialType != null and materialType != \"\"'> AND material_type = #{materialType}</if>" +
+            "<if test='status != null'> AND status = #{status}</if>" +
+            " ORDER BY sort_order ASC, id DESC" +
+            " LIMIT #{offset}, #{size}" +
+            "</script>")
+    @ResultMap("rawMaterialResultMap")
+    List<TapeRawMaterial> selectRawMaterialPage(@Param("materialCode") String materialCode,
+                                                @Param("materialName") String materialName,
+                                                @Param("materialType") String materialType,
+                                                @Param("status") Integer status,
+                                                @Param("offset") int offset,
+                                                @Param("size") int size);
+
+    @Select("<script>" +
+            "SELECT COUNT(*) FROM tape_raw_material WHERE 1=1" +
+            "<if test='materialCode != null and materialCode != \"\"'> AND material_code LIKE CONCAT('%',#{materialCode},'%')</if>" +
+            "<if test='materialName != null and materialName != \"\"'> AND material_name LIKE CONCAT('%',#{materialName},'%')</if>" +
+            "<if test='materialType != null and materialType != \"\"'> AND material_type = #{materialType}</if>" +
+            "<if test='status != null'> AND status = #{status}</if>" +
+            "</script>")
+    int selectRawMaterialCount(@Param("materialCode") String materialCode,
+                               @Param("materialName") String materialName,
+                               @Param("materialType") String materialType,
+                               @Param("status") Integer status);
+
+    @Select("SELECT * FROM tape_raw_material WHERE id = #{id}")
+    @ResultMap("rawMaterialResultMap")
+    TapeRawMaterial selectRawMaterialById(@Param("id") Long id);
+
+        @Select("SELECT * FROM tape_raw_material WHERE material_code = #{materialCode} LIMIT 1")
+        @ResultMap("rawMaterialResultMap")
+        TapeRawMaterial selectRawMaterialByCode(@Param("materialCode") String materialCode);
+
+    @Select("SELECT COUNT(*) FROM tape_raw_material WHERE material_code = #{materialCode} AND id != #{excludeId}")
+    int checkRawMaterialCodeExists(@Param("materialCode") String materialCode, @Param("excludeId") Long excludeId);
+
     @Select("SELECT * FROM tape_raw_material WHERE material_type = #{type} AND status = 1 ORDER BY sort_order")
     @ResultMap("rawMaterialResultMap")
     List<TapeRawMaterial> selectRawMaterialsByType(@Param("type") String type);

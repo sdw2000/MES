@@ -2,6 +2,7 @@ package com.fine.service.stock;
 
 import com.fine.modle.stock.ScheduleMaterialLock;
 import com.fine.modle.stock.ScheduleMaterialAllocation;
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -75,10 +76,32 @@ public interface ScheduleMaterialLockingService {
     List<ScheduleMaterialLock> getLocksByOrderKey(String orderKey);
 
     /**
+     * 按订单维度查询仓库已锁定物料（支持工序与长度过滤）
+     */
+    List<ScheduleMaterialLock> queryOrderLockedStocks(LocalDate planDate,
+                                                      String materialCode,
+                                                      String orderNo,
+                                                      String rollCode,
+                                                      String processType,
+                                                      Integer requiredLength);
+
+    /**
      * 生产退料：对已领料的锁定记录做归还，恢复库存
      * @param lockIds 锁定记录IDs
      */
     void returnLocks(List<Long> lockIds) throws AllocationException;
+
+    /**
+     * 根据待补锁需求生成采购计划（避免重复生成未关闭计划）
+     * @return 本次新生成计划数量
+     */
+    int generateProcurementPlansFromPendingLocks();
+
+    /**
+     * 将待处理排程采购计划自动转为采购订单并回写关联
+     * @return 本次新生成采购单数量
+     */
+    int createPurchaseOrdersFromProcurementPlans();
     
     /**
      * 锁定结果DTO

@@ -2,6 +2,7 @@ package com.fine.modle;
 
 import java.util.Date;
 import java.util.List;
+import java.time.LocalDate;
 
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
@@ -39,8 +40,8 @@ public class DeliveryNotice {
     private String customer;
     
     // 发货日期
-    @JsonFormat(pattern = "yyyy-MM-dd", timezone = "GMT+8")
-    private Date deliveryDate;
+    @JsonFormat(pattern = "yyyy-MM-dd")
+    private LocalDate deliveryDate;
     
     // 收货地址
     private String deliveryAddress;
@@ -56,6 +57,10 @@ public class DeliveryNotice {
 
     // 承运公司
     private String carrierName;
+
+    // 物流单号
+    @TableField("carrier_no")
+    private String carrierNo;
 
     // 运输公司电话
     private String carrierPhone;

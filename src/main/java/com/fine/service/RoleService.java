@@ -16,6 +16,11 @@ public interface RoleService {
     ResponseResult<?> getAllRoles();
 
     /**
+     * 分页查询角色列表
+     */
+    ResponseResult<?> getRolePage(Integer page, Integer size, String keyword);
+
+    /**
      * 根据ID获取角色
      */
     ResponseResult<?> getRoleById(Long id);

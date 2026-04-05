@@ -11,12 +11,15 @@
         <result property="customerType" column="customer_type"/>
         <result property="customerLevel" column="customer_level"/>
         <result property="industry" column="industry"/>
+        <result property="orderNoPrefix" column="order_no_prefix"/>
+        <result property="orderNoSuffix" column="order_no_suffix"/>
         <result property="taxNumber" column="tax_number"/>
         <result property="legalPerson" column="legal_person"/>
         <result property="registeredCapital" column="registered_capital"/>
         <result property="registeredAddress" column="registered_address"/>
         <result property="businessAddress" column="business_address"/>
         <result property="contactAddress" column="contact_address"/>
+        <result property="receiveAddress" column="receive_address"/>
         <result property="businessScope" column="business_scope"/>
         <result property="creditCode" column="credit_code"/>
         <result property="companyPhone" column="company_phone"/>
@@ -63,6 +66,7 @@
             <result property="contactAddress" column="contact_address"/>
             <result property="isPrimary" column="is_primary"/>
             <result property="isDecisionMaker" column="is_decision_maker"/>
+            <result property="isReceiver" column="is_receiver"/>
             <result property="birthday" column="birthday"/>
             <result property="hobby" column="hobby"/>
             <result property="sortOrder" column="sort_order"/>
@@ -74,6 +78,13 @@
         SELECT COUNT(*) 
         FROM customers c
         WHERE c.is_deleted = 0
+        <if test="query.customerKeyword != null and query.customerKeyword != ''">
+            AND (
+                c.customer_name LIKE CONCAT('%', #{query.customerKeyword}, '%')
+                OR c.short_name LIKE CONCAT('%', #{query.customerKeyword}, '%')
+                OR c.customer_code LIKE CONCAT('%', #{query.customerKeyword}, '%')
+            )
+        </if>
         <if test="query.customerName != null and query.customerName != ''">
             AND c.customer_name LIKE CONCAT('%', #{query.customerName}, '%')
         </if>
@@ -89,8 +100,18 @@
         <if test="query.status != null and query.status != ''">
             AND c.status = #{query.status}
         </if>
-        <if test="query.salesUserId != null">
-            AND c.sales = #{query.salesUserId}
+        <if test="query.salesUserId != null or query.documentationPersonUserId != null">
+            AND (
+                <if test="query.salesUserId != null">
+                    c.sales = #{query.salesUserId}
+                </if>
+                <if test="query.salesUserId != null and query.documentationPersonUserId != null">
+                    OR
+                </if>
+                <if test="query.documentationPersonUserId != null">
+                    c.documentation_person = #{query.documentationPersonUserId}
+                </if>
+            )
         </if>
     </select>
 
@@ -105,10 +126,26 @@
             u1.real_name AS sales_user_name,
             u2.real_name AS documentation_person_user_name
         FROM customers c
-        LEFT JOIN customer_contacts cc ON c.id = cc.customer_id AND cc.is_primary = 1
+        LEFT JOIN (
+            SELECT c1.customer_id, c1.contact_name, c1.contact_mobile, c1.contact_email
+            FROM customer_contacts c1
+            INNER JOIN (
+                SELECT customer_id, MIN(id) AS pick_id
+                FROM customer_contacts
+                WHERE is_primary = 1
+                GROUP BY customer_id
+            ) p ON p.pick_id = c1.id
+        ) cc ON c.id = cc.customer_id
         LEFT JOIN users u1 ON c.sales = u1.id
         LEFT JOIN users u2 ON c.documentation_person = u2.id
         WHERE c.is_deleted = 0
+        <if test="query.customerKeyword != null and query.customerKeyword != ''">
+            AND (
+                c.customer_name LIKE CONCAT('%', #{query.customerKeyword}, '%')
+                OR c.short_name LIKE CONCAT('%', #{query.customerKeyword}, '%')
+                OR c.customer_code LIKE CONCAT('%', #{query.customerKeyword}, '%')
+            )
+        </if>
         <if test="query.customerName != null and query.customerName != ''">
             AND c.customer_name LIKE CONCAT('%', #{query.customerName}, '%')
         </if>
@@ -124,8 +161,18 @@
         <if test="query.status != null and query.status != ''">
             AND c.status = #{query.status}
         </if>
-        <if test="query.salesUserId != null">
-            AND c.sales = #{query.salesUserId}
+        <if test="query.salesUserId != null or query.documentationPersonUserId != null">
+            AND (
+                <if test="query.salesUserId != null">
+                    c.sales = #{query.salesUserId}
+                </if>
+                <if test="query.salesUserId != null and query.documentationPersonUserId != null">
+                    OR
+                </if>
+                <if test="query.documentationPersonUserId != null">
+                    c.documentation_person = #{query.documentationPersonUserId}
+                </if>
+            )
         </if>
         ORDER BY c.create_time DESC
     </select>
@@ -147,6 +194,7 @@
             cc.contact_address,
             cc.is_primary,
             cc.is_decision_maker,
+            cc.is_receiver,
             cc.birthday,
             cc.hobby,
             cc.sort_order
@@ -160,6 +208,8 @@
     <select id="selectAllCustomersWithContacts" resultMap="CustomerDetailMap">
         SELECT 
             c.*,
+            u1.real_name AS sales_user_name,
+            u2.real_name AS documentation_person_user_name,
             cc.id AS contact_id,
             cc.customer_id,
             cc.contact_name,
@@ -174,12 +224,15 @@
             cc.contact_address,
             cc.is_primary,
             cc.is_decision_maker,
+            cc.is_receiver,
             cc.birthday,
             cc.hobby,
             cc.sort_order,
             cc.remark AS contact_remark
         FROM customers c
         LEFT JOIN customer_contacts cc ON c.id = cc.customer_id
+        LEFT JOIN users u1 ON c.sales = u1.id
+        LEFT JOIN users u2 ON c.documentation_person = u2.id
         WHERE c.is_deleted = 0
         ORDER BY c.create_time DESC, cc.sort_order ASC, cc.id ASC
     </select>

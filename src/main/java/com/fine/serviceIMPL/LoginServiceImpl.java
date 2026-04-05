@@ -8,10 +8,13 @@ import java.util.Objects;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import com.alibaba.fastjson.JSON;
 import com.fine.Utils.JwtUtil;
@@ -36,13 +39,25 @@ public class LoginServiceImpl implements LoginServcie {
     @Autowired
     private RoleService roleService;@Override
     public ResponseResult<?> login(User user) {
+        if (user == null || !StringUtils.hasText(user.getUsername()) || !StringUtils.hasText(user.getPassword())) {
+            return new ResponseResult<>(400, "用户名和密码不能为空");
+        }
+
         UsernamePasswordAuthenticationToken authenticationToken = new UsernamePasswordAuthenticationToken(
                 user.getUsername(), user.getPassword());
         // 调用authenticate方法认证时
         // 会执行UserDetailsServiceImpl中的loadUserByUsername方法
-        Authentication authenticate = authenticationManager.authenticate(authenticationToken);
+        Authentication authenticate;
+        try {
+            authenticate = authenticationManager.authenticate(authenticationToken);
+        } catch (BadCredentialsException e) {
+            return new ResponseResult<>(401, "用户名或密码错误");
+        } catch (AuthenticationException e) {
+            return new ResponseResult<>(401, "认证失败：" + e.getMessage());
+        }
+
         if (Objects.isNull(authenticate)) {
-            throw new RuntimeException("用户名或密码错误");
+            return new ResponseResult<>(401, "用户名或密码错误");
         }        // 使用userid生成token
         LoginUser loginUser = (LoginUser) authenticate.getPrincipal();
         String userId = loginUser.getUser().getId().toString();
@@ -55,12 +70,18 @@ public class LoginServiceImpl implements LoginServcie {
         System.out.println("JSON长度: " + loginUserJson.length());
         System.out.println("JSON前100字符: " + (loginUserJson.length() > 100 ? loginUserJson.substring(0, 100) : loginUserJson));
         
-        redisCache.setCacheObject("login:" + userId, loginUserJson);
-        
-        // 验证Redis写入
-        String verify = redisCache.getCacheObject("login:" + userId);
-        System.out.println("Redis验证: " + (verify != null && verify.length() > 0 ? "成功(长度:" + verify.length() + ")" : "失败"));
-        System.out.println("================");
+                try {
+                        redisCache.setCacheObject("login:" + userId, loginUserJson);
+
+                        // 验证Redis写入
+                        String verify = redisCache.getCacheObject("login:" + userId);
+                        System.out.println("Redis验证: " + (verify != null && verify.length() > 0 ? "成功(长度:" + verify.length() + ")" : "失败"));
+                        System.out.println("================");
+                } catch (Exception e) {
+                        System.err.println("登录写入Redis失败: " + e.getMessage());
+                        return new ResponseResult<>(500, "登录失败：会话服务异常，请检查Redis");
+                }
+
           // 把token响应给前端
         HashMap<String, String> map = new HashMap<>();
         map.put("token", jwt);
@@ -70,8 +91,30 @@ public class LoginServiceImpl implements LoginServcie {
         Map<String, Object> map = new HashMap<>();
         
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        LoginUser loginUser = (LoginUser) authentication.getPrincipal();
+        LoginUser loginUser = null;
+        if (authentication != null && authentication.getPrincipal() instanceof LoginUser) {
+            loginUser = (LoginUser) authentication.getPrincipal();
+        }
+
+        // 兼容老接口通过 query 参数传 token 的场景，避免 SecurityContext 为空时抛 500
+        if (loginUser == null && StringUtils.hasText(token)) {
+            try {
+                String userId = JwtUtil.parseJWT(token).getSubject();
+                String loginUserJson = redisCache.getCacheObject("login:" + userId);
+                if (StringUtils.hasText(loginUserJson)) {
+                    loginUser = JSON.parseObject(loginUserJson, LoginUser.class);
+                }
+            } catch (Exception ignored) {
+                // 交由下方统一返回未登录
+            }
+        }
+
+        if (loginUser == null || loginUser.getUser() == null) {
+            return new ResponseResult<>(401, "未登录或登录已过期");
+        }
+
         String nameString = loginUser.getUser().getUsername();
+        String realName = loginUser.getUser().getRealName();
         Long id = loginUser.getUser().getId();
         
         // 从数据库获取用户角色
@@ -88,6 +131,7 @@ public class LoginServiceImpl implements LoginServcie {
         map.put("introduction", "I'm very big man");
         map.put("avatar", "https://www.baidu.com/img/flexible/logo/pc/result@2.png");
         map.put("name", nameString);
+        map.put("realName", realName != null ? realName : "");
         map.put("id", id);
           
         return new ResponseResult<>(20000, "登陆成功", map);

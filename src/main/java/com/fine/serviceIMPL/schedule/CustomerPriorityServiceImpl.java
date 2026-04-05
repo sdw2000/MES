@@ -13,6 +13,9 @@ import com.fine.service.schedule.CustomerPriorityService;
 import com.fine.Dao.production.SalesOrderMapper;
 import com.fine.Dao.CustomerMapper;
 import com.fine.modle.Customer;
+import com.fine.modle.LoginUser;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -277,26 +280,29 @@ public class CustomerPriorityServiceImpl implements CustomerPriorityService {
         
         CustomerTransactionStats stats = transactionStatsMapper.selectOne(wrapper);
         
+        // 每次都按最新订单数据刷新统计，避免历史缓存导致“重算无变化”
+        Map<String, Object> agg = (customerCode != null && !customerCode.isEmpty())
+                ? salesOrderMapper.selectCustomerTransactionStatsByCode(customerCode)
+                : null;
+
         if (stats == null) {
-            // 创建默认统计记录
             stats = new CustomerTransactionStats();
             stats.setCustomerId(customerId);
             stats.setCustomerName(customerName != null ? customerName : "客户" + customerId);
             stats.setPaymentTerms(paymentTermsDays != null ? paymentTermsDays : 30); // 默认30天
-
-            if (customerCode != null && !customerCode.isEmpty()) {
-                Map<String, Object> agg = salesOrderMapper.selectCustomerTransactionStatsByCode(customerCode);
-                stats.setLast3mAmount(toBigDecimal(agg != null ? agg.get("last3m_amount") : null));
-                stats.setLast3mOrderCount(toInteger(agg != null ? agg.get("last3m_order_count") : null));
-                stats.setAvgMonthlyAmount(toBigDecimal(agg != null ? agg.get("avg_monthly_amount") : null));
-            } else {
-                stats.setLast3mAmount(BigDecimal.ZERO);
-                stats.setLast3mOrderCount(0);
-                stats.setAvgMonthlyAmount(BigDecimal.ZERO);
-            }
-
+            stats.setLast3mAmount(toBigDecimal(agg != null ? agg.get("last3m_amount") : null));
+            stats.setLast3mOrderCount(toInteger(agg != null ? agg.get("last3m_order_count") : null));
+            stats.setAvgMonthlyAmount(toBigDecimal(agg != null ? agg.get("avg_monthly_amount") : null));
             stats.setStatsDate(new Date());
             transactionStatsMapper.insert(stats);
+        } else {
+            stats.setCustomerName(customerName != null ? customerName : stats.getCustomerName());
+            stats.setPaymentTerms(paymentTermsDays != null ? paymentTermsDays : stats.getPaymentTerms());
+            stats.setLast3mAmount(toBigDecimal(agg != null ? agg.get("last3m_amount") : null));
+            stats.setLast3mOrderCount(toInteger(agg != null ? agg.get("last3m_order_count") : null));
+            stats.setAvgMonthlyAmount(toBigDecimal(agg != null ? agg.get("avg_monthly_amount") : null));
+            stats.setStatsDate(new Date());
+            transactionStatsMapper.updateById(stats);
         }
         
         return stats;
@@ -313,22 +319,25 @@ public class CustomerPriorityServiceImpl implements CustomerPriorityService {
         wrapper.last("LIMIT 1");
         
         CustomerMaterialPriceStats stats = priceStatsMapper.selectOne(wrapper);
+        Map<String, Object> agg = (customerCode != null && !customerCode.isEmpty() && materialCode != null && !materialCode.isEmpty())
+                ? salesOrderMapper.selectCustomerMaterialPriceStatsByCode(customerCode, materialCode)
+                : null;
+
         if (stats == null) {
             stats = new CustomerMaterialPriceStats();
             stats.setCustomerId(customerId);
             stats.setMaterialCode(materialCode);
-            if (customerCode != null && !customerCode.isEmpty() && materialCode != null && !materialCode.isEmpty()) {
-                Map<String, Object> agg = salesOrderMapper.selectCustomerMaterialPriceStatsByCode(customerCode, materialCode);
-                stats.setLast3mTotalQty(toInteger(agg != null ? agg.get("last3m_total_qty") : null));
-                stats.setLast3mTotalAmount(toBigDecimal(agg != null ? agg.get("last3m_total_amount") : null));
-                stats.setAvgUnitPrice(toBigDecimal(agg != null ? agg.get("avg_unit_price") : null));
-            } else {
-                stats.setLast3mTotalQty(0);
-                stats.setLast3mTotalAmount(BigDecimal.ZERO);
-                stats.setAvgUnitPrice(BigDecimal.ZERO);
-            }
+            stats.setLast3mTotalQty(toInteger(agg != null ? agg.get("last3m_total_qty") : null));
+            stats.setLast3mTotalAmount(toBigDecimal(agg != null ? agg.get("last3m_total_amount") : null));
+            stats.setAvgUnitPrice(toBigDecimal(agg != null ? agg.get("avg_unit_price") : null));
             stats.setStatsDate(new Date());
             priceStatsMapper.insert(stats);
+        } else {
+            stats.setLast3mTotalQty(toInteger(agg != null ? agg.get("last3m_total_qty") : null));
+            stats.setLast3mTotalAmount(toBigDecimal(agg != null ? agg.get("last3m_total_amount") : null));
+            stats.setAvgUnitPrice(toBigDecimal(agg != null ? agg.get("avg_unit_price") : null));
+            stats.setStatsDate(new Date());
+            priceStatsMapper.updateById(stats);
         }
         return stats;
     }
@@ -363,6 +372,16 @@ public class CustomerPriorityServiceImpl implements CustomerPriorityService {
                 wrapper.lt("total_score", 15);
             }
         }
+
+        LoginUser loginUser = getLoginUser();
+        if (loginUser != null && !hasRole(loginUser, "admin")) {
+            Long uid = getCurrentUserId(loginUser);
+            List<Long> allowedIds = customerMapper.selectCustomerIdsByOwner(uid);
+            if (allowedIds == null || allowedIds.isEmpty()) {
+                return new Page<>(pageNum, pageSize, 0);
+            }
+            wrapper.in("customer_id", allowedIds);
+        }
         wrapper.orderByDesc("total_score", "order_time");
 
         IPage<OrderCustomerPriority> page = new Page<>(pageNum, pageSize);
@@ -384,6 +403,15 @@ public class CustomerPriorityServiceImpl implements CustomerPriorityService {
         }
         if (customerName != null && !customerName.isEmpty()) {
             wrapper.like("customer_name", customerName).or().like("short_name", customerName);
+        }
+
+        LoginUser loginUser = getLoginUser();
+        if (loginUser != null && !hasRole(loginUser, "admin")) {
+            Long uid = getCurrentUserId(loginUser);
+            if (uid == null) {
+                return new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(pageNum, pageSize, 0);
+            }
+            wrapper.and(w -> w.eq("sales", uid).or().eq("documentation_person", uid));
         }
 
         com.baomidou.mybatisplus.extension.plugins.pagination.Page<Customer> page = new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(pageNum, pageSize);
@@ -417,6 +445,22 @@ public class CustomerPriorityServiceImpl implements CustomerPriorityService {
         result.setTotal(customerPage.getTotal());
         result.setRecords(rows);
         return result;
+    }
+
+    private LoginUser getLoginUser() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication != null && authentication.getPrincipal() instanceof LoginUser) {
+            return (LoginUser) authentication.getPrincipal();
+        }
+        return null;
+    }
+
+    private boolean hasRole(LoginUser loginUser, String role) {
+        return loginUser != null && loginUser.getPermissions() != null && loginUser.getPermissions().contains(role);
+    }
+
+    private Long getCurrentUserId(LoginUser loginUser) {
+        return loginUser != null && loginUser.getUser() != null ? loginUser.getUser().getId() : null;
     }
 
     @Override

@@ -16,6 +16,19 @@ public interface ScheduleRewindingMapper extends BaseMapper<ScheduleRewinding> {
             "WHERE sr.schedule_id = #{scheduleId} ORDER BY sr.plan_start_time ASC")
     List<ScheduleRewinding> selectByScheduleId(@Param("scheduleId") Long scheduleId);
 
+    /**
+     * 批量查询任务号（按排程ID）
+     */
+    @Select("<script>" +
+            "SELECT schedule_id AS scheduleId, task_no AS taskNo FROM schedule_rewinding " +
+            "WHERE schedule_id IN " +
+            "<foreach collection='scheduleIds' item='id' open='(' separator=',' close=')'>" +
+            "#{id}" +
+            "</foreach> " +
+            "ORDER BY id DESC" +
+            "</script>")
+    List<Map<String, Object>> selectTaskNoByScheduleIds(@Param("scheduleIds") List<Long> scheduleIds);
+
     @Select("SELECT sr.*, e.equipment_name FROM schedule_rewinding sr " +
             "LEFT JOIN equipment e ON sr.equipment_id = e.id " +
             "WHERE sr.id = #{id}")
@@ -24,10 +37,11 @@ public interface ScheduleRewindingMapper extends BaseMapper<ScheduleRewinding> {
     @Select("SELECT * FROM schedule_rewinding WHERE task_no = #{taskNo}")
     ScheduleRewinding selectByTaskNo(@Param("taskNo") String taskNo);
 
-    @Select("SELECT CONCAT('RW-', DATE_FORMAT(NOW(), '%Y%m%d'), '-', " +
-            "LPAD(IFNULL(MAX(CAST(SUBSTRING(task_no, -3) AS UNSIGNED)), 0) + 1, 3, '0')) " +
-            "FROM schedule_rewinding WHERE task_no LIKE CONCAT('RW-', DATE_FORMAT(NOW(), '%Y%m%d'), '%')")
-    String generateTaskNo();
+    @Select("SELECT CONCAT('FJ-', DATE_FORMAT(COALESCE(#{planDate}, NOW()), '%y%m%d'), '-', " +
+            "LPAD(IFNULL(MAX(CAST(SUBSTRING(task_no, -2) AS UNSIGNED)), 0) + 1, 2, '0')) " +
+            "FROM schedule_rewinding " +
+            "WHERE task_no LIKE CONCAT('FJ-', DATE_FORMAT(COALESCE(#{planDate}, NOW()), '%y%m%d'), '-%')")
+    String generateTaskNo(@Param("planDate") java.util.Date planDate);
 
     @Insert("INSERT INTO schedule_rewinding (schedule_id, task_no, equipment_id, equipment_code, " +
             "staff_id, staff_name, shift_code, plan_date, source_batch_no, source_stock_id, " +

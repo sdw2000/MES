@@ -25,7 +25,7 @@ public class SampleOrder implements Serializable {
     private Long id;
     
     /**
-     * 送样编号（格式：SP20260105001）
+     * 送样编号（格式：SP260302-001）
      */
     private String sampleNo;
     

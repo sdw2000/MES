@@ -16,7 +16,7 @@ import java.math.BigDecimal;
  */
 @RestController
 @RequestMapping("/api/tape-spec")
-@PreAuthorize("hasAnyAuthority('admin','rd','sales','production','warehouse')")
+@PreAuthorize("hasAnyAuthority('admin','rd','sales','production','warehouse','finance','quality','packaging','packing')")
 public class TapeSpecController {
 
     @Autowired
@@ -144,8 +144,8 @@ public class TapeSpecController {
     /**
      * 品质校验接口
      * @param materialCode 料号
-     * @param paramName 参数名（totalThickness/peelStrength/unwindForce/heatResistance/initialTack）
-     * @param value 测量值
+        * @param paramName 参数名（totalThickness/peelStrength/unwindForce/heatResistance/initialTack）
+        * @param value 测量值
      */
     @GetMapping("/check-quality")
     public ResponseResult<?> checkQuality(

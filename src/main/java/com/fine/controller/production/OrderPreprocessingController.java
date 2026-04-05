@@ -7,6 +7,8 @@ import com.fine.Utils.ResponseResult;
 import com.fine.model.production.OrderMaterialLock;
 import com.fine.model.production.OrderPreprocessing;
 import com.fine.service.production.OrderPreprocessingService;
+import com.fine.service.production.MaterialReadinessService;
+import com.fine.model.production.readiness.ReadinessStatus;
 import com.fine.service.production.AvailableMaterialDTO;
 import com.fine.Dao.SalesOrderItemMapper;
 import com.fine.modle.SalesOrderItem;
@@ -16,6 +18,7 @@ import com.fine.Dao.stock.TapeRollMapper;
 import com.fine.modle.stock.TapeStock;
 import com.fine.modle.stock.TapeRoll;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
@@ -37,6 +40,12 @@ public class OrderPreprocessingController {
 
     @Autowired
     private OrderPreprocessingService orderPreprocessingService;
+
+    @Autowired
+    private MaterialReadinessService materialReadinessService;
+
+    @Value("${mes.readiness.allow-ready-by-eta:false}")
+    private boolean allowReadyByEta;
 
     @Autowired
     private PreprocessingMaterialLockMapper orderMaterialLockMapper;
@@ -280,6 +289,17 @@ public class OrderPreprocessingController {
             if (request.getOrderItemId() == null) {
                 return new ResponseResult<>(40001, "缺少订单明细ID", null);
             }
+
+            // 齐套门禁：缺料状态不允许进入生产排程
+            Map<String, Object> readiness = materialReadinessService.getOrderItemReadiness(request.getOrderItemId());
+            String readinessCode = readiness == null ? null : String.valueOf(readiness.get("statusCode"));
+            if (ReadinessStatus.SHORTAGE.equals(readinessCode)) {
+                return new ResponseResult<>(40001, "当前订单明细存在原料缺口，请先完成采购/到料后再提交排程", readiness);
+            }
+            if (ReadinessStatus.READY_BY_ETA.equals(readinessCode) && !allowReadyByEta) {
+                return new ResponseResult<>(40001, "当前订单明细为预计齐套，尚未达到放行策略。请确认到料或开启READY_BY_ETA放行", readiness);
+            }
+
             OrderPreprocessing preprocessing = orderPreprocessingService.getByOrderItemId(request.getOrderItemId());
             if (preprocessing == null) {
                 return new ResponseResult<>(40004, "预处理记录不存在", null);

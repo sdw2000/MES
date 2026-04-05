@@ -3,7 +3,11 @@ package com.fine.controller.production;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.fine.model.production.ProductionStaff;
 import com.fine.model.production.ProductionTeam;
+import com.fine.model.production.ProductionLeaveRecord;
+import com.fine.model.production.ProductionOvertimeRecord;
 import com.fine.model.production.StaffSkill;
+import com.fine.service.production.ProductionLeaveRecordService;
+import com.fine.service.production.ProductionOvertimeRecordService;
 import com.fine.service.production.ProductionStaffService;
 import com.fine.service.production.ProductionTeamService;
 import com.fine.Dao.production.ShiftDefinitionMapper;
@@ -16,11 +20,13 @@ import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.format.annotation.DateTimeFormat;
 
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,6 +48,12 @@ public class ProductionStaffController {
     @Autowired
     private ShiftDefinitionMapper shiftMapper;
 
+    @Autowired
+    private ProductionLeaveRecordService leaveRecordService;
+
+    @Autowired
+    private ProductionOvertimeRecordService overtimeRecordService;
+
     // ==================== 人员管理 ====================
 
     @ApiOperation("分页查询人员列表")
@@ -52,9 +64,12 @@ public class ProductionStaffController {
             @RequestParam(required = false) Long teamId,
             @RequestParam(required = false) Long workshopId,
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) String department,
+            @RequestParam(required = false) String positionName,
             @RequestParam(defaultValue = "1") Integer page,
             @RequestParam(defaultValue = "10") Integer size) {
-        IPage<ProductionStaff> pageResult = staffService.getStaffPage(staffCode, staffName, teamId, workshopId, status, page, size);
+        IPage<ProductionStaff> pageResult = staffService.getStaffPage(staffCode, staffName, teamId, workshopId,
+                status, department, positionName, page, size);
         
         Map<String, Object> result = new HashMap<>();
         result.put("list", pageResult.getRecords());
@@ -222,6 +237,96 @@ public class ProductionStaffController {
         return ResponseResult.success(list);
     }
 
+    // ==================== 请假管理 ====================
+
+    @ApiOperation("查询请假记录")
+    @GetMapping("/leave/list")
+    public ResponseResult<List<ProductionLeaveRecord>> getLeaveList(
+            @RequestParam(required = false) Long staffId,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") Date startDate,
+            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") Date endDate) {
+        List<ProductionLeaveRecord> list = leaveRecordService.getLeaveList(staffId, status, startDate, endDate);
+        return ResponseResult.success(list);
+    }
+
+    @ApiOperation("新增请假记录")
+    @PostMapping("/leave")
+    public ResponseResult<Void> addLeaveRecord(@RequestBody ProductionLeaveRecord record) {
+        boolean success = leaveRecordService.addLeaveRecord(record);
+        return success ? ResponseResult.success() : ResponseResult.fail("新增请假记录失败");
+    }
+
+    @ApiOperation("更新请假记录")
+    @PutMapping("/leave/{id}")
+    public ResponseResult<Void> updateLeaveRecord(@PathVariable Long id, @RequestBody ProductionLeaveRecord record) {
+        record.setId(id);
+        boolean success = leaveRecordService.updateLeaveRecord(record);
+        return success ? ResponseResult.success() : ResponseResult.fail("更新请假记录失败");
+    }
+
+    @ApiOperation("审批请假记录")
+    @PutMapping("/leave/{id}/approve")
+    public ResponseResult<Void> approveLeaveRecord(@PathVariable Long id, @RequestParam String status) {
+        if (!"approved".equals(status) && !"rejected".equals(status)) {
+            return ResponseResult.fail("审批状态仅支持approved/rejected");
+        }
+        boolean success = leaveRecordService.approveLeaveRecord(id, status);
+        return success ? ResponseResult.success() : ResponseResult.fail("审批请假记录失败");
+    }
+
+    @ApiOperation("删除请假记录")
+    @DeleteMapping("/leave/{id}")
+    public ResponseResult<Void> deleteLeaveRecord(@PathVariable Long id) {
+        boolean success = leaveRecordService.deleteLeaveRecord(id);
+        return success ? ResponseResult.success() : ResponseResult.fail("删除请假记录失败");
+    }
+
+    // ==================== 加班管理 ====================
+
+    @ApiOperation("查询加班记录")
+    @GetMapping("/overtime/list")
+    public ResponseResult<List<ProductionOvertimeRecord>> getOvertimeList(
+            @RequestParam(required = false) Long staffId,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") Date startDate,
+            @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") Date endDate) {
+        List<ProductionOvertimeRecord> list = overtimeRecordService.getOvertimeList(staffId, status, startDate, endDate);
+        return ResponseResult.success(list);
+    }
+
+    @ApiOperation("新增加班记录")
+    @PostMapping("/overtime")
+    public ResponseResult<Void> addOvertimeRecord(@RequestBody ProductionOvertimeRecord record) {
+        boolean success = overtimeRecordService.addOvertimeRecord(record);
+        return success ? ResponseResult.success() : ResponseResult.fail("新增加班记录失败");
+    }
+
+    @ApiOperation("更新加班记录")
+    @PutMapping("/overtime/{id}")
+    public ResponseResult<Void> updateOvertimeRecord(@PathVariable Long id, @RequestBody ProductionOvertimeRecord record) {
+        record.setId(id);
+        boolean success = overtimeRecordService.updateOvertimeRecord(record);
+        return success ? ResponseResult.success() : ResponseResult.fail("更新加班记录失败");
+    }
+
+    @ApiOperation("审批加班记录")
+    @PutMapping("/overtime/{id}/approve")
+    public ResponseResult<Void> approveOvertimeRecord(@PathVariable Long id, @RequestParam String status) {
+        if (!"approved".equals(status) && !"rejected".equals(status)) {
+            return ResponseResult.fail("审批状态仅支持approved/rejected");
+        }
+        boolean success = overtimeRecordService.approveOvertimeRecord(id, status);
+        return success ? ResponseResult.success() : ResponseResult.fail("审批加班记录失败");
+    }
+
+    @ApiOperation("删除加班记录")
+    @DeleteMapping("/overtime/{id}")
+    public ResponseResult<Void> deleteOvertimeRecord(@PathVariable Long id) {
+        boolean success = overtimeRecordService.deleteOvertimeRecord(id);
+        return success ? ResponseResult.success() : ResponseResult.fail("删除加班记录失败");
+    }
+
     // ==================== 班次 ====================
 
     @ApiOperation("查询所有班次")
@@ -245,8 +350,9 @@ public class ProductionStaffController {
         
         // 表头
         Row header = sheet.createRow(0);
-        String[] headers = {"工号", "姓名", "性别(M/F)", "联系电话", "班组ID", "车间ID", 
-                           "技能等级(junior/middle/senior)", "入职日期", "状态(active/leave/resigned)", "备注"};
+        String[] headers = {"工号", "姓名", "部门", "岗位", "学历", "籍贯", "联系电话",
+            "身份证号码", "户口所在地", "现居住址", "紧急联系人", "紧急联系人关系", "签约日期", "体检日期", "体检情况",
+            "班组ID", "车间ID", "技能等级(junior/middle/senior)", "入职日期", "状态(active/leave/resigned)", "备注"};
         for (int i = 0; i < headers.length; i++) {
             header.createCell(i).setCellValue(headers[i]);
         }
@@ -255,14 +361,25 @@ public class ProductionStaffController {
         Row row = sheet.createRow(1);
         row.createCell(0).setCellValue("S001");
         row.createCell(1).setCellValue("张三");
-        row.createCell(2).setCellValue("M");
-        row.createCell(3).setCellValue("13800138000");
-        row.createCell(4).setCellValue(1);
-        row.createCell(5).setCellValue(1);
-        row.createCell(6).setCellValue("middle");
-        row.createCell(7).setCellValue("2024-01-15");
-        row.createCell(8).setCellValue("active");
-        row.createCell(9).setCellValue("");
+        row.createCell(2).setCellValue("生产部");
+        row.createCell(3).setCellValue("生产员工");
+        row.createCell(4).setCellValue("高中");
+        row.createCell(5).setCellValue("广东省");
+        row.createCell(6).setCellValue("13800138000");
+        row.createCell(7).setCellValue("440101199001011234");
+        row.createCell(8).setCellValue("广州市天河区");
+        row.createCell(9).setCellValue("广州市白云区XX路");
+        row.createCell(10).setCellValue("李四");
+        row.createCell(11).setCellValue("配偶");
+        row.createCell(12).setCellValue("2026-01-01");
+        row.createCell(13).setCellValue("2026-01-05");
+        row.createCell(14).setCellValue("合格");
+        row.createCell(15).setCellValue(1);
+        row.createCell(16).setCellValue(1);
+        row.createCell(17).setCellValue("middle");
+        row.createCell(18).setCellValue("2024-01-15");
+        row.createCell(19).setCellValue("active");
+        row.createCell(20).setCellValue("");
         
         response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         response.setHeader("Content-Disposition", "attachment;filename=" + 
@@ -281,16 +398,19 @@ public class ProductionStaffController {
             @RequestParam(required = false) Long teamId,
             @RequestParam(required = false) Long workshopId,
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) String department,
+            @RequestParam(required = false) String positionName,
             HttpServletResponse response) throws IOException {
-        List<ProductionStaff> list = staffService.getStaffListForExport(teamId, workshopId, status);
+        List<ProductionStaff> list = staffService.getStaffListForExport(teamId, workshopId, status, department, positionName);
         
         Workbook workbook = new XSSFWorkbook();
         Sheet sheet = workbook.createSheet("人员数据");
         
         // 表头
         Row header = sheet.createRow(0);
-        String[] headers = {"工号", "姓名", "性别", "联系电话", "班组名称", "车间名称",
-                           "技能等级", "入职日期", "状态", "备注"};
+        String[] headers = {"工号", "姓名", "性别", "部门", "岗位", "学历", "年龄", "籍贯", "联系电话", "身份证号码",
+            "户口所在地", "现居住址", "紧急联系人", "紧急联系人关系", "签约日期", "体检日期", "体检情况",
+            "班组名称", "车间名称", "技能等级", "入职日期", "状态", "备注"};
         for (int i = 0; i < headers.length; i++) {
             header.createCell(i).setCellValue(headers[i]);
         }
@@ -303,13 +423,26 @@ public class ProductionStaffController {
             row.createCell(0).setCellValue(staff.getStaffCode() != null ? staff.getStaffCode() : "");
             row.createCell(1).setCellValue(staff.getStaffName() != null ? staff.getStaffName() : "");
             row.createCell(2).setCellValue(staff.getGender() != null ? staff.getGender() : "");
-            row.createCell(3).setCellValue(staff.getPhone() != null ? staff.getPhone() : "");
-            row.createCell(4).setCellValue(staff.getTeamName() != null ? staff.getTeamName() : "");
-            row.createCell(5).setCellValue(staff.getWorkshopName() != null ? staff.getWorkshopName() : "");
-            row.createCell(6).setCellValue(staff.getSkillLevel() != null ? staff.getSkillLevel() : "");
-            row.createCell(7).setCellValue(staff.getEntryDate() != null ? sdf.format(staff.getEntryDate()) : "");
-            row.createCell(8).setCellValue(staff.getStatus() != null ? staff.getStatus() : "");
-            row.createCell(9).setCellValue(staff.getRemark() != null ? staff.getRemark() : "");
+            row.createCell(3).setCellValue(staff.getDepartment() != null ? staff.getDepartment() : "");
+            row.createCell(4).setCellValue(staff.getPositionName() != null ? staff.getPositionName() : "");
+            row.createCell(5).setCellValue(staff.getEducation() != null ? staff.getEducation() : "");
+            row.createCell(6).setCellValue(staff.getAge() != null ? staff.getAge() : 0);
+            row.createCell(7).setCellValue(staff.getNativePlace() != null ? staff.getNativePlace() : "");
+            row.createCell(8).setCellValue(staff.getPhone() != null ? staff.getPhone() : "");
+            row.createCell(9).setCellValue(staff.getIdCardNo() != null ? staff.getIdCardNo() : "");
+            row.createCell(10).setCellValue(staff.getHouseholdAddress() != null ? staff.getHouseholdAddress() : "");
+            row.createCell(11).setCellValue(staff.getCurrentAddress() != null ? staff.getCurrentAddress() : "");
+            row.createCell(12).setCellValue(staff.getEmergencyContact() != null ? staff.getEmergencyContact() : "");
+            row.createCell(13).setCellValue(staff.getEmergencyRelation() != null ? staff.getEmergencyRelation() : "");
+            row.createCell(14).setCellValue(staff.getContractSignDate() != null ? sdf.format(staff.getContractSignDate()) : "");
+            row.createCell(15).setCellValue(staff.getMedicalExamDate() != null ? sdf.format(staff.getMedicalExamDate()) : "");
+            row.createCell(16).setCellValue(staff.getMedicalExamResult() != null ? staff.getMedicalExamResult() : "");
+            row.createCell(17).setCellValue(staff.getTeamName() != null ? staff.getTeamName() : "");
+            row.createCell(18).setCellValue(staff.getWorkshopName() != null ? staff.getWorkshopName() : "");
+            row.createCell(19).setCellValue(staff.getSkillLevel() != null ? staff.getSkillLevel() : "");
+            row.createCell(20).setCellValue(staff.getEntryDate() != null ? sdf.format(staff.getEntryDate()) : "");
+            row.createCell(21).setCellValue(staff.getStatus() != null ? staff.getStatus() : "");
+            row.createCell(22).setCellValue(staff.getRemark() != null ? staff.getRemark() : "");
         }
         
         response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
@@ -336,5 +469,16 @@ public class ProductionStaffController {
         } catch (Exception e) {
             return ResponseResult.fail("导入失败: " + e.getMessage());
         }
+    }
+
+    /**
+     * 一次性回填老数据：根据身份证重算性别和年龄
+     * POST /production/staff/backfill/gender-age
+     */
+    @ApiOperation("一次性回填性别年龄")
+    @PostMapping("/backfill/gender-age")
+    public ResponseResult<Map<String, Object>> backfillGenderAge() {
+        Map<String, Object> result = staffService.backfillGenderAgeByIdCard();
+        return ResponseResult.success(result);
     }
 }

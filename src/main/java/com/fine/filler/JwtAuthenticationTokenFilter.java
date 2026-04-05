@@ -31,10 +31,18 @@ public class JwtAuthenticationTokenFilter extends OncePerRequestFilter {
     protected void doFilterInternal(@NonNull HttpServletRequest request, 
                                    @NonNull HttpServletResponse response, 
                                    @NonNull FilterChain filterChain) throws ServletException, IOException {
+        String uri = request.getRequestURI();
+        if ("/user/logout".equals(uri) || "/user/login".equals(uri)) {
+            filterChain.doFilter(request, response);
+            return;
+        }
         // 获取token - 支持多种header名称
         String token = request.getHeader("token");
         if (!StringUtils.hasText(token)) {
             token = request.getHeader("X-Token");
+        }
+        if (!StringUtils.hasText(token)) {
+            token = request.getParameter("token");
         }
         if (!StringUtils.hasText(token)) {
             // 无token，放行

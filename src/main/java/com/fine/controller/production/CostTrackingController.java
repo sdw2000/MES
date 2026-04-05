@@ -8,6 +8,7 @@ import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import io.swagger.annotations.ApiParam;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import java.math.BigDecimal;
 import java.util.Map;
@@ -18,6 +19,7 @@ import java.util.Map;
 @Api(tags = "成本追溯管理")
 @RestController
 @RequestMapping("/api/production/cost-tracking")
+@PreAuthorize("hasAnyAuthority('admin','finance','production')")
 public class CostTrackingController {
     
     @Autowired

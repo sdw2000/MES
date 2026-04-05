@@ -2,11 +2,13 @@ package com.fine.Dao;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.fine.modle.SalesOrderItem;
+import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 import org.apache.ibatis.annotations.Param;
 
+import java.util.List;
 import java.util.Map;
 
 @Mapper
@@ -95,4 +97,73 @@ public interface SalesOrderItemMapper extends BaseMapper<SalesOrderItem> {
             com.baomidou.mybatisplus.extension.plugins.pagination.Page<SalesOrderItem> page,
             @Param("orderNo") String orderNo,
             @Param("materialCode") String materialCode);
+
+        /**
+         * 查询客户在某料号下历史下单规格（去重后按最近下单时间倒序）
+         */
+        @Select("<script>" +
+            "SELECT " +
+            "  soi.thickness AS thickness, " +
+            "  soi.width AS width, " +
+            "  soi.length AS length, " +
+            "  MAX(so.order_date) AS lastOrderDate, " +
+            "  COUNT(1) AS useCount " +
+            "FROM sales_order_items soi " +
+            "INNER JOIN sales_orders so ON so.id = soi.order_id " +
+            "WHERE so.is_deleted = 0 " +
+            "  AND soi.is_deleted = 0 " +
+            "  AND (so.customer = #{customerCode} " +
+            "       OR REGEXP_REPLACE(so.customer, '[^0-9A-Za-z\\\\u4e00-\\\\u9fa5_-]', '') = #{customerCode}) " +
+            "  AND REGEXP_REPLACE(REPLACE(TRIM(soi.material_code), '　', ' '), '\\s+', '') = " +
+            "      REGEXP_REPLACE(REPLACE(TRIM(#{materialCode}), '　', ' '), '\\s+', '') " +
+            "  AND soi.thickness IS NOT NULL " +
+            "  AND soi.width IS NOT NULL " +
+            "  AND soi.length IS NOT NULL " +
+            "GROUP BY soi.thickness, soi.width, soi.length " +
+            "ORDER BY MAX(so.order_date) DESC, COUNT(1) DESC " +
+            "LIMIT 10" +
+            "</script>")
+        List<Map<String, Object>> selectCustomerMaterialHistorySpecs(@Param("customerCode") String customerCode,
+                                      @Param("materialCode") String materialCode);
+
+        /**
+         * 当订单历史为空时，从报价基线中回退查询规格
+         */
+        @Select("<script>" +
+            "SELECT " +
+            "  qi.thickness AS thickness, " +
+            "  qi.width AS width, " +
+            "  qi.length AS length, " +
+            "  MAX(q.quotation_date) AS lastOrderDate, " +
+            "  COUNT(1) AS useCount " +
+            "FROM quotation_items qi " +
+            "INNER JOIN quotations q ON q.id = qi.quotation_id " +
+            "WHERE q.is_deleted = 0 " +
+            "  AND qi.is_deleted = 0 " +
+            "  AND q.source_sample_no = 'INIT_FROM_SALES_ORDER_LATEST_PRICE' " +
+            "  AND (q.customer = #{customerCode} " +
+            "       OR REGEXP_REPLACE(q.customer, '[^0-9A-Za-z\\\\u4e00-\\\\u9fa5_-]', '') = #{customerCode}) " +
+            "  AND REGEXP_REPLACE(REPLACE(TRIM(qi.material_code), '　', ' '), '\\s+', '') = " +
+            "      REGEXP_REPLACE(REPLACE(TRIM(#{materialCode}), '　', ' '), '\\s+', '') " +
+            "  AND qi.thickness IS NOT NULL " +
+            "  AND qi.width IS NOT NULL " +
+            "  AND qi.length IS NOT NULL " +
+            "GROUP BY qi.thickness, qi.width, qi.length " +
+            "ORDER BY MAX(q.quotation_date) DESC, COUNT(1) DESC " +
+            "LIMIT 10" +
+            "</script>")
+        List<Map<String, Object>> selectCustomerMaterialHistorySpecsFromQuotationBaseline(@Param("customerCode") String customerCode,
+                                                                                           @Param("materialCode") String materialCode);
+
+        @Delete("DELETE FROM sales_order_items")
+        int deleteAllPhysical();
+
+        @Update("ALTER TABLE sales_order_items AUTO_INCREMENT = 1")
+        int resetAutoIncrement();
+
+        @Select("SELECT " +
+            "IFNULL(SUM(IFNULL(delivered_qty, 0)), 0) AS completed_rolls, " +
+            "IFNULL(SUM(IFNULL(remaining_qty, GREATEST(rolls - IFNULL(delivered_qty, 0), 0))), 0) AS remaining_rolls " +
+            "FROM sales_order_items WHERE order_id = #{orderId} AND is_deleted = 0")
+        Map<String, Object> selectOrderRollProgress(@Param("orderId") Long orderId);
 }

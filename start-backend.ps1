@@ -1,80 +1,112 @@
-# MES后端应用快速启动脚本
-# 使用方法: 在PowerShell中运行 .\start-backend.ps1
+# MES backend start script
+# Usage:
+#   .\start-backend.ps1
+#   .\start-backend.ps1 -Restart
+
+param(
+    [switch]$Restart
+)
+
+Set-Location $PSScriptRoot
 
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "   MES后端应用启动脚本" -ForegroundColor Cyan
+Write-Host "   MES backend start script" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-# 检查Redis是否运行
-Write-Host "1. 检查Redis服务..." -ForegroundColor Yellow
+Write-Host "1. Check Redis..." -ForegroundColor Yellow
 try {
-    $redisTest = & "D:\360安全浏览器下载\Redis-8.4.0-Windows-x64-cygwin\redis-cli.exe" -h 127.0.0.1 -p 6379 ping 2>$null
-    if ($redisTest -eq "PONG") {
-        Write-Host "   ✅ Redis运行正常" -ForegroundColor Green
-    } else {
-        Write-Host "   ⚠️  Redis未响应" -ForegroundColor Red
-        Write-Host "   提示: 请先启动Redis服务器" -ForegroundColor Yellow
-        exit 1
+    $redisConn = Get-NetTCPConnection -LocalPort 6379 -ErrorAction SilentlyContinue
+    if (-not $redisConn) {
+        $redisServerCmd = Get-Command redis-server -ErrorAction SilentlyContinue
+        if (-not $redisServerCmd) {
+            Write-Host "   redis-server not found in PATH" -ForegroundColor Red
+            Write-Host "   Please install Redis or set PATH" -ForegroundColor Yellow
+            exit 1
+        }
+        Write-Host "   Redis not running, trying to start by redis-server..." -ForegroundColor Yellow
+        Start-Process -FilePath $redisServerCmd.Source -WindowStyle Hidden
+        Start-Sleep -Seconds 2
     }
+
+    $redisCliCmd = Get-Command redis-cli -ErrorAction SilentlyContinue
+    if ($redisCliCmd) {
+        $redisTest = & $redisCliCmd.Source -h 127.0.0.1 -p 6379 ping 2>$null
+        if ($redisTest -ne "PONG") {
+            Write-Host "   Redis ping failed" -ForegroundColor Red
+            exit 1
+        }
+    } else {
+        $redisConn = Get-NetTCPConnection -LocalPort 6379 -ErrorAction SilentlyContinue
+        if (-not $redisConn) {
+            Write-Host "   Redis port 6379 not available" -ForegroundColor Red
+            exit 1
+        }
+    }
+    Write-Host "   Redis is running" -ForegroundColor Green
 } catch {
-    Write-Host "   ❌ 无法连接Redis" -ForegroundColor Red
-    Write-Host "   提示: 请确保Redis已启动" -ForegroundColor Yellow
+    Write-Host "   Failed to connect Redis" -ForegroundColor Red
+    Write-Host "   Please make sure Redis is started" -ForegroundColor Yellow
     exit 1
 }
 
 Write-Host ""
-
-# 检查JAR文件是否存在
-Write-Host "2. 检查应用程序..." -ForegroundColor Yellow
+Write-Host "2. Check application package..." -ForegroundColor Yellow
 $jarPath = "target\MES-0.0.1-SNAPSHOT.jar"
 if (Test-Path $jarPath) {
     $jarInfo = Get-Item $jarPath
-    Write-Host "   ✅ 找到应用文件: $($jarInfo.Name)" -ForegroundColor Green
-    Write-Host "   📦 文件大小: $([math]::Round($jarInfo.Length/1MB, 2)) MB" -ForegroundColor Gray
-    Write-Host "   🕐 构建时间: $($jarInfo.LastWriteTime)" -ForegroundColor Gray
+    Write-Host "   Found: $($jarInfo.Name)" -ForegroundColor Green
+    Write-Host "   Size: $([math]::Round($jarInfo.Length / 1MB, 2)) MB" -ForegroundColor Gray
+    Write-Host "   Built at: $($jarInfo.LastWriteTime)" -ForegroundColor Gray
 } else {
-    Write-Host "   ❌ 未找到JAR文件" -ForegroundColor Red
-    Write-Host "   正在构建应用..." -ForegroundColor Yellow
+    Write-Host "   JAR not found" -ForegroundColor Red
+    Write-Host "   Building package..." -ForegroundColor Yellow
     mvn clean package -DskipTests
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "   ❌ 构建失败" -ForegroundColor Red
+        Write-Host "   Build failed" -ForegroundColor Red
         exit 1
     }
 }
 
 Write-Host ""
-
-# 检查端口是否被占用
-Write-Host "3. 检查端口8090..." -ForegroundColor Yellow
+Write-Host "3. Check port 8090..." -ForegroundColor Yellow
 $portInUse = Get-NetTCPConnection -LocalPort 8090 -ErrorAction SilentlyContinue
 if ($portInUse) {
-    Write-Host "   ⚠️  端口8090已被占用" -ForegroundColor Red
-    Write-Host "   进程ID: $($portInUse.OwningProcess)" -ForegroundColor Yellow
-    $choice = Read-Host "   是否结束占用端口的进程? (y/n)"
-    if ($choice -eq 'y') {
-        Stop-Process -Id $portInUse.OwningProcess -Force
-        Write-Host "   ✅ 已结束进程" -ForegroundColor Green
-        Start-Sleep -Seconds 2
+    $processIdToCheck = [int]($portInUse | Select-Object -First 1 -ExpandProperty OwningProcess)
+    Write-Host "   Port 8090 is in use" -ForegroundColor Red
+    Write-Host "   PID: $processIdToCheck" -ForegroundColor Yellow
+
+    if ($Restart) {
+        & "$PSScriptRoot\stop-mes-on-8090.ps1" -FailIfNonMes
+        if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+        }
+        Write-Host "   Old MES process stopped" -ForegroundColor Green
     } else {
-        Write-Host "   提示: 请手动结束占用端口的进程或修改application.properties中的端口配置" -ForegroundColor Yellow
+        $processInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $processIdToCheck"
+        $commandLine = [string]$processInfo.CommandLine
+        if ($commandLine -like '*com.fine.MesApplication*' -or $commandLine -like '*MES-0.0.1-SNAPSHOT.jar*') {
+            Write-Host "   MES is already running" -ForegroundColor Green
+            Write-Host "   To restart: .\start-backend.ps1 -Restart" -ForegroundColor Gray
+            exit 0
+        }
+        Write-Host "   Port 8090 is occupied by a non-MES process" -ForegroundColor Red
+        Write-Host "   Release port 8090 manually or change server.port" -ForegroundColor Yellow
         exit 1
     }
 } else {
-    Write-Host "   ✅ 端口8090可用" -ForegroundColor Green
+    Write-Host "   Port 8090 is available" -ForegroundColor Green
 }
 
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "   启动MES应用..." -ForegroundColor Cyan
+Write-Host "   Starting MES..." -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "提示: 按 Ctrl+C 停止应用" -ForegroundColor Gray
+Write-Host "Press Ctrl+C to stop" -ForegroundColor Gray
 Write-Host ""
 
-# 启动应用
 java -jar $jarPath
 
-# 如果应用意外退出
 Write-Host ""
-Write-Host "应用已停止" -ForegroundColor Yellow
+Write-Host "MES stopped" -ForegroundColor Yellow

@@ -3,6 +3,8 @@ package com.fine.Dao.stock;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.fine.modle.stock.TapeStock;
 import org.apache.ibatis.annotations.*;
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -26,6 +28,39 @@ public interface TapeStockMapper extends BaseMapper<TapeStock> {
             "GROUP BY material_code, product_name " +
             "ORDER BY material_code")
     List<TapeStock> selectSummaryByMaterial();
+
+    /**
+     * 按料号汇总库存（分页列表）
+     */
+    @Select("<script>" +
+            "SELECT material_code, product_name, " +
+            "SUM(total_rolls) as total_rolls, " +
+            "SUM(total_sqm) as total_sqm, " +
+            "COALESCE(SUM(available_area),0) as available_area, " +
+            "COALESCE(SUM(reserved_area),0) as reserved_area, " +
+            "COALESCE(SUM(consumed_area),0) as consumed_area " +
+            "FROM tape_stock WHERE status = 1 " +
+            "<if test='materialCode != null and materialCode != \"\"'> AND material_code LIKE CONCAT('%', #{materialCode}, '%') </if> " +
+            "GROUP BY material_code, product_name " +
+            "ORDER BY material_code " +
+            "LIMIT #{offset}, #{size}" +
+            "</script>")
+    List<TapeStock> selectSummaryByMaterialPageList(@Param("offset") long offset,
+                                                    @Param("size") long size,
+                                                    @Param("materialCode") String materialCode);
+
+    /**
+     * 按料号汇总库存（总数）
+     */
+    @Select("<script>" +
+            "SELECT COUNT(1) FROM (" +
+            "  SELECT material_code, product_name " +
+            "  FROM tape_stock WHERE status = 1 " +
+            "  <if test='materialCode != null and materialCode != \"\"'> AND material_code LIKE CONCAT('%', #{materialCode}, '%') </if> " +
+            "  GROUP BY material_code, product_name" +
+            ") t" +
+            "</script>")
+    Long countSummaryByMaterial(@Param("materialCode") String materialCode);
 
     /**
      * 归一化面积字段，填充null为0，并在可用面积缺失时重新计算
@@ -54,12 +89,33 @@ public interface TapeStockMapper extends BaseMapper<TapeStock> {
             "WHERE material_code = #{materialCode} AND status = 1 AND total_rolls > 0 " +
             "ORDER BY prod_date ASC, id ASC")
     List<TapeStock> selectByMaterialCodeFIFO(@Param("materialCode") String materialCode);
+
+    /**
+     * 根据料号查询库存明细（分页）
+     */
+    @Select("SELECT * FROM tape_stock " +
+            "WHERE material_code = #{materialCode} AND status = 1 " +
+            "ORDER BY prod_date ASC, id ASC")
+    IPage<TapeStock> selectByMaterialCodePage(Page<TapeStock> page, @Param("materialCode") String materialCode);
     
     /**
      * 根据批次号查询
      */
     @Select("SELECT * FROM tape_stock WHERE batch_no = #{batchNo}")
     TapeStock selectByBatchNo(@Param("batchNo") String batchNo);
+
+    /**
+     * 根据二维码查询
+     */
+    @Select("SELECT * FROM tape_stock WHERE qr_code = #{qrCode}")
+    TapeStock selectByQrCode(@Param("qrCode") String qrCode);
+
+    /**
+     * 查询批次号下最大的序号（用于自动生成二维码）
+     */
+    @Select("SELECT COALESCE(MAX(CAST(SUBSTRING_INDEX(qr_code, '-', -1) AS UNSIGNED)), 0) " +
+            "FROM tape_stock WHERE batch_no = #{batchNo} AND qr_code LIKE CONCAT(#{batchNo}, '-%')")
+    Integer selectMaxSequenceNoByBatchNo(@Param("batchNo") String batchNo);
     
     /**
      * 更新库存卷数

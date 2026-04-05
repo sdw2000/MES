@@ -62,6 +62,8 @@ public class SampleOrderDTO implements Serializable {
     
     // 系统字段
     private String createBy;
+    private String createByName;
+    private String applicantName;
     private String createTime;
     private String updateBy;
     private String updateTime;

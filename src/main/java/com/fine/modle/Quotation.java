@@ -1,6 +1,5 @@
 package com.fine.modle;
 
-import java.math.BigDecimal;
 import java.util.Date;
 import java.util.List;
 
@@ -26,7 +25,7 @@ public class Quotation {
       @TableId(type = IdType.AUTO)
     private Long id;
     
-    // 报价单号（系统生成，格式：QT-YYYYMMDD-001）
+    // 报价单号（系统生成，格式：QT-YYMMDD-001）
     private String quotationNo;
     
     // 客户名称
@@ -37,12 +36,9 @@ public class Quotation {
     
     // 联系电话
     private String contactPhone;
-    
-    // 总金额
-    private BigDecimal totalAmount;
-    
-    // 总面积（平方米）
-    private BigDecimal totalArea;
+
+    // 来源送样单号
+    private String sourceSampleNo;
     
     // 报价日期
     @JsonFormat(pattern = "yyyy-MM-dd", timezone = "GMT+8")
@@ -57,6 +53,15 @@ public class Quotation {
     
     // 备注
     private String remark;
+
+    // 报价单位（按面积/按长度/按卷）
+    private String pricingUnit;
+    
+    // 价格状态：PENDING / PRICED
+    private String priceStatus;
+
+    // 是否需要人工定价（true=需要，false=不需要）
+    private Boolean needsPricing;
     
     // 创建人
     private String createdBy;
@@ -79,4 +84,13 @@ public class Quotation {
     // 报价明细（不映射到数据库）
     @TableField(exist = false)
     private List<QuotationItem> items;
+
+    @TableField(exist = false)
+    private Long customerId;
+
+    @TableField(exist = false)
+    private String expiryStatus;
+
+    @TableField(exist = false)
+    private Integer daysToExpire;
 }

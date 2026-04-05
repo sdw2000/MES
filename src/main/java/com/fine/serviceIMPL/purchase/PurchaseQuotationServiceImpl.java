@@ -137,7 +137,10 @@ public class PurchaseQuotationServiceImpl extends ServiceImpl<PurchaseQuotationM
             for (PurchaseQuotationItem item : quotation.getItems()) {
                 calculateItem(item);
                 if (item.getAmount() != null) totalAmount = totalAmount.add(item.getAmount());
-                if (item.getSqm() != null) totalArea = totalArea.add(item.getSqm());
+                // 仅薄膜类（有宽度+长度）累计面积；其他原材料sqm承载总重
+                if (item.getSqm() != null && item.getWidth() != null && item.getLength() != null) {
+                    totalArea = totalArea.add(item.getSqm());
+                }
             }
         }
         quotation.setTotalAmount(totalAmount);
@@ -152,6 +155,12 @@ public class PurchaseQuotationServiceImpl extends ServiceImpl<PurchaseQuotationM
             if (item.getUnitPrice() != null) {
                 item.setAmount(sqm.multiply(item.getUnitPrice()).setScale(2, BigDecimal.ROUND_HALF_UP));
             }
+            return;
+        }
+
+        // 其他原材料：sqm承载总重，金额=总重*单价
+        if (item.getSqm() != null && item.getUnitPrice() != null) {
+            item.setAmount(item.getSqm().multiply(item.getUnitPrice()).setScale(2, BigDecimal.ROUND_HALF_UP));
         }
     }
 }

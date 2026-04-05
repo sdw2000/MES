@@ -16,6 +16,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import com.fine.Utils.ResponseResult;
 import com.fine.modle.Quotation;
+import com.fine.modle.QuotationItemVersionQuery;
 import com.fine.service.QuotationService;
 
 import java.util.Arrays;
@@ -27,7 +28,7 @@ import java.util.Map;
  */
 @RestController
 @RequestMapping("/quotation")
-@PreAuthorize("hasAuthority('admin')")
+@PreAuthorize("hasAnyAuthority('admin','sales','finance')")
 public class QuotationController {
 	
 	@Autowired
@@ -42,6 +43,17 @@ public class QuotationController {
 	public ResponseResult<?> getAllQuotations() {
 		return quotationService.getAllQuotations();
 	}
+
+	/**
+	 * 分页获取报价单列表
+	 */
+	@GetMapping("/page")
+	public ResponseResult<?> getQuotationPage(
+			@RequestParam(value = "current", defaultValue = "1") int current,
+			@RequestParam(value = "size", defaultValue = "10") int size,
+			@RequestParam(value = "customerKeyword", required = false) String customerKeyword) {
+		return quotationService.getQuotationPage(current, size, customerKeyword);
+	}
 	
 	/**
 	 * 根据ID获取报价单详情
@@ -52,7 +64,7 @@ public class QuotationController {
 	}
 	
 	/**
-	 * 创建报价单
+	 * 创建报价
 	 */
 	@PostMapping("/create")
 	@Transactional
@@ -61,16 +73,21 @@ public class QuotationController {
 	}
 	
 	/**
-	 * 更新报价单
+	 * 更新报价
 	 */
 	@PutMapping("/update")
 	@Transactional
 	public ResponseResult<?> updateQuotation(@RequestBody Quotation quotation) {
 		return quotationService.updateQuotation(quotation);
 	}
+
+	@PostMapping("/item-versions")
+	public ResponseResult<?> getQuotationItemVersions(@RequestBody QuotationItemVersionQuery query) {
+		return quotationService.getQuotationItemVersionHistory(query);
+	}
 	
 	/**
-	 * 删除报价单
+	 * 删除报价
 	 */
 	@DeleteMapping("/delete/{quotationId}")
 	@Transactional
@@ -117,12 +134,14 @@ public class QuotationController {
 	    @Transactional
 	    public ResponseResult<?> deleteQuotation(@PathVariable String quotationDetailId,@PathVariable String id) {
 	    	return quotationService.deleteQuotationDetails(quotationDetailId,id);
-	    }    /**
-     * 根据料号获取材料类别及动态字段
+	    }
+
+	/**
+	 * 根据料号获取材料类别及动态字段
      */
     @GetMapping("/material-info/{materialCode}")
     public ResponseResult<?> getMaterialInfoByCode(@PathVariable String materialCode) {
-        // 1. 查询材料类别（假设有service方法）
+		// 1. 查询材料类别（假设有service方法）
         String category = quotationService.getCategoryByMaterialCode(materialCode);
 
         // 2. 根据类别返回不同字段
@@ -141,7 +160,7 @@ public class QuotationController {
     }
     
     /**
-     * 导入报价单
+	 * 导入报价
      */
     @PostMapping("/import")
     public ResponseResult<?> importQuotations(@RequestParam("file") MultipartFile file) {
@@ -152,15 +171,25 @@ public class QuotationController {
             return quotationService.importFromExcel(file);
         } catch (Exception e) {
             e.printStackTrace();
-            return new ResponseResult<>(500, "导入失败：" + e.getMessage());
+			return new ResponseResult<>(500, "导入失败: " + e.getMessage());
         }
     }
     
     /**
-     * 导出报价单
+	 * 导出报价
      */
     @GetMapping("/export")
     public ResponseResult<?> exportQuotations() {
         return quotationService.exportQuotations();
     }
+
+	/**
+	 * 按销售订单最新下单时间单价初始化报价基线
+	 */
+	@PostMapping("/initialize-from-orders")
+	@PreAuthorize("hasAnyAuthority('admin')")
+	@Transactional
+	public ResponseResult<?> initializeFromOrders(@RequestParam(value = "operator", required = false) String operator) {
+		return quotationService.initializeFromLatestSalesOrders(operator);
+	}
 }

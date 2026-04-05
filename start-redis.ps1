@@ -1,4 +1,4 @@
-# Redis启动脚本
+# Redis 启动脚本（使用 PATH 中的 redis-server）
 # 使用方法: 在PowerShell中运行 .\start-redis.ps1
 
 Write-Host "========================================" -ForegroundColor Cyan
@@ -6,19 +6,30 @@ Write-Host "   启动Redis服务器" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-$redisPath = "D:\360安全浏览器下载\Redis-8.4.0-Windows-x64-cygwin"
-$redisServer = Join-Path $redisPath "redis-server.exe"
-
-if (Test-Path $redisServer) {
-    Write-Host "✅ 找到Redis服务器: $redisServer" -ForegroundColor Green
-    Write-Host ""
-    Write-Host "启动Redis..." -ForegroundColor Yellow
-    Write-Host "提示: 按 Ctrl+C 停止Redis" -ForegroundColor Gray
-    Write-Host ""
-    
-    Set-Location $redisPath
-    & $redisServer
-} else {
-    Write-Host "❌ 未找到Redis服务器" -ForegroundColor Red
-    Write-Host "请检查Redis安装路径: $redisPath" -ForegroundColor Yellow
+$existing = Get-NetTCPConnection -LocalPort 6379 -ErrorAction SilentlyContinue
+if ($existing) {
+    Write-Host "✅ Redis 已在运行（6379）" -ForegroundColor Green
+    exit 0
 }
+
+$redisCmd = Get-Command redis-server -ErrorAction SilentlyContinue
+if (-not $redisCmd) {
+    Write-Host "❌ 未找到 redis-server 命令" -ForegroundColor Red
+    Write-Host "请先将 Redis 安装目录加入 PATH" -ForegroundColor Yellow
+    exit 1
+}
+
+Write-Host "✅ 找到命令: $($redisCmd.Source)" -ForegroundColor Green
+Write-Host "正在后台启动 Redis..." -ForegroundColor Yellow
+
+Start-Process -FilePath $redisCmd.Source -WindowStyle Hidden
+Start-Sleep -Seconds 2
+
+$conn = Get-NetTCPConnection -LocalPort 6379 -ErrorAction SilentlyContinue
+if ($conn) {
+    Write-Host "✅ Redis 启动成功（6379）" -ForegroundColor Green
+    exit 0
+}
+
+Write-Host "❌ Redis 启动失败，请手动执行 redis-server 查看日志" -ForegroundColor Red
+exit 1

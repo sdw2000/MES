@@ -5,6 +5,7 @@ import org.springframework.web.multipart.MultipartFile;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.fine.Utils.ResponseResult;
 import com.fine.modle.Quotation;
+import com.fine.modle.QuotationItemVersionQuery;
 
 /**
  * 报价单服务接口
@@ -16,6 +17,11 @@ public interface QuotationService extends IService<Quotation> {
      * 获取所有报价单列表
      */
     ResponseResult<?> getAllQuotations();
+
+    /**
+     * 分页获取报价单列表
+     */
+    ResponseResult<?> getQuotationPage(int current, int size, String customerKeyword);
     
     /**
      * 根据ID获取报价单详情
@@ -31,6 +37,8 @@ public interface QuotationService extends IService<Quotation> {
      * 更新报价单
      */
     ResponseResult<?> updateQuotation(Quotation quotation);
+
+    ResponseResult<?> getQuotationItemVersionHistory(QuotationItemVersionQuery query);
     
     /**
      * 删除报价单（逻辑删除）
@@ -67,4 +75,9 @@ public interface QuotationService extends IService<Quotation> {
      * 导出报价单
      */
     ResponseResult<?> exportQuotations();
+
+    /**
+     * 按销售订单（客户+料号+厚度+宽度+长度）最新下单时间单价初始化报价基线
+     */
+    ResponseResult<?> initializeFromLatestSalesOrders(String operator);
 }

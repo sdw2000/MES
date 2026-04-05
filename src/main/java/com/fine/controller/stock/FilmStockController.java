@@ -16,7 +16,7 @@ import java.util.List;
  * @author Fine
  * @date 2026-01-15
  */
-@PreAuthorize("hasAuthority('admin')")
+@PreAuthorize("hasAnyAuthority('admin','warehouse','production','finance','quality')")
 @RestController
 @RequestMapping("/api/stock/film")
 @CrossOrigin
@@ -25,18 +25,14 @@ public class FilmStockController {
     @Autowired
     private FilmStockService filmStockService;
     
-    /**
-     * 查询所有薄膜库存
-     */
+    /** 查询所有薄膜库存 */
     @GetMapping("/list")
     public ResponseResult<List<FilmStock>> getFilmStockList() {
         List<FilmStock> list = filmStockService.getAllFilmStock();
         return new ResponseResult<>(20000, "查询成功", list);
     }
     
-    /**
-     * 按规格查询薄膜库存
-     */
+    /** 按规格查询薄膜库存 */
     @GetMapping("/spec")
     public ResponseResult<List<FilmStock>> getBySpec(
             @RequestParam(required = false) Integer thickness,
@@ -67,9 +63,7 @@ public class FilmStockController {
         return new ResponseResult<>(20000, "查询成功", details);
     }
     
-    /**
-     * 查询可用的薄膜明细
-     */
+    /** 查询可用的薄膜明细 */
     @GetMapping("/{id}/available")
     public ResponseResult<List<FilmStockDetail>> getAvailableDetails(@PathVariable Long id) {
         List<FilmStockDetail> details = filmStockService.getAvailableDetails(id);

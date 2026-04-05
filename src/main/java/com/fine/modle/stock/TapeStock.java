@@ -152,7 +152,12 @@ public class TapeStock {
      * 生成二维码内容（默认为批次号）
      */
     public void generateQrCode() {
-        if (qrCode == null && batchNo != null) {
+        if (batchNo == null) {
+            return;
+        }
+        if (sequenceNo != null && sequenceNo > 0) {
+            this.qrCode = batchNo + "-" + String.format("%03d", sequenceNo);
+        } else if (qrCode == null || qrCode.trim().isEmpty()) {
             this.qrCode = batchNo;
         }
     }

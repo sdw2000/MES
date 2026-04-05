@@ -37,13 +37,21 @@ public interface ProductionStaffMapper extends BaseMapper<ProductionStaff> {
             "<if test='status != null and status != \"\"'>" +
             "  AND s.status = #{status} " +
             "</if>" +
+            "<if test='department != null and department != \"\"'>" +
+            "  AND s.department LIKE CONCAT('%', #{department}, '%') " +
+            "</if>" +
+            "<if test='positionName != null and positionName != \"\"'>" +
+            "  AND s.position_name LIKE CONCAT('%', #{positionName}, '%') " +
+            "</if>" +
             "ORDER BY s.staff_code " +
             "</script>")
     List<ProductionStaff> selectStaffList(@Param("staffCode") String staffCode,
                                           @Param("staffName") String staffName,
                                           @Param("teamId") Long teamId,
                                           @Param("workshopId") Long workshopId,
-                                          @Param("status") String status);
+                                          @Param("status") String status,
+                                          @Param("department") String department,
+                                          @Param("positionName") String positionName);
 
     /**
      * 分页查询人员列表（使用MyBatis-Plus IPage）
@@ -69,6 +77,12 @@ public interface ProductionStaffMapper extends BaseMapper<ProductionStaff> {
             "<if test='status != null and status != \"\"'>" +
             "  AND s.status = #{status} " +
             "</if>" +
+            "<if test='department != null and department != \"\"'>" +
+            "  AND s.department LIKE CONCAT('%', #{department}, '%') " +
+            "</if>" +
+            "<if test='positionName != null and positionName != \"\"'>" +
+            "  AND s.position_name LIKE CONCAT('%', #{positionName}, '%') " +
+            "</if>" +
             "ORDER BY s.staff_code " +
             "</script>")
     IPage<ProductionStaff> selectStaffPageList(IPage<ProductionStaff> page,
@@ -76,7 +90,9 @@ public interface ProductionStaffMapper extends BaseMapper<ProductionStaff> {
                                                @Param("staffName") String staffName,
                                                @Param("teamId") Long teamId,
                                                @Param("workshopId") Long workshopId,
-                                               @Param("status") String status);
+                                               @Param("status") String status,
+                                               @Param("department") String department,
+                                               @Param("positionName") String positionName);
 
     /**
      * 根据ID查询详情（带关联信息）
@@ -91,7 +107,7 @@ public interface ProductionStaffMapper extends BaseMapper<ProductionStaff> {
     /**
      * 检查工号是否已存在
      */
-    @Select("SELECT COUNT(1) FROM production_staff WHERE staff_code = #{staffCode} AND is_deleted = 0 AND id != #{excludeId}")
+        @Select("SELECT COUNT(1) FROM production_staff WHERE staff_code = #{staffCode} AND id != #{excludeId}")
     int checkStaffCodeExists(@Param("staffCode") String staffCode, @Param("excludeId") Long excludeId);
 
     /**

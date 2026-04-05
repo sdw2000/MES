@@ -6,10 +6,12 @@ import com.fine.Utils.ResponseResult;
 import com.fine.model.quality.QualityDisposition;
 import com.fine.service.quality.QualityDispositionService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/quality/disposition")
+@PreAuthorize("hasAnyAuthority('admin','quality','production')")
 public class QualityDispositionController {
 
     @Autowired

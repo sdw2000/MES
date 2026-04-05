@@ -3,6 +3,7 @@ package com.fine.service.rd;
 import com.fine.Utils.ResponseResult;
 import com.fine.modle.rd.TapeFormula;
 import com.fine.modle.rd.TapeRawMaterial;
+import org.springframework.web.multipart.MultipartFile;
 
 import javax.servlet.http.HttpServletResponse;
 
@@ -48,6 +49,17 @@ public interface TapeFormulaService {
     ResponseResult<?> getRawMaterialList();
 
     /**
+     * 分页查询原材料列表（支持筛选）
+     */
+    ResponseResult<?> getRawMaterialPage(int page, int size, String materialCode, String materialName,
+                                         String materialType, Integer status);
+
+    /**
+     * 查询原材料详情
+     */
+    ResponseResult<?> getRawMaterialById(Long id);
+
+    /**
      * 新增原料
      */
     ResponseResult<?> createRawMaterial(TapeRawMaterial material);
@@ -84,4 +96,20 @@ public interface TapeFormulaService {
      * 批量导出所有配方
      */
     void exportAllFormula(HttpServletResponse response);
+
+    /**
+     * 导出原材料
+     */
+    void exportRawMaterials(HttpServletResponse response, String materialCode, String materialName,
+                            String materialType, Integer status);
+
+    /**
+     * 导入原材料
+     */
+    ResponseResult<?> importRawMaterials(MultipartFile file);
+
+    /**
+     * 下载原材料导入模板
+     */
+    void downloadRawMaterialTemplate(HttpServletResponse response);
 }

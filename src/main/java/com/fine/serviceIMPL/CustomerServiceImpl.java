@@ -1,12 +1,15 @@
 package com.fine.serviceIMPL;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fine.Dao.CustomerContactMapper;
 import com.fine.Dao.CustomerMapper;
+import com.fine.Dao.UserMapper;
 import com.fine.modle.Customer;
 import com.fine.modle.CustomerContact;
 import com.fine.modle.CustomerDTO;
+import com.fine.modle.User;
 import com.fine.service.CustomerService;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,6 +32,9 @@ public class CustomerServiceImpl implements CustomerService {
     
     @Autowired
     private CustomerContactMapper customerContactMapper;
+
+    @Autowired
+    private UserMapper userMapper;
     
     @Override
     public IPage<CustomerDTO> getCustomerPage(Integer current, Integer size, CustomerDTO query) {
@@ -75,9 +81,23 @@ public class CustomerServiceImpl implements CustomerService {
         if (!hasPrimary) {
             contacts.get(0).setIsPrimary(1);
         }
+
+        boolean hasReceiver = contacts.stream().anyMatch(c -> c.getIsReceiver() != null && c.getIsReceiver() == 1);
+        if (!hasReceiver) {
+            contacts.get(0).setIsReceiver(1);
+        }
         
         for (int i = 0; i < contacts.size(); i++) {
             CustomerContact contact = contacts.get(i);
+            if (contact.getIsPrimary() == null) {
+                contact.setIsPrimary(0);
+            }
+            if (contact.getIsDecisionMaker() == null) {
+                contact.setIsDecisionMaker(0);
+            }
+            if (contact.getIsReceiver() == null) {
+                contact.setIsReceiver(0);
+            }
             contact.setCustomerId(customer.getId());
             contact.setCreateTime(LocalDateTime.now());
             contact.setUpdateTime(LocalDateTime.now());
@@ -120,9 +140,23 @@ public class CustomerServiceImpl implements CustomerService {
         if (!hasPrimary) {
             contacts.get(0).setIsPrimary(1);
         }
+
+        boolean hasReceiver = contacts.stream().anyMatch(c -> c.getIsReceiver() != null && c.getIsReceiver() == 1);
+        if (!hasReceiver) {
+            contacts.get(0).setIsReceiver(1);
+        }
         
         for (int i = 0; i < contacts.size(); i++) {
             CustomerContact contact = contacts.get(i);
+            if (contact.getIsPrimary() == null) {
+                contact.setIsPrimary(0);
+            }
+            if (contact.getIsDecisionMaker() == null) {
+                contact.setIsDecisionMaker(0);
+            }
+            if (contact.getIsReceiver() == null) {
+                contact.setIsReceiver(0);
+            }
             contact.setId(null); // 清空ID，重新插入
             contact.setCustomerId(customer.getId());
             contact.setCreateTime(LocalDateTime.now());
@@ -236,15 +270,16 @@ public class CustomerServiceImpl implements CustomerService {
             org.apache.poi.ss.usermodel.Sheet customerSheet = workbook.createSheet("客户信息");
             String[] customerHeaders = {
                 "客户代码", "客户简称*", "客户全称*", "客户类型", "客户等级", "所属行业",
+                "订单号前缀", "订单号后缀",
                 "纳税人识别号", "法人代表", "注册资本(万元)", "注册地址", "经营地址", "联系地址",
                 "公司电话", "公司传真", "公司邮箱", "公司网站",
                 "信用额度(元)", "付款条件", "税率(%)", "开户银行", "银行账号",
-                "客户来源", "销售负责人", "所属部门", "状态", "备注"
+                "客户来源", "销售", "跟单员", "状态", "备注"
             };
             createHeaderRow(workbook, customerSheet, customerHeaders);
             
             // 设置列宽
-            int[] customerWidths = {4000, 3500, 6000, 3000, 3000, 3000, 5000, 3000, 3000, 8000, 8000, 8000,
+                int[] customerWidths = {4000, 3500, 6000, 3000, 3000, 3000, 3500, 3500, 5000, 3000, 3000, 8000, 8000, 8000,
                     4000, 4000, 5000, 5000, 4000, 3500, 2500, 5000, 5000, 3000, 3500, 3500, 2500, 5000};
             for (int i = 0; i < customerWidths.length; i++) {
                 customerSheet.setColumnWidth(i, customerWidths[i]);
@@ -252,11 +287,12 @@ public class CustomerServiceImpl implements CustomerService {
             
             // 添加示例数据
             org.apache.poi.ss.usermodel.Row sampleRow = customerSheet.createRow(1);
-            String[] sampleData = {"AHYC5001", "安徽亿丛", "安徽亿丛新能源有限公司", "企业客户", "A级客户", "新能源",
+                String[] sampleData = {"AHYC5001", "安徽亿丛", "安徽亿丛新能源有限公司", "企业客户", "A级客户", "新能源",
+                    "DH", "-SZ",
                     "91340100MA2TXXXXXX", "张三", "1000", "安徽省合肥市xxx", "安徽省合肥市xxx", "安徽省合肥市xxx",
                     "0551-12345678", "0551-12345679", "contact@yicong.com", "www.yicong.com",
                     "100000", "月结30天", "13", "中国银行合肥分行", "1234567890123456789",
-                    "网络推广", "罗妙静", "销售一部", "正常", "优质客户"};
+                    "网络推广", "罗妙静", "王跟单", "正常", "优质客户"};
             for (int i = 0; i < sampleData.length; i++) {
                 sampleRow.createCell(i).setCellValue(sampleData[i]);
             }
@@ -302,6 +338,10 @@ public class CustomerServiceImpl implements CustomerService {
                 {"客户全称*", "必填，公司完整名称"},
                 {"客户类型", "企业客户 / 个人客户，默认：企业客户"},
                 {"客户等级", "A级客户 / B级客户 / C级客户 / 潜在客户，默认：C级客户"},
+                {"订单号前缀", "可选，如：DH"},
+                {"订单号后缀", "可选，如：-SZ"},
+                {"销售", "可选，填写系统用户名或真实姓名，需已存在于users表"},
+                {"跟单员", "可选，填写系统用户名或真实姓名，需已存在于users表"},
                 {"付款条件", "现款现货 / 货到付款 / 月结30天 / 月结60天 / 预付30%"},
                 {"状态", "正常 / 冻结 / 黑名单，默认：正常"},
                 {"", ""},
@@ -384,27 +424,38 @@ public class CustomerServiceImpl implements CustomerService {
                 customer.setCustomerType(getValueOrDefault(getCellStringValue(row.getCell(3)), "企业客户"));
                 customer.setCustomerLevel(getValueOrDefault(getCellStringValue(row.getCell(4)), "C级客户"));
                 customer.setIndustry(getCellStringValue(row.getCell(5)));
-                customer.setTaxNumber(getCellStringValue(row.getCell(6)));
-                customer.setLegalPerson(getCellStringValue(row.getCell(7)));
-                customer.setRegisteredCapital(getCellBigDecimalValue(row.getCell(8)));
-                customer.setRegisteredAddress(getCellStringValue(row.getCell(9)));
-                customer.setBusinessAddress(getCellStringValue(row.getCell(10)));
-                customer.setContactAddress(getCellStringValue(row.getCell(11)));
-                customer.setCompanyPhone(getCellStringValue(row.getCell(12)));
-                customer.setCompanyFax(getCellStringValue(row.getCell(13)));
-                customer.setCompanyEmail(getCellStringValue(row.getCell(14)));
-                customer.setWebsite(getCellStringValue(row.getCell(15)));
-                customer.setCreditLimit(getCellBigDecimalValue(row.getCell(16)));
-                customer.setPaymentTerms(getValueOrDefault(getCellStringValue(row.getCell(17)), "现款现货"));
-                customer.setTaxRate(getCellBigDecimalValue(row.getCell(18)));
-                customer.setBankName(getCellStringValue(row.getCell(19)));
-                customer.setBankAccount(getCellStringValue(row.getCell(20)));
-                customer.setSource(getCellStringValue(row.getCell(21)));
-                // 销售和跟单员：在导入时设为null，用户需要在UI中手动选择
-                // customer.setSalesUserId(...);
-                // customer.setDocumentationPersonUserId(...);
-                customer.setStatus(getValueOrDefault(getCellStringValue(row.getCell(24)), "正常"));
-                customer.setRemark(getCellStringValue(row.getCell(25)));
+                customer.setOrderNoPrefix(getCellStringValue(row.getCell(6)));
+                customer.setOrderNoSuffix(getCellStringValue(row.getCell(7)));
+                customer.setTaxNumber(getCellStringValue(row.getCell(8)));
+                customer.setLegalPerson(getCellStringValue(row.getCell(9)));
+                customer.setRegisteredCapital(getCellBigDecimalValue(row.getCell(10)));
+                customer.setRegisteredAddress(getCellStringValue(row.getCell(11)));
+                customer.setBusinessAddress(getCellStringValue(row.getCell(12)));
+                customer.setContactAddress(getCellStringValue(row.getCell(13)));
+                customer.setCompanyPhone(getCellStringValue(row.getCell(14)));
+                customer.setCompanyFax(getCellStringValue(row.getCell(15)));
+                customer.setCompanyEmail(getCellStringValue(row.getCell(16)));
+                customer.setWebsite(getCellStringValue(row.getCell(17)));
+                customer.setCreditLimit(getCellBigDecimalValue(row.getCell(18)));
+                customer.setPaymentTerms(getValueOrDefault(getCellStringValue(row.getCell(19)), "现款现货"));
+                customer.setTaxRate(getCellBigDecimalValue(row.getCell(20)));
+                customer.setBankName(getCellStringValue(row.getCell(21)));
+                customer.setBankAccount(getCellStringValue(row.getCell(22)));
+                customer.setSource(getCellStringValue(row.getCell(23)));
+                String salesUserRaw = getCellStringValue(row.getCell(24));
+                String docUserRaw = getCellStringValue(row.getCell(25));
+                Long salesUserId = resolveUserIdByNameOrUsername(salesUserRaw);
+                Long documentationPersonUserId = resolveUserIdByNameOrUsername(docUserRaw);
+                if (salesUserRaw != null && !salesUserRaw.isEmpty() && salesUserId == null) {
+                    errors.add("第" + (i + 1) + "行：销售不存在（" + salesUserRaw + "）");
+                }
+                if (docUserRaw != null && !docUserRaw.isEmpty() && documentationPersonUserId == null) {
+                    errors.add("第" + (i + 1) + "行：跟单员不存在（" + docUserRaw + "）");
+                }
+                customer.setSalesUserId(salesUserId);
+                customer.setDocumentationPersonUserId(documentationPersonUserId);
+                customer.setStatus(getValueOrDefault(getCellStringValue(row.getCell(26)), "正常"));
+                customer.setRemark(getCellStringValue(row.getCell(27)));
                 
                 // 使用客户代码作为key，如果没有则用简称
                 String mapKey = (customerCode != null && !customerCode.isEmpty()) ? customerCode : shortName;
@@ -493,6 +544,11 @@ public class CustomerServiceImpl implements CustomerService {
                 if (!hasPrimary) {
                     contacts.get(0).setIsPrimary(1);
                 }
+
+                boolean hasReceiver = contacts.stream().anyMatch(c -> c.getIsReceiver() != null && c.getIsReceiver() == 1);
+                if (!hasReceiver) {
+                    contacts.get(0).setIsReceiver(1);
+                }
                 
                 try {
                     // 优先使用客户代码判断是否存在
@@ -522,6 +578,15 @@ public class CustomerServiceImpl implements CustomerService {
                         // 保存新联系人
                         for (int i = 0; i < contacts.size(); i++) {
                             CustomerContact contact = contacts.get(i);
+                            if (contact.getIsPrimary() == null) {
+                                contact.setIsPrimary(0);
+                            }
+                            if (contact.getIsDecisionMaker() == null) {
+                                contact.setIsDecisionMaker(0);
+                            }
+                            if (contact.getIsReceiver() == null) {
+                                contact.setIsReceiver(0);
+                            }
                             contact.setCustomerId(existing.getId());
                             contact.setCreateTime(LocalDateTime.now());
                             contact.setUpdateTime(LocalDateTime.now());
@@ -551,6 +616,15 @@ public class CustomerServiceImpl implements CustomerService {
                         // 保存联系人
                         for (int i = 0; i < contacts.size(); i++) {
                             CustomerContact contact = contacts.get(i);
+                            if (contact.getIsPrimary() == null) {
+                                contact.setIsPrimary(0);
+                            }
+                            if (contact.getIsDecisionMaker() == null) {
+                                contact.setIsDecisionMaker(0);
+                            }
+                            if (contact.getIsReceiver() == null) {
+                                contact.setIsReceiver(0);
+                            }
                             contact.setCustomerId(customer.getId());
                             contact.setCreateTime(LocalDateTime.now());
                             contact.setUpdateTime(LocalDateTime.now());
@@ -589,10 +663,11 @@ public class CustomerServiceImpl implements CustomerService {
             org.apache.poi.ss.usermodel.Sheet customerSheet = workbook.createSheet("客户信息");
             String[] customerHeaders = {
                 "客户编码", "客户简称", "客户全称", "客户类型", "客户等级", "所属行业",
+                "订单号前缀", "订单号后缀",
                 "纳税人识别号", "法人代表", "注册资本(万元)", "注册地址", "经营地址", "联系地址",
                 "公司电话", "公司传真", "公司邮箱", "公司网站",
                 "信用额度(元)", "付款条件", "税率(%)", "开户银行", "银行账号",
-                "客户来源", "销售负责人", "所属部门", "状态", "备注", "创建时间"
+                "客户来源", "销售", "跟单员", "状态", "备注", "创建时间"
             };
             createHeaderRow(workbook, customerSheet, customerHeaders);
             
@@ -605,27 +680,29 @@ public class CustomerServiceImpl implements CustomerService {
                 row.createCell(3).setCellValue(customer.getCustomerType() != null ? customer.getCustomerType() : "");
                 row.createCell(4).setCellValue(customer.getCustomerLevel() != null ? customer.getCustomerLevel() : "");
                 row.createCell(5).setCellValue(customer.getIndustry() != null ? customer.getIndustry() : "");
-                row.createCell(6).setCellValue(customer.getTaxNumber() != null ? customer.getTaxNumber() : "");
-                row.createCell(7).setCellValue(customer.getLegalPerson() != null ? customer.getLegalPerson() : "");
-                row.createCell(8).setCellValue(customer.getRegisteredCapital() != null ? customer.getRegisteredCapital().toString() : "");
-                row.createCell(9).setCellValue(customer.getRegisteredAddress() != null ? customer.getRegisteredAddress() : "");
-                row.createCell(10).setCellValue(customer.getBusinessAddress() != null ? customer.getBusinessAddress() : "");
-                row.createCell(11).setCellValue(customer.getContactAddress() != null ? customer.getContactAddress() : "");
-                row.createCell(12).setCellValue(customer.getCompanyPhone() != null ? customer.getCompanyPhone() : "");
-                row.createCell(13).setCellValue(customer.getCompanyFax() != null ? customer.getCompanyFax() : "");
-                row.createCell(14).setCellValue(customer.getCompanyEmail() != null ? customer.getCompanyEmail() : "");
-                row.createCell(15).setCellValue(customer.getWebsite() != null ? customer.getWebsite() : "");
-                row.createCell(16).setCellValue(customer.getCreditLimit() != null ? customer.getCreditLimit().toString() : "");
-                row.createCell(17).setCellValue(customer.getPaymentTerms() != null ? customer.getPaymentTerms() : "");
-                row.createCell(18).setCellValue(customer.getTaxRate() != null ? customer.getTaxRate().toString() : "");
-                row.createCell(19).setCellValue(customer.getBankName() != null ? customer.getBankName() : "");
-                row.createCell(20).setCellValue(customer.getBankAccount() != null ? customer.getBankAccount() : "");
-                row.createCell(21).setCellValue(customer.getSource() != null ? customer.getSource() : "");
-                row.createCell(22).setCellValue(customer.getSalesUserName() != null ? customer.getSalesUserName() : "");
-                row.createCell(23).setCellValue(customer.getDocumentationPersonUserName() != null ? customer.getDocumentationPersonUserName() : "");
-                row.createCell(24).setCellValue(customer.getStatus() != null ? customer.getStatus() : "");
-                row.createCell(25).setCellValue(customer.getRemark() != null ? customer.getRemark() : "");
-                row.createCell(26).setCellValue(customer.getCreateTime() != null ? customer.getCreateTime().toString() : "");
+                row.createCell(6).setCellValue(customer.getOrderNoPrefix() != null ? customer.getOrderNoPrefix() : "");
+                row.createCell(7).setCellValue(customer.getOrderNoSuffix() != null ? customer.getOrderNoSuffix() : "");
+                row.createCell(8).setCellValue(customer.getTaxNumber() != null ? customer.getTaxNumber() : "");
+                row.createCell(9).setCellValue(customer.getLegalPerson() != null ? customer.getLegalPerson() : "");
+                row.createCell(10).setCellValue(customer.getRegisteredCapital() != null ? customer.getRegisteredCapital().toString() : "");
+                row.createCell(11).setCellValue(customer.getRegisteredAddress() != null ? customer.getRegisteredAddress() : "");
+                row.createCell(12).setCellValue(customer.getBusinessAddress() != null ? customer.getBusinessAddress() : "");
+                row.createCell(13).setCellValue(customer.getContactAddress() != null ? customer.getContactAddress() : "");
+                row.createCell(14).setCellValue(customer.getCompanyPhone() != null ? customer.getCompanyPhone() : "");
+                row.createCell(15).setCellValue(customer.getCompanyFax() != null ? customer.getCompanyFax() : "");
+                row.createCell(16).setCellValue(customer.getCompanyEmail() != null ? customer.getCompanyEmail() : "");
+                row.createCell(17).setCellValue(customer.getWebsite() != null ? customer.getWebsite() : "");
+                row.createCell(18).setCellValue(customer.getCreditLimit() != null ? customer.getCreditLimit().toString() : "");
+                row.createCell(19).setCellValue(customer.getPaymentTerms() != null ? customer.getPaymentTerms() : "");
+                row.createCell(20).setCellValue(customer.getTaxRate() != null ? customer.getTaxRate().toString() : "");
+                row.createCell(21).setCellValue(customer.getBankName() != null ? customer.getBankName() : "");
+                row.createCell(22).setCellValue(customer.getBankAccount() != null ? customer.getBankAccount() : "");
+                row.createCell(23).setCellValue(customer.getSource() != null ? customer.getSource() : "");
+                row.createCell(24).setCellValue(customer.getSalesUserName() != null ? customer.getSalesUserName() : "");
+                row.createCell(25).setCellValue(customer.getDocumentationPersonUserName() != null ? customer.getDocumentationPersonUserName() : "");
+                row.createCell(26).setCellValue(customer.getStatus() != null ? customer.getStatus() : "");
+                row.createCell(27).setCellValue(customer.getRemark() != null ? customer.getRemark() : "");
+                row.createCell(28).setCellValue(customer.getCreateTime() != null ? customer.getCreateTime().toString() : "");
             }
             
             // Sheet2: 联系人信息
@@ -724,6 +801,26 @@ public class CustomerServiceImpl implements CustomerService {
     
     private String getValueOrDefault(String value, String defaultValue) {
         return (value != null && !value.isEmpty()) ? value : defaultValue;
+    }
+
+    private Long resolveUserIdByNameOrUsername(String nameOrUsername) {
+        if (nameOrUsername == null || nameOrUsername.trim().isEmpty()) {
+            return null;
+        }
+        String key = nameOrUsername.trim();
+        User byUsername = userMapper.selectOne(new QueryWrapper<User>()
+                .eq("username", key)
+                .last("LIMIT 1"));
+        if (byUsername != null) {
+            return byUsername.getId();
+        }
+        User byRealName = userMapper.selectOne(new QueryWrapper<User>()
+                .eq("real_name", key)
+                .last("LIMIT 1"));
+        if (byRealName != null) {
+            return byRealName.getId();
+        }
+        return null;
     }
     
     /**

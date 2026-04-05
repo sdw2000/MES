@@ -14,7 +14,7 @@ import com.fine.service.QuotationDetailsService;
 
 @RestController
 @RequestMapping("/quotationDetails")
-@PreAuthorize("hasAuthority('admin')")
+@PreAuthorize("hasAnyAuthority('admin','sales')")
 public class QuotationDetailsController {
 	
 	

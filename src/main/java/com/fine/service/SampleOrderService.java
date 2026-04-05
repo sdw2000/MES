@@ -53,6 +53,11 @@ public interface SampleOrderService {
      * 查询物流信息（调用快递100 API）
      */
     Map<String, Object> queryLogistics(String sampleNo);
+
+    /**
+     * 查询物流信息（可携带临时运单信息）
+     */
+    Map<String, Object> queryLogistics(String sampleNo, String trackingNumber, String expressCompany);
     
     /**
      * 转为订单

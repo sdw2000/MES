@@ -1,21 +1,15 @@
 package com.fine.controller;
 
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.DeleteMapping;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.multipart.MultipartFile;
-
 import com.fine.Utils.ResponseResult;
 import com.fine.modle.SalesOrder;
 import com.fine.service.SalesOrderService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import javax.servlet.http.HttpServletResponse;
 
@@ -24,8 +18,10 @@ import javax.servlet.http.HttpServletResponse;
  */
 @RestController
 @RequestMapping("/sales/orders")
-@PreAuthorize("hasAuthority('admin')")
+@PreAuthorize("hasAnyAuthority('admin','sales','finance')")
 public class SalesOrderController {
+
+    private static final Logger log = LoggerFactory.getLogger(SalesOrderController.class);
 
     @Autowired
     private SalesOrderService salesOrderService;
@@ -40,10 +36,15 @@ public class SalesOrderController {
             @RequestParam(value = "pageSize", defaultValue = "10") Integer pageSize,
             @RequestParam(value = "orderNo", required = false) String orderNo,
             @RequestParam(value = "customer", required = false) String customer,
+            @RequestParam(value = "completionStatus", required = false) String completionStatus,
+            @RequestParam(value = "showCompleted", required = false, defaultValue = "false") Boolean showCompleted,
             @RequestParam(value = "startDate", required = false) String startDate,
-            @RequestParam(value = "endDate", required = false) String endDate) {
-        System.out.println("=== 获取订单列表 ===");
-        return salesOrderService.getAllOrders(pageNum, pageSize, orderNo, customer, startDate, endDate);
+            @RequestParam(value = "endDate", required = false) String endDate,
+            @RequestParam(value = "sortProp", required = false) String sortProp,
+            @RequestParam(value = "sortOrder", required = false) String sortOrder) {
+        log.debug("获取订单列表, pageNum={}, pageSize={}, orderNo={}, customer={}, completionStatus={}, showCompleted={}, sortProp={}, sortOrder={}",
+                pageNum, pageSize, orderNo, customer, completionStatus, showCompleted, sortProp, sortOrder);
+        return salesOrderService.getAllOrders(pageNum, pageSize, orderNo, customer, completionStatus, showCompleted, startDate, endDate, sortProp, sortOrder);
     }
 
     /**
@@ -52,10 +53,43 @@ public class SalesOrderController {
      */
     @PostMapping
     public ResponseResult<?> createOrder(@RequestBody SalesOrder salesOrder) {
-        System.out.println("=== 创建订单 ===");
-        System.out.println("客户: " + salesOrder.getCustomer());
-        System.out.println("明细数量: " + (salesOrder.getItems() != null ? salesOrder.getItems().size() : 0));
+        log.info("创建订单, customer={}, itemCount={}", salesOrder.getCustomer(),
+                salesOrder.getItems() != null ? salesOrder.getItems().size() : 0);
         return salesOrderService.createOrder(salesOrder);
+    }
+
+    /**
+     * 生成订单号
+     * GET /sales/orders/generate-no?customerCode=xxx&orderDate=yyyy-MM-dd
+     */
+    @GetMapping("/generate-no")
+    public ResponseResult<?> generateOrderNo(
+            @RequestParam("customerCode") String customerCode,
+            @RequestParam(value = "orderDate", required = false)
+            @DateTimeFormat(pattern = "yyyy-MM-dd") java.time.LocalDate orderDate) {
+        return salesOrderService.generateOrderNo(customerCode, orderDate);
+    }
+
+    /**
+     * 查询客户在指定料号下的历史下单规格
+     * GET /sales/orders/history-specs?customerCode=xxx&materialCode=yyy
+     */
+    @GetMapping("/history-specs")
+    public ResponseResult<?> getCustomerMaterialHistorySpecs(
+            @RequestParam("customerCode") String customerCode,
+            @RequestParam("materialCode") String materialCode) {
+        return salesOrderService.getCustomerMaterialHistorySpecs(customerCode, materialCode);
+    }
+
+    /**
+     * 查询客户历史订单备注
+     * GET /sales/orders/remark-history?customerCode=xxx&limit=20
+     */
+    @GetMapping("/remark-history")
+    public ResponseResult<?> getCustomerOrderRemarkHistory(
+            @RequestParam("customerCode") String customerCode,
+            @RequestParam(value = "limit", required = false, defaultValue = "20") Integer limit) {
+        return salesOrderService.getCustomerOrderRemarkHistory(customerCode, limit);
     }
 
     /**
@@ -64,8 +98,7 @@ public class SalesOrderController {
      */
     @PutMapping
     public ResponseResult<?> updateOrder(@RequestBody SalesOrder salesOrder) {
-        System.out.println("=== 更新订单 ===");
-        System.out.println("订单号: " + salesOrder.getOrderNo());
+        log.info("更新订单, orderNo={}", salesOrder.getOrderNo());
         return salesOrderService.updateOrder(salesOrder);
     }
 
@@ -74,18 +107,31 @@ public class SalesOrderController {
      * DELETE /sales/orders?orderNo=xxx
      */
     @DeleteMapping
-    public ResponseResult<?> deleteOrder(@RequestParam String orderNo) {
-        System.out.println("=== 删除订单 ===");
-        System.out.println("订单号: " + orderNo);
+    public ResponseResult<?> deleteOrder(@RequestParam("orderNo") String orderNo) {
+        log.info("删除订单, orderNo={}", orderNo);
         return salesOrderService.deleteOrder(orderNo);
-    }    /**
+    }
+
+    /**
+     * 取消订单（必须填写取消原因）
+     * POST /sales/orders/cancel
+     */
+    @PostMapping("/cancel")
+    public ResponseResult<?> cancelOrder(@RequestBody SalesOrder salesOrder) {
+        String orderNo = salesOrder == null ? null : salesOrder.getOrderNo();
+        String cancelReason = salesOrder == null ? null : salesOrder.getCancelReason();
+        log.info("取消订单, orderNo={}", orderNo);
+        return salesOrderService.cancelOrder(orderNo, cancelReason);
+    }
+
+    /**
      * 根据订单号获取订单详情
      * GET /sales/orders/{orderNo}
      */
     @GetMapping("/{orderNo}")
-    public ResponseResult<?> getOrderDetail(@PathVariable String orderNo) {
-        System.out.println("=== 获取订单详情 ===");
-        System.out.println("订单号: " + orderNo);
+    @PreAuthorize("hasAnyAuthority('admin','sales','finance','production','packaging','packing')")
+    public ResponseResult<?> getOrderDetail(@PathVariable("orderNo") String orderNo) {
+        log.debug("获取订单详情, orderNo={}", orderNo);
         return salesOrderService.getOrderByOrderNo(orderNo);
     }
 
@@ -96,11 +142,10 @@ public class SalesOrderController {
     @GetMapping("/search")
     public ResponseResult<?> searchOrders(
             @RequestParam(required = false) String keyword,
-            @RequestParam(required = false) String status) {
-        System.out.println("=== 搜索订单 ===");
-        System.out.println("关键词: " + keyword);
-        System.out.println("状态: " + status);
-        return salesOrderService.searchOrders(keyword, status);
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String customer) {
+        log.debug("搜索订单, keyword={}, status={}, customer={}", keyword, status, customer);
+        return salesOrderService.searchOrders(keyword, status, customer);
     }
 
     /**
@@ -119,6 +164,51 @@ public class SalesOrderController {
     @PostMapping("/import")
     public ResponseResult<?> importOrders(@RequestParam("file") MultipartFile file) {
         return salesOrderService.importOrders(file, "admin");
+    }
+
+    /**
+     * 历史初始化状态
+     * GET /sales/orders/history-init/status
+     */
+    @GetMapping("/history-init/status")
+    public ResponseResult<?> getHistoryInitStatus() {
+        return salesOrderService.getHistoryInitStatus();
+    }
+
+    /**
+     * 历史订单初始化导入（一次性）
+     * POST /sales/orders/history-init/import
+     */
+    @PostMapping("/history-init/import")
+    public ResponseResult<?> importHistoryInit(@RequestParam("file") MultipartFile file) {
+        return salesOrderService.importHistoryInit(file, "admin");
+    }
+
+    /**
+     * 初始化后增量同步订单
+     * POST /sales/orders/history-init/sync
+     */
+    @PostMapping("/history-init/sync")
+    public ResponseResult<?> syncIncrementalOrders(@RequestParam("file") MultipartFile file) {
+        return salesOrderService.syncIncrementalOrders(file, "admin");
+    }
+
+    /**
+     * 清空历史初始化订单数据并重置初始化状态
+     * POST /sales/orders/history-init/reset
+     */
+    @PostMapping("/history-init/reset")
+    public ResponseResult<?> resetHistoryInitialization() {
+        return salesOrderService.resetHistoryInitialization("admin");
+    }
+
+    /**
+     * 基于现有订单数据重建历史初始化状态（不清理订单）
+     * POST /sales/orders/history-init/rebuild-state
+     */
+    @PostMapping("/history-init/rebuild-state")
+    public ResponseResult<?> rebuildHistoryInitializationState() {
+        return salesOrderService.rebuildHistoryInitializationState("admin");
     }
 
     /**

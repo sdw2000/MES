@@ -6,10 +6,12 @@ import com.fine.Utils.ResponseResult;
 import com.fine.model.quality.QualityInspectionRecord;
 import com.fine.service.quality.QualityInspectionService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/quality")
+@PreAuthorize("hasAnyAuthority('admin','quality','production')")
 public class QualityInspectionController {
 
     @Autowired

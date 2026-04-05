@@ -29,6 +29,8 @@ public class Customer {
     private String customerType;        // 客户类型：企业客户、个人客户
     private String customerLevel;       // 客户等级：A级客户、B级客户、C级客户、潜在客户
     private String industry;            // 所属行业
+    private String orderNoPrefix;       // 订单号前缀
+    private String orderNoSuffix;       // 订单号后缀
     
     // 企业信息
     private String taxNumber;           // 纳税人识别号
@@ -37,6 +39,7 @@ public class Customer {
     private String registeredAddress;   // 注册地址
     private String businessAddress;     // 经营地址
     private String contactAddress;      // 联系地址（默认收货地址）
+    private String receiveAddress;      // 收货地址（优先使用）
     private String businessScope;       // 经营范围
     private String creditCode;          // 统一社会信用代码
     

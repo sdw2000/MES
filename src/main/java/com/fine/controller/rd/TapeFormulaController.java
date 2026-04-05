@@ -16,7 +16,7 @@ import javax.servlet.http.HttpServletResponse;
  */
 @RestController
 @RequestMapping("/api/tape-formula")
-@PreAuthorize("hasAnyAuthority('admin','rd','production','warehouse')")
+@PreAuthorize("hasAnyAuthority('admin','rd','production','warehouse','finance','quality')")
 public class TapeFormulaController {
 
     @Autowired
@@ -105,7 +105,7 @@ public class TapeFormulaController {
     }
 
     /**
-     * 批量导出所有配方
+        * 批量导出所有配方
      */
     @GetMapping("/export-all")
     public void exportAllFormula(HttpServletResponse response) {
@@ -131,9 +131,32 @@ public class TapeFormulaController {
     }
 
     /**
+     * 分页查询原材料
+     */
+    @GetMapping("/raw-materials/list")
+    public ResponseResult<?> getRawMaterialPage(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String materialCode,
+            @RequestParam(required = false) String materialName,
+            @RequestParam(required = false) String materialType,
+            @RequestParam(required = false) Integer status) {
+        return tapeFormulaService.getRawMaterialPage(page, size, materialCode, materialName, materialType, status);
+    }
+
+    /**
+     * 查询原材料详情
+     */
+    @GetMapping("/raw-material/{id}")
+    public ResponseResult<?> getRawMaterialById(@PathVariable Long id) {
+        return tapeFormulaService.getRawMaterialById(id);
+    }
+
+    /**
      * 新增原料
      */
     @PostMapping("/raw-material")
+    @PreAuthorize("hasAnyAuthority('admin','rd')")
     public ResponseResult<?> createRawMaterial(@RequestBody TapeRawMaterial material) {
         return tapeFormulaService.createRawMaterial(material);
     }
@@ -142,6 +165,7 @@ public class TapeFormulaController {
      * 更新原料
      */
     @PutMapping("/raw-material")
+    @PreAuthorize("hasAnyAuthority('admin','rd')")
     public ResponseResult<?> updateRawMaterial(@RequestBody TapeRawMaterial material) {
         return tapeFormulaService.updateRawMaterial(material);
     }
@@ -150,7 +174,37 @@ public class TapeFormulaController {
      * 删除原料
      */
     @DeleteMapping("/raw-material/{id}")
+    @PreAuthorize("hasAnyAuthority('admin','rd')")
     public ResponseResult<?> deleteRawMaterial(@PathVariable Long id) {
         return tapeFormulaService.deleteRawMaterial(id);
+    }
+
+    /**
+     * 导出原材料
+     */
+    @GetMapping("/raw-material/export")
+    public void exportRawMaterials(HttpServletResponse response,
+                                   @RequestParam(required = false) String materialCode,
+                                   @RequestParam(required = false) String materialName,
+                                   @RequestParam(required = false) String materialType,
+                                   @RequestParam(required = false) Integer status) {
+        tapeFormulaService.exportRawMaterials(response, materialCode, materialName, materialType, status);
+    }
+
+    /**
+     * 导入原材料
+     */
+    @PostMapping("/raw-material/import")
+    @PreAuthorize("hasAnyAuthority('admin','rd')")
+    public ResponseResult<?> importRawMaterials(@RequestParam("file") MultipartFile file) {
+        return tapeFormulaService.importRawMaterials(file);
+    }
+
+    /**
+     * 下载原材料模板
+     */
+    @GetMapping("/raw-material/template")
+    public void downloadRawMaterialTemplate(HttpServletResponse response) {
+        tapeFormulaService.downloadRawMaterialTemplate(response);
     }
 }

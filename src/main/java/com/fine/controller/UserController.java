@@ -4,8 +4,11 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fine.Dao.UserMapper;
+import com.fine.Dao.CustomerMapper;
+import com.fine.Dao.production.ProductionStaffMapper;
 import com.fine.modle.User;
 import com.fine.Utils.ResponseResult;
+import com.fine.model.production.ProductionStaff;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,6 +17,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import javax.servlet.http.HttpServletResponse;
 import java.io.OutputStream;
@@ -24,6 +29,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import com.fine.modle.LoginUser;
 
 /**
  * 用户管理Controller
@@ -37,7 +43,13 @@ public class UserController {
     private UserMapper userMapper;
 
     @Autowired
+    private CustomerMapper customerMapper;
+
+    @Autowired
     private PasswordEncoder passwordEncoder;
+
+    @Autowired
+    private ProductionStaffMapper productionStaffMapper;
 
     /**
      * 分页查询用户列表
@@ -78,8 +90,95 @@ public class UserController {
     @PreAuthorize("isAuthenticated()")
     public ResponseResult<Map<String, Object>> getSimpleList(
             @RequestParam(value = "page", defaultValue = "1") Integer page,
-            @RequestParam(value = "size", defaultValue = "1000") Integer size) {
-        
+            @RequestParam(value = "size", defaultValue = "1000") Integer size,
+            @RequestParam(value = "roleKeyword", required = false) String roleKeyword,
+            @RequestParam(value = "source", required = false) String source,
+            @RequestParam(value = "roleType", required = false) String roleType,
+            @RequestParam(value = "ownerScope", required = false) String ownerScope) {
+
+        Map<String, Object> data = new HashMap<>();
+
+        if (StringUtils.hasText(roleKeyword)) {
+            List<User> fullList = userMapper.selectUsersByRoleKeyword(roleKeyword.trim());
+            int total = fullList.size();
+            int startIndex = Math.max(0, (page - 1) * size);
+            int endIndex = Math.min(total, startIndex + size);
+            List<User> pageList = startIndex >= total ? new ArrayList<>() : new ArrayList<>(fullList.subList(startIndex, endIndex));
+
+            // 清除敏感字段
+            pageList.forEach(user -> {
+                user.setPassword(null);
+                user.setEmail(null);
+            });
+
+            data.put("list", pageList);
+            data.put("records", pageList); // 兼容前端
+            data.put("total", total);
+            return ResponseResult.success(data);
+        }
+
+        if (StringUtils.hasText(source) && "customer".equalsIgnoreCase(source.trim())) {
+            boolean selfScope = StringUtils.hasText(ownerScope) && "self".equalsIgnoreCase(ownerScope.trim());
+            LoginUser loginUser = getLoginUser();
+            Long currentUserId = getCurrentUserId(loginUser);
+            List<Long> userIds;
+
+            if (StringUtils.hasText(roleType) && "documentation".equalsIgnoreCase(roleType.trim())) {
+                if (selfScope) {
+                    if (currentUserId == null) {
+                        data.put("list", new ArrayList<>());
+                        data.put("records", new ArrayList<>());
+                        data.put("total", 0);
+                        return ResponseResult.success(data);
+                    }
+                    userIds = customerMapper.selectDistinctDocumentationUserIdsBySalesUser(currentUserId);
+                } else {
+                    userIds = customerMapper.selectDistinctDocumentationUserIds();
+                }
+            } else {
+                if (selfScope) {
+                    if (currentUserId == null) {
+                        data.put("list", new ArrayList<>());
+                        data.put("records", new ArrayList<>());
+                        data.put("total", 0);
+                        return ResponseResult.success(data);
+                    }
+                    userIds = customerMapper.selectDistinctSalesUserIdsByDocumentationUser(currentUserId);
+                } else {
+                    userIds = customerMapper.selectDistinctSalesUserIds();
+                }
+            }
+
+            if (userIds == null || userIds.isEmpty()) {
+                data.put("list", new ArrayList<>());
+                data.put("records", new ArrayList<>());
+                data.put("total", 0);
+                return ResponseResult.success(data);
+            }
+
+            LambdaQueryWrapper<User> customerUserWrapper = new LambdaQueryWrapper<>();
+            customerUserWrapper.in(User::getId, userIds)
+                    .eq(User::getStatus, 0)
+                    .eq(User::getDelFlag, 0)
+                    .orderByAsc(User::getUsername);
+
+            List<User> fullList = userMapper.selectList(customerUserWrapper);
+            int total = fullList.size();
+            int startIndex = Math.max(0, (page - 1) * size);
+            int endIndex = Math.min(total, startIndex + size);
+            List<User> pageList = startIndex >= total ? new ArrayList<>() : new ArrayList<>(fullList.subList(startIndex, endIndex));
+
+            pageList.forEach(user -> {
+                user.setPassword(null);
+                user.setEmail(null);
+            });
+
+            data.put("list", pageList);
+            data.put("records", pageList);
+            data.put("total", total);
+            return ResponseResult.success(data);
+        }
+
         LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(User::getStatus, 0) // 只查询正常状态的用户
                .eq(User::getDelFlag, 0) // 未删除的用户
@@ -95,7 +194,6 @@ public class UserController {
             user.setEmail(null);
         });
 
-        Map<String, Object> data = new HashMap<>();
         data.put("list", result.getRecords());
         data.put("records", result.getRecords()); // 兼容前端
         data.put("total", result.getTotal());
@@ -120,6 +218,12 @@ public class UserController {
      */
     @PostMapping
     public ResponseResult<User> create(@RequestBody User user) {
+        if (user.getStaffId() == null) {
+            return ResponseResult.error(400, "请先选择关联人员");
+        }
+        if (user.getUsername() != null) {
+            user.setUsername(user.getUsername().trim());
+        }
         // 检查用户名是否已存在
         LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(User::getUsername, user.getUsername());
@@ -131,6 +235,14 @@ public class UserController {
         } else {
             // 默认密码
             user.setPassword(passwordEncoder.encode("123456"));
+        }
+
+        if (user.getStaffId() != null) {
+            ProductionStaff staff = productionStaffMapper.selectById(user.getStaffId());
+            if (staff == null || "resigned".equalsIgnoreCase(staff.getStatus())) {
+                return ResponseResult.error(400, "关联人员不存在或已离职");
+            }
+            user.setRealName(staff.getStaffName());
         }
 
         user.setStatus(0);  // 0表示正常状态
@@ -161,6 +273,7 @@ public class UserController {
 
         // 检查用户名是否与其他用户冲突
         if (StringUtils.hasText(user.getUsername())) {
+            user.setUsername(user.getUsername().trim());
             LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
             wrapper.eq(User::getUsername, user.getUsername());
             wrapper.ne(User::getId, id);
@@ -173,6 +286,16 @@ public class UserController {
         if (StringUtils.hasText(user.getRealName())) {
             existingUser.setRealName(user.getRealName());
         }
+
+        if (user.getStaffId() == null) {
+            return ResponseResult.error(400, "请先选择关联人员");
+        }
+        ProductionStaff staff = productionStaffMapper.selectById(user.getStaffId());
+        if (staff == null || "resigned".equalsIgnoreCase(staff.getStatus())) {
+            return ResponseResult.error(400, "关联人员不存在或已离职");
+        }
+        existingUser.setStaffId(user.getStaffId());
+        existingUser.setRealName(staff.getStaffName());
 
         // 如果提供了新密码，则更新密码
         if (StringUtils.hasText(user.getPassword())) {
@@ -225,6 +348,60 @@ public class UserController {
         userMapper.updateById(user);
 
         return ResponseResult.success();
+    }
+
+    /**
+     * 修改当前用户密码
+     */
+    @PostMapping("/change-password")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseResult<Void> changePassword(@RequestBody ChangePasswordRequest request) {
+        if (request == null || !StringUtils.hasText(request.getOldPassword()) || !StringUtils.hasText(request.getNewPassword())) {
+            return ResponseResult.error(400, "参数不完整");
+        }
+        if (request.getNewPassword().length() < 6) {
+            return ResponseResult.error(400, "新密码长度至少6位");
+        }
+
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !(authentication.getPrincipal() instanceof LoginUser)) {
+            return ResponseResult.error(401, "未登录");
+        }
+        LoginUser loginUser = (LoginUser) authentication.getPrincipal();
+        Long userId = loginUser.getUser().getId();
+        User user = userMapper.selectById(userId);
+        if (user == null) {
+            return ResponseResult.error(404, "用户不存在");
+        }
+        if (!passwordEncoder.matches(request.getOldPassword(), user.getPassword())) {
+            return ResponseResult.error(400, "旧密码不正确");
+        }
+
+        user.setPassword(passwordEncoder.encode(request.getNewPassword()));
+        user.setUpdatedAt(LocalDateTime.now());
+        userMapper.updateById(user);
+        return ResponseResult.success();
+    }
+
+    public static class ChangePasswordRequest {
+        private String oldPassword;
+        private String newPassword;
+
+        public String getOldPassword() {
+            return oldPassword;
+        }
+
+        public void setOldPassword(String oldPassword) {
+            this.oldPassword = oldPassword;
+        }
+
+        public String getNewPassword() {
+            return newPassword;
+        }
+
+        public void setNewPassword(String newPassword) {
+            this.newPassword = newPassword;
+        }
     }
 
     /**
@@ -435,5 +612,17 @@ public class UserController {
             default:
                 return null;
         }
+    }
+
+    private LoginUser getLoginUser() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication != null && authentication.getPrincipal() instanceof LoginUser) {
+            return (LoginUser) authentication.getPrincipal();
+        }
+        return null;
+    }
+
+    private Long getCurrentUserId(LoginUser loginUser) {
+        return loginUser != null && loginUser.getUser() != null ? loginUser.getUser().getId() : null;
     }
 }

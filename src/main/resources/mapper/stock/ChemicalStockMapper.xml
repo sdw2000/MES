@@ -45,5 +45,20 @@
         WHERE id = #{id}
           AND locked_quantity >= #{outQuantity}
     </update>
+
+    <!-- 到货入库：增加库存 -->
+    <update id="addStock">
+        UPDATE chemical_stock
+        SET total_quantity = COALESCE(total_quantity, 0) + #{inQuantity},
+            available_quantity = COALESCE(available_quantity, 0) + #{inQuantity},
+            last_in_date = CURDATE(),
+            status = CASE
+                WHEN COALESCE(available_quantity, 0) + #{inQuantity} &lt;= 0 THEN 'out_of_stock'
+                WHEN COALESCE(safety_stock, 0) &gt; 0 AND COALESCE(available_quantity, 0) + #{inQuantity} &lt; COALESCE(safety_stock, 0) THEN 'low_stock'
+                ELSE 'active'
+            END,
+            update_time = NOW()
+        WHERE id = #{id}
+    </update>
     
 </mapper>

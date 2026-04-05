@@ -605,6 +605,16 @@ public class ProductionScheduleController {
         List<Map<String, Object>> output = scheduleService.getTodayOutput();
         return ResponseResult.success(output);
     }
+
+    /**
+     * 获取当班当月/当年生产报工总平米数
+     */
+    @GetMapping("/report/shift-summary")
+    public ResponseResult<Map<String, Object>> getShiftSummary(
+            @RequestParam(required = false) String shiftCode) {
+        Map<String, Object> summary = scheduleService.getShiftProductionAreaSummary(shiftCode);
+        return ResponseResult.success(summary);
+    }
     
     // ========== 生产看板接口 ==========
     

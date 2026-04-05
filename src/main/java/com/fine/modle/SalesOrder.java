@@ -2,6 +2,7 @@ package com.fine.modle;
 
 import java.math.BigDecimal;
 import java.util.Date;
+import java.time.LocalDate;
 import java.util.List;
 
 import com.baomidou.mybatisplus.annotation.IdType;
@@ -32,6 +33,21 @@ public class SalesOrder {
     
     // 客户名称
     private String customer;
+
+    @TableField(exist = false)
+    private Long customerId;
+
+    @TableField(exist = false)
+    private String customerCode;
+
+    @TableField(exist = false)
+    private String customerName;
+
+    @TableField(exist = false)
+    private String shortName;
+
+    @TableField(exist = false)
+    private String customerDisplay;
     
     // 客户订单号
     private String customerOrderNo;
@@ -60,12 +76,12 @@ public class SalesOrder {
     private BigDecimal requiredArea;
 
     // 下单日期
-    @JsonFormat(pattern = "yyyy-MM-dd", timezone = "GMT+8")
-    private Date orderDate;
+    @JsonFormat(pattern = "yyyy-MM-dd")
+    private LocalDate orderDate;
     
     // 交货日期
-    @JsonFormat(pattern = "yyyy-MM-dd", timezone = "GMT+8")
-    private Date deliveryDate;
+    @JsonFormat(pattern = "yyyy-MM-dd")
+    private LocalDate deliveryDate;
     
     // 送货地址
     private String deliveryAddress;
@@ -75,6 +91,10 @@ public class SalesOrder {
     
     // 备注
     private String remark;
+
+    // 取消原因（仅请求参数，不入库；实际落备注）
+    @TableField(exist = false)
+    private String cancelReason;
     
     // 创建人
     private String createdBy;
@@ -97,4 +117,16 @@ public class SalesOrder {
     // 订单明细（不映射到数据库）
     @TableField(exist = false)
     private List<SalesOrderItem> items;
+
+    // 未发货卷数（不映射到数据库）
+    @TableField(exist = false)
+    private Integer remainingRolls;
+
+    // 总卷数（不映射到数据库）
+    @TableField(exist = false)
+    private Integer totalRolls;
+
+    // 已发货卷数（不映射到数据库）
+    @TableField(exist = false)
+    private Integer shippedRolls;
 }

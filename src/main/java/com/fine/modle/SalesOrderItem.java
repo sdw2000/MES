@@ -37,7 +37,7 @@ public class SalesOrderItem {
     // 颜色代码
     private String colorCode;
     
-    // 厚度（mm，存储时已从μm转换）
+    // 厚度（μm）
     private BigDecimal thickness;
     
     // 宽度（mm）
@@ -48,6 +48,18 @@ public class SalesOrderItem {
     
     // 卷数
     private Integer rolls;
+
+    // 已完成卷数（维护口径）
+    @TableField("delivered_qty")
+    private Integer deliveredQty;
+
+    // 欠卷数（维护口径）
+    @TableField("remaining_qty")
+    private Integer remainingQty;
+
+    // 完成状态（not_started/partial/completed）
+    @TableField("production_status")
+    private String productionStatus;
     
     // 已排程数量
     private Integer scheduledQty;
@@ -72,6 +84,10 @@ public class SalesOrderItem {
     
     // 备注
     private String remark;
+
+    // 涂布日期（计划）
+    @JsonFormat(pattern = "yyyy-MM-dd", timezone = "GMT+8")
+    private Date coatingDate;
     
     // 创建人
     private String createdBy;
@@ -107,4 +123,7 @@ public class SalesOrderItem {
     // 计算用的临时字段（不入库）：待排程面积（㎡）
     @TableField(exist = false)
     private BigDecimal pendingArea;
+
+    // 计价单位（㎡ / m / 卷）
+    private String unit;
 }

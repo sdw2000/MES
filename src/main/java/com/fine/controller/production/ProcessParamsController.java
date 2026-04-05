@@ -35,11 +35,12 @@ public class ProcessParamsController {
     public ResponseResult<Map<String, Object>> getList(
             @RequestParam(required = false) String materialCode,
             @RequestParam(required = false) String processType,
+            @RequestParam(required = false) String equipmentCode,
             @RequestParam(defaultValue = "1") Integer page,
             @RequestParam(defaultValue = "10") Integer size) {
         
         // 使用MyBatis-Plus分页方式
-        IPage<ProcessParams> pageResult = paramsService.getProcessParamsPage(materialCode, processType, page, size);
+        IPage<ProcessParams> pageResult = paramsService.getProcessParamsPage(materialCode, processType, equipmentCode, page, size);
         
         Map<String, Object> result = new HashMap<>();
         result.put("list", pageResult.getRecords());
@@ -56,8 +57,9 @@ public class ProcessParamsController {
     @GetMapping("/get")
     public ResponseResult<ProcessParams> getByMaterialAndProcess(
             @RequestParam String materialCode,
-            @RequestParam String processType) {
-        ProcessParams params = paramsService.getByMaterialAndProcess(materialCode, processType);
+            @RequestParam String processType,
+            @RequestParam(required = false) String equipmentCode) {
+        ProcessParams params = paramsService.getByMaterialAndProcess(materialCode, processType, equipmentCode);
         return ResponseResult.success(params);
     }
 
@@ -166,8 +168,9 @@ public class ProcessParamsController {
     public void exportParams(
             @RequestParam(required = false) String materialCode,
             @RequestParam(required = false) String processType,
+            @RequestParam(required = false) String equipmentCode,
             HttpServletResponse response) throws IOException {
-        List<ProcessParams> list = paramsService.getParamsListForExport(materialCode, processType);
+        List<ProcessParams> list = paramsService.getParamsListForExport(materialCode, processType, equipmentCode);
         
         Workbook workbook = new XSSFWorkbook();
         Sheet sheet = workbook.createSheet("工艺参数数据");

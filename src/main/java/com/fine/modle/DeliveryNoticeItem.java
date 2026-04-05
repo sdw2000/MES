@@ -1,6 +1,7 @@
 package com.fine.modle;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 
@@ -36,6 +37,9 @@ public class DeliveryNoticeItem {
     private String spec;
     
     // 批号
+    // 注意：部分环境 delivery_notice_items 无 batch_no 列（历史表结构差异），
+    // 该字段仅用于接口兼容，不参与数据库读写映射。
+    @TableField(exist = false)
     private String batchNo;
     
     // 发货数量(卷)

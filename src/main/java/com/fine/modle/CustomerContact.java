@@ -39,6 +39,7 @@ public class CustomerContact {
     // 标记信息
     private Integer isPrimary;          // 是否主联系人：0-否，1-是
     private Integer isDecisionMaker;    // 是否决策人：0-否，1-是
+    private Integer isReceiver;         // 是否收货人：0-否，1-是
     
     // 个人信息
     private LocalDate birthday;         // 生日

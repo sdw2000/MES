@@ -12,6 +12,7 @@ import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import javax.servlet.http.HttpServletResponse;
 import java.io.OutputStream;
@@ -148,7 +149,47 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
     }
 
     @Override
+    public ResponseResult<?> getRawMaterialPage(int page, int size, String materialCode, String materialName,
+                                                String materialType, Integer status) {
+        int offset = (page - 1) * size;
+        List<TapeRawMaterial> list = tapeFormulaMapper.selectRawMaterialPage(materialCode, materialName, materialType, status, offset, size);
+        int total = tapeFormulaMapper.selectRawMaterialCount(materialCode, materialName, materialType, status);
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("records", list);
+        result.put("total", total);
+        result.put("page", page);
+        result.put("size", size);
+
+        return new ResponseResult<>(20000, "查询成功", result);
+    }
+
+    @Override
+    public ResponseResult<?> getRawMaterialById(Long id) {
+        TapeRawMaterial material = tapeFormulaMapper.selectRawMaterialById(id);
+        if (material == null) {
+            return new ResponseResult<>(50000, "原材料不存在");
+        }
+        return new ResponseResult<>(20000, "查询成功", material);
+    }
+
+    @Override
     public ResponseResult<?> createRawMaterial(TapeRawMaterial material) {
+        if (material.getMaterialCode() == null || material.getMaterialCode().trim().isEmpty()) {
+            return new ResponseResult<>(50000, "物料编码不能为空");
+        }
+        if (material.getMaterialName() == null || material.getMaterialName().trim().isEmpty()) {
+            return new ResponseResult<>(50000, "物料名称不能为空");
+        }
+        if (tapeFormulaMapper.checkRawMaterialCodeExists(material.getMaterialCode().trim(), 0L) > 0) {
+            return new ResponseResult<>(50000, "物料编码已存在");
+        }
+
+        material.setMaterialCode(material.getMaterialCode().trim());
+        material.setMaterialName(material.getMaterialName().trim());
+        material.setMaterialType(material.getMaterialType() == null || material.getMaterialType().trim().isEmpty() ? "resin" : material.getMaterialType().trim());
+        material.setUnit(material.getUnit() == null || material.getUnit().trim().isEmpty() ? "kg" : material.getUnit().trim());
+        material.setSortOrder(material.getSortOrder() == null ? 0 : material.getSortOrder());
         material.setStatus(1);
         tapeFormulaMapper.insertRawMaterial(material);
         return new ResponseResult<>(20000, "创建成功", material);
@@ -156,6 +197,26 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
 
     @Override
     public ResponseResult<?> updateRawMaterial(TapeRawMaterial material) {
+        if (material.getId() == null) {
+            return new ResponseResult<>(50000, "ID不能为空");
+        }
+        if (material.getMaterialCode() == null || material.getMaterialCode().trim().isEmpty()) {
+            return new ResponseResult<>(50000, "物料编码不能为空");
+        }
+        if (material.getMaterialName() == null || material.getMaterialName().trim().isEmpty()) {
+            return new ResponseResult<>(50000, "物料名称不能为空");
+        }
+        if (tapeFormulaMapper.checkRawMaterialCodeExists(material.getMaterialCode().trim(), material.getId()) > 0) {
+            return new ResponseResult<>(50000, "物料编码已存在");
+        }
+
+        material.setMaterialCode(material.getMaterialCode().trim());
+        material.setMaterialName(material.getMaterialName().trim());
+        material.setMaterialType(material.getMaterialType() == null || material.getMaterialType().trim().isEmpty() ? "resin" : material.getMaterialType().trim());
+        material.setUnit(material.getUnit() == null || material.getUnit().trim().isEmpty() ? "kg" : material.getUnit().trim());
+        material.setSortOrder(material.getSortOrder() == null ? 0 : material.getSortOrder());
+        material.setStatus(material.getStatus() == null ? 1 : material.getStatus());
+
         tapeFormulaMapper.updateRawMaterial(material);
         return new ResponseResult<>(20000, "更新成功");
     }
@@ -164,6 +225,182 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
     public ResponseResult<?> deleteRawMaterial(Long id) {
         tapeFormulaMapper.deleteRawMaterial(id);
         return new ResponseResult<>(20000, "删除成功");
+    }
+
+    @Override
+    public void exportRawMaterials(HttpServletResponse response, String materialCode, String materialName,
+                                   String materialType, Integer status) {
+        try {
+            List<TapeRawMaterial> list = tapeFormulaMapper.selectRawMaterialPage(materialCode, materialName, materialType, status, 0, 100000);
+
+            Workbook workbook = new XSSFWorkbook();
+            Sheet sheet = workbook.createSheet("原材料表");
+
+            String[] headers = {"序号", "物料编码", "物料名称", "物料类型", "单位", "规格说明", "排序", "状态"};
+            Row headerRow = sheet.createRow(0);
+            CellStyle headerStyle = workbook.createCellStyle();
+            headerStyle.setFillForegroundColor(IndexedColors.GREY_25_PERCENT.getIndex());
+            headerStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+            Font headerFont = workbook.createFont();
+            headerFont.setBold(true);
+            headerStyle.setFont(headerFont);
+
+            for (int i = 0; i < headers.length; i++) {
+                Cell cell = headerRow.createCell(i);
+                cell.setCellValue(headers[i]);
+                cell.setCellStyle(headerStyle);
+                sheet.setColumnWidth(i, i == 5 ? 7000 : 4200);
+            }
+
+            int rowNum = 1;
+            for (TapeRawMaterial material : list) {
+                Row row = sheet.createRow(rowNum);
+                row.createCell(0).setCellValue(rowNum);
+                row.createCell(1).setCellValue(material.getMaterialCode() != null ? material.getMaterialCode() : "");
+                row.createCell(2).setCellValue(material.getMaterialName() != null ? material.getMaterialName() : "");
+                row.createCell(3).setCellValue(material.getMaterialTypeDisplay());
+                row.createCell(4).setCellValue(material.getUnit() != null ? material.getUnit() : "");
+                row.createCell(5).setCellValue(material.getSpec() != null ? material.getSpec() : "");
+                row.createCell(6).setCellValue(material.getSortOrder() != null ? material.getSortOrder() : 0);
+                row.createCell(7).setCellValue(material.getStatus() != null && material.getStatus() == 1 ? "启用" : "禁用");
+                rowNum++;
+            }
+
+            response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            response.setHeader("Content-Disposition", "attachment;filename=" +
+                    URLEncoder.encode("研发原材料表.xlsx", "UTF-8"));
+
+            OutputStream out = response.getOutputStream();
+            workbook.write(out);
+            out.flush();
+            out.close();
+            workbook.close();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    @Override
+    @Transactional
+    public ResponseResult<?> importRawMaterials(MultipartFile file) {
+        List<String> errors = new ArrayList<>();
+        int successCount = 0;
+        int failCount = 0;
+
+        try {
+            Workbook workbook = WorkbookFactory.create(file.getInputStream());
+            Sheet sheet = workbook.getSheetAt(0);
+
+            for (int i = 1; i <= sheet.getLastRowNum(); i++) {
+                Row row = sheet.getRow(i);
+                if (row == null) {
+                    continue;
+                }
+
+                String materialCode = normalizeText(getCellStringValue(row.getCell(1)));
+                String materialName = normalizeText(getCellStringValue(row.getCell(2)));
+
+                if (materialCode == null && materialName == null) {
+                    continue;
+                }
+
+                try {
+                    if (materialCode == null) {
+                        throw new IllegalArgumentException("物料编码不能为空");
+                    }
+                    if (materialName == null) {
+                        throw new IllegalArgumentException("物料名称不能为空");
+                    }
+
+                    TapeRawMaterial material = new TapeRawMaterial();
+                    material.setMaterialCode(materialCode);
+                    material.setMaterialName(materialName);
+                    material.setMaterialType(parseMaterialType(getCellStringValue(row.getCell(3))));
+
+                    String unit = normalizeText(getCellStringValue(row.getCell(4)));
+                    material.setUnit(unit == null ? "kg" : unit);
+
+                    material.setSpec(normalizeText(getCellStringValue(row.getCell(5))));
+                    material.setSortOrder(getCellIntValue(row.getCell(6)));
+
+                    String statusText = normalizeText(getCellStringValue(row.getCell(7)));
+                    material.setStatus((statusText == null || "启用".equals(statusText) || "1".equals(statusText)) ? 1 : 0);
+
+                    TapeRawMaterial existing = tapeFormulaMapper.selectRawMaterialByCode(materialCode);
+                    if (existing == null) {
+                        tapeFormulaMapper.insertRawMaterial(material);
+                    } else {
+                        material.setId(existing.getId());
+                        tapeFormulaMapper.updateRawMaterial(material);
+                    }
+                    successCount++;
+                } catch (Exception ex) {
+                    String err = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
+                    errors.add("第" + (i + 1) + "行（物料编码=" + safeText(materialCode) + "）：" + err);
+                    failCount++;
+                }
+            }
+
+            workbook.close();
+        } catch (Exception e) {
+            return new ResponseResult<>(50000, "导入失败：" + e.getMessage());
+        }
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("successCount", successCount);
+        result.put("failCount", failCount);
+        result.put("errors", errors);
+        return new ResponseResult<>(20000, "导入完成", result);
+    }
+
+    @Override
+    public void downloadRawMaterialTemplate(HttpServletResponse response) {
+        try {
+            Workbook workbook = new XSSFWorkbook();
+            Sheet sheet = workbook.createSheet("原材料导入模板");
+
+            String[] headers = {"序号", "物料编码", "物料名称", "物料类型", "单位", "规格说明", "排序", "状态"};
+            Row headerRow = sheet.createRow(0);
+            CellStyle headerStyle = workbook.createCellStyle();
+            headerStyle.setFillForegroundColor(IndexedColors.LIGHT_BLUE.getIndex());
+            headerStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+            Font headerFont = workbook.createFont();
+            headerFont.setBold(true);
+            headerFont.setColor(IndexedColors.WHITE.getIndex());
+            headerStyle.setFont(headerFont);
+
+            for (int i = 0; i < headers.length; i++) {
+                Cell cell = headerRow.createCell(i);
+                cell.setCellValue(headers[i]);
+                cell.setCellStyle(headerStyle);
+                sheet.setColumnWidth(i, i == 5 ? 7000 : 4200);
+            }
+
+            Row sample = sheet.createRow(1);
+            sample.createCell(0).setCellValue(1);
+            sample.createCell(1).setCellValue("RM-RESIN-001");
+            sample.createCell(2).setCellValue("丙烯酸树脂A");
+            sample.createCell(3).setCellValue("树脂");
+            sample.createCell(4).setCellValue("kg");
+            sample.createCell(5).setCellValue("固含50% ± 2%");
+            sample.createCell(6).setCellValue(10);
+            sample.createCell(7).setCellValue("启用");
+
+            Row note = sheet.createRow(3);
+            note.createCell(0).setCellValue("说明：物料类型支持 resin/solvent/additive/curing 或 树脂/溶剂/助剂/固化剂");
+
+            response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            response.setHeader("Content-Disposition", "attachment;filename=" +
+                    URLEncoder.encode("研发原材料导入模板.xlsx", "UTF-8"));
+
+            OutputStream out = response.getOutputStream();
+            workbook.write(out);
+            out.flush();
+            out.close();
+            workbook.close();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
     @Override
@@ -704,6 +941,38 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
             // ignore
         }
         return 0;
+    }
+
+    private String normalizeText(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private String parseMaterialType(String rawType) {
+        String type = normalizeText(rawType);
+        if (type == null) {
+            return "resin";
+        }
+        if ("resin".equalsIgnoreCase(type) || "树脂".equals(type)) {
+            return "resin";
+        }
+        if ("solvent".equalsIgnoreCase(type) || "溶剂".equals(type)) {
+            return "solvent";
+        }
+        if ("additive".equalsIgnoreCase(type) || "助剂".equals(type)) {
+            return "additive";
+        }
+        if ("curing".equalsIgnoreCase(type) || "固化剂".equals(type)) {
+            return "curing";
+        }
+        return "resin";
+    }
+
+    private String safeText(String value) {
+        return value == null ? "" : value;
     }
     
     private Date getCellDateValue(Cell cell) {

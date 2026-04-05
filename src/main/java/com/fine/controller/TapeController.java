@@ -20,14 +20,14 @@ import com.fine.serviceIMPL.TapeService;
 
 @RestController
 @RequestMapping("/tapes")
-@PreAuthorize("hasAnyAuthority('admin','warehouse','sales','production')")
+@PreAuthorize("hasAnyAuthority('admin','warehouse','sales','production','rd','finance','quality')")
 public class TapeController {
 
     @Autowired
     private TapeService tapeService;
     
     @GetMapping("/getAllTapes")
-    @PreAuthorize("hasAnyAuthority('admin','warehouse','sales','production')")
+    @PreAuthorize("hasAnyAuthority('admin','warehouse','sales','production','rd','finance','quality')")
     public ResponseResult<IPage<Tape>> listTapes(@RequestParam(required = false) String materialName,
                                      @RequestParam(required = false) String partNumber,
                                      @RequestParam(defaultValue = "1") int page,
@@ -50,7 +50,7 @@ public class TapeController {
     }
     
     @GetMapping("/getAll")
-    @PreAuthorize("hasAnyAuthority('admin','warehouse','sales','production')")
+    @PreAuthorize("hasAnyAuthority('admin','warehouse','sales','production','rd','finance','quality')")
     public ResponseResult<List<Tape>> getAll() {
     	
     List<Tape>	results=   tapeService.getAll();

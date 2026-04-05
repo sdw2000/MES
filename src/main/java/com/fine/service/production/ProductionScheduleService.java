@@ -78,6 +78,7 @@ public interface ProductionScheduleService {
     IPage<ProductionReport> getReportList(Map<String, Object> params);
     ProductionReport submitReport(ProductionReport report);
     List<Map<String, Object>> getTodayOutput();
+    Map<String, Object> getShiftProductionAreaSummary(String shiftCode);
     
     // ========== 排程明细 ==========
     

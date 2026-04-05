@@ -22,24 +22,6 @@ public class ManualSchedule {
     /** 订单详情ID */
     private Long orderDetailId;
     
-    /** 料号 */
-    private String materialCode;
-    
-    /** 品名 */
-    private String materialName;
-    
-    /** 宽度mm */
-    private Integer width;
-    
-    /** 长度m */
-    private Integer length;
-    
-    /** 厚度μm */
-    private Integer thickness;
-    
-    /** 订单数量（卷） */
-    private Integer orderQty;
-    
     /** 排程数量（卷） */
     private Integer scheduleQty;
     
@@ -48,9 +30,18 @@ public class ManualSchedule {
     
     /** 涂布面积㎡ */
     private BigDecimal coatingArea;
+
+    /** 涂布宽度(mm) - 计划员手工输入 */
+    private BigDecimal coatingWidth;
+
+    /** 涂布长度(米) - 计划员手工输入 */
+    private BigDecimal coatingLength;
     
     /** 复卷已排程面积㎡ */
     private BigDecimal rewindingScheduledArea;
+
+    /** 复卷宽度(mm) */
+    private BigDecimal rewindingWidth;
     
     /** 排程类型：STOCK(库存直接复卷)/COATING(需涂布) */
     private String scheduleType;
@@ -67,6 +58,9 @@ public class ManualSchedule {
     
     /** 涂布机台 */
     private String coatingEquipment;
+
+    /** 复卷机台号 */
+    private String rewindingEquipment;
     
     /** 复卷排程日期 */
     private LocalDate rewindingScheduleDate;
@@ -84,6 +78,9 @@ public class ManualSchedule {
     
     /** 备注 */
     private String remark;
+
+    /** 锁定库存分配(JSON) */
+    private String stockAllocations;
     
     /** 创建人 */
     private String createdBy;

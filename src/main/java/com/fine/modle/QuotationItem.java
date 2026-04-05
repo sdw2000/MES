@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.util.Date;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
@@ -33,9 +34,15 @@ public class QuotationItem {
     
     // 物料名称
     private String materialName;
-    
-    // 规格型号
-    private String specifications;
+
+    // 规格
+    private String specification;
+
+    // 型号
+    private String model;
+
+    // 颜色
+    private String colorCode;
     
     // 长度（毫米）
     private BigDecimal length;
@@ -47,9 +54,18 @@ public class QuotationItem {
     
     // 单位
     private String unit;
+
+    // 来源送样单号
+    private String sampleNo;
     
     // 单价（每平方米）
     private BigDecimal unitPrice;
+    
+    // 匹配的规则ID（来自 price_rule / 报价规则）
+    private Long appliedRuleId;
+
+    // 匹配路径/说明（如 strict-spec -> material+unit）
+    private String matchPath;
     
     // 备注
     private String remark;
@@ -71,4 +87,10 @@ public class QuotationItem {
     // 逻辑删除标记
     @TableLogic
     private Integer isDeleted;
+
+    @TableField(exist = false)
+    private Integer versionNo;
+
+    @TableField(exist = false)
+    private java.util.List<QuotationItemVersion> versionHistory;
 }

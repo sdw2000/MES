@@ -35,7 +35,13 @@ public class RoleController {
      * 获取所有角色列表
      */
     @GetMapping
-    public ResponseResult<?> getAllRoles() {
+    public ResponseResult<?> getAllRoles(
+            @RequestParam(value = "page", required = false) Integer page,
+            @RequestParam(value = "size", required = false) Integer size,
+            @RequestParam(value = "keyword", required = false) String keyword) {
+        if (page != null || size != null || StringUtils.hasText(keyword)) {
+            return roleService.getRolePage(page, size, keyword);
+        }
         return roleService.getAllRoles();
     }
 

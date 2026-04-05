@@ -25,11 +25,21 @@ public interface TapeStockService {
      * 按料号汇总库存
      */
     List<TapeStock> getStockSummary();
+
+    /**
+     * 按料号汇总库存（分页）
+     */
+    IPage<TapeStock> getStockSummaryPage(int page, int size, String materialCode);
     
     /**
      * 根据料号查询所有批次（FIFO排序）
      */
     List<TapeStock> getStockByMaterialFIFO(String materialCode);
+
+    /**
+     * 根据料号查询库存明细（分页）
+     */
+    IPage<TapeStock> getStockByMaterialPage(int page, int size, String materialCode);
     
     /**
      * 根据ID查询库存
@@ -66,7 +76,12 @@ public interface TapeStockService {
     /**
      * 审批入库申请
      */
-    void approveInbound(Long id, boolean approved, String auditor, String auditRemark);
+    void approveInbound(Long id, boolean approved, String auditor, String auditRemark, String scannedRollCode, String scannedLocation);
+
+    /**
+     * 按母卷号批量审批入库（同一卡板）
+     */
+    Map<String, Object> approveInboundByRollCodes(List<String> rollCodes, String auditor, String auditRemark, String scannedLocation);
     
     /**
      * 取消入库申请
@@ -99,7 +114,12 @@ public interface TapeStockService {
     /**
      * 审批出库申请
      */
-    void approveOutbound(Long id, boolean approved, String auditor, String auditRemark);
+    void approveOutbound(Long id, boolean approved, String auditor, String auditRemark, String scannedRollCode);
+
+    /**
+     * 批量扫码审批出库
+     */
+    Map<String, Object> approveOutboundByRollCodes(List<String> rollCodes, String auditor, String auditRemark);
     
     /**
      * 取消出库申请

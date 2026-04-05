@@ -41,6 +41,10 @@ public class User implements Serializable {
     @TableField("real_name")
     private String realName;
 
+    // 关联人员ID（production_staff.id）
+    @TableField("staff_id")
+    private Long staffId;
+
     // 邮箱
     private String email;
 

@@ -293,7 +293,7 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
             
             ScheduleCoating coating = new ScheduleCoating();
             coating.setScheduleId(schedule.getId());
-            coating.setTaskNo(coatingMapper.generateTaskNo());
+            coating.setTaskNo(coatingMapper.generateTaskNo(schedule.getScheduleDate()));
             
             // 分配设备
             Equipment equipment = coatingEquipments.get(equipmentIndex % coatingEquipments.size());
@@ -396,7 +396,6 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
             
             ScheduleRewinding rewinding = new ScheduleRewinding();
             rewinding.setScheduleId(schedule.getId());
-            rewinding.setTaskNo(rewindingMapper.generateTaskNo());
             
             // 分配设备（轮询）
             Equipment equipment = rewindingEquipments.get(equipmentIndex % rewindingEquipments.size());
@@ -405,6 +404,7 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
             equipmentIndex++;
             
             rewinding.setPlanDate(schedule.getScheduleDate());
+            rewinding.setTaskNo(rewindingMapper.generateTaskNo(rewinding.getPlanDate()));
             rewinding.setSourceBatchNo(stock.getBatchNo());
             rewinding.setSourceStockId(stock.getId());
             
@@ -473,7 +473,6 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
         for (Map<String, Object> item : items) {
             ScheduleRewinding rewinding = new ScheduleRewinding();
             rewinding.setScheduleId(schedule.getId());
-            rewinding.setTaskNo(rewindingMapper.generateTaskNo());
             
             // 分配设备（轮询）
             Equipment equipment = rewindingEquipments.get(equipmentIndex % rewindingEquipments.size());
@@ -482,6 +481,7 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
             equipmentIndex++;
             
             rewinding.setPlanDate(schedule.getScheduleDate());
+            rewinding.setTaskNo(rewindingMapper.generateTaskNo(rewinding.getPlanDate()));
             
             // 设置规格
             rewinding.setMaterialCode((String)item.get("material_code"));
@@ -549,7 +549,7 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
         for (Map<String, Object> item : items) {
             ScheduleSlitting slitting = new ScheduleSlitting();
             slitting.setScheduleId(schedule.getId());
-            slitting.setTaskNo(slittingMapper.generateTaskNo());
+            slitting.setTaskNo(slittingMapper.generateTaskNo(schedule.getScheduleDate()));
             
             // ========== 订单关联 ==========
             slitting.setOrderId((Long)item.get("order_id"));
@@ -879,6 +879,24 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
         return new ArrayList<>();
     }
 
+    @Override
+    public Map<String, Object> getShiftProductionAreaSummary(String shiftCode) {
+        String normalizedShiftCode = shiftCode == null ? "" : shiftCode.trim().toUpperCase();
+        Map<String, Object> raw = reportMapper.selectShiftProductionAreaSummary(normalizedShiftCode);
+        if (raw == null) {
+            raw = new HashMap<>();
+        }
+
+        BigDecimal monthArea = toBigDecimal(raw.get("monthArea"));
+        BigDecimal yearArea = toBigDecimal(raw.get("yearArea"));
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("shiftCode", normalizedShiftCode);
+        result.put("monthArea", monthArea.setScale(2, java.math.RoundingMode.HALF_UP));
+        result.put("yearArea", yearArea.setScale(2, java.math.RoundingMode.HALF_UP));
+        return result;
+    }
+
     // ========== 排程明细 ==========
     @Override
     public IPage<ScheduleOrderItem> getScheduleOrderItems(Map<String, Object> params) {
@@ -954,7 +972,7 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
     
     @Override
     public ScheduleCoating addCoatingTask(ScheduleCoating coating) {
-        coating.setTaskNo(coatingMapper.generateTaskNo());
+        coating.setTaskNo(coatingMapper.generateTaskNo(coating.getPlanDate()));
         coating.setStatus("pending");
         coatingMapper.insert(coating);
         return coating;
@@ -1083,7 +1101,7 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
             rewinding.setOrderNosText(String.join(",", rewinding.getOrderNos()));
         }
 
-        rewinding.setTaskNo(rewindingMapper.generateTaskNo());
+        rewinding.setTaskNo(rewindingMapper.generateTaskNo(rewinding.getPlanDate()));
         rewinding.setStatus("pending");
         rewindingMapper.insert(rewinding);
 
@@ -1230,7 +1248,7 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
         }
         
         // 设置任务号
-        slitting.setTaskNo(slittingMapper.generateTaskNo());
+        slitting.setTaskNo(slittingMapper.generateTaskNo(slitting.getPlanDate()));
         
         // 如未指定规格，自动生成
         if (slitting.getSpec() == null || slitting.getSpec().isEmpty()) {
@@ -1955,7 +1973,7 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
         
         ScheduleCoating coating = new ScheduleCoating();
         coating.setScheduleId(schedule.getId());
-        coating.setTaskNo(coatingMapper.generateTaskNo());
+        coating.setTaskNo(coatingMapper.generateTaskNo(schedule.getScheduleDate()));
         coating.setEquipmentId(equipment.getId());
         coating.setEquipmentCode(equipment.getEquipmentCode());
         coating.setPlanDate(schedule.getScheduleDate());
@@ -2200,7 +2218,7 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
             ScheduleCoating coating = new ScheduleCoating();
             
             // 任务单号
-            coating.setTaskNo("CT-" + dateStr + "-" + String.format("%03d", coatingTasks.size() + 1));
+            coating.setTaskNo("TB-" + dateStr.substring(Math.max(0, dateStr.length() - 6)) + "-" + String.format("%02d", coatingTasks.size() + 1));
             
             // 订单关联
             coating.setOrderItemId(order.getOrderItemId());
@@ -2305,10 +2323,11 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
             String taskNo;
             try {
                 // 使用数据库生成的任务号，避免唯一键冲突
-                taskNo = coatingMapper.generateTaskNo();
+                taskNo = coatingMapper.generateTaskNo(planDateObj);
             } catch (Exception ex) {
                 // 兜底：日期+时间戳，仍确保唯一
-                taskNo = "CT-" + dateStr + "-" + System.currentTimeMillis();
+                String shortDate = dateStr == null ? new SimpleDateFormat("yyMMdd").format(new Date()) : dateStr.substring(Math.max(0, dateStr.length() - 6));
+                taskNo = "TB-" + shortDate + "-" + (System.currentTimeMillis() % 100);
             }
             coating.setTaskNo(taskNo);
             coating.setOrderItemId(orderItemId);
@@ -3902,9 +3921,9 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
 
                 String taskNo;
                 try {
-                    taskNo = coatingMapper.generateTaskNo();
+                    taskNo = coatingMapper.generateTaskNo(planDateObj);
                 } catch (Exception ex) {
-                    taskNo = "CT-" + new SimpleDateFormat("yyyyMMdd").format(new Date()) + "-" + System.currentTimeMillis();
+                    taskNo = "TB-" + new SimpleDateFormat("yyMMdd").format(new Date()) + "-" + (System.currentTimeMillis() % 100);
                 }
 
                 ScheduleCoating coating = new ScheduleCoating();

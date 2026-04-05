@@ -64,6 +64,26 @@ public class ScheduleMaterialLock {
     
     /** 备注信息 */
     private String remark;
+
+    /** 订单号 */
+    @TableField("order_no")
+    private String orderNo;
+
+    /** 料号 */
+    @TableField("material_code")
+    private String materialCode;
+
+    /** 卷代码 */
+    @TableField("roll_code")
+    private String rollCode;
+
+    /** 库位（查询展示字段） */
+    @TableField(exist = false)
+    private String location;
+
+    /** 规格（查询展示字段） */
+    @TableField(exist = false)
+    private String specDesc;
     
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
@@ -89,5 +109,11 @@ public class ScheduleMaterialLock {
         
         /** 已取消 */
         public static final String CANCELLED = "已取消";
+
+        /** 待补锁（库存不足，等待上游入库后自动补锁） */
+        public static final String PENDING_SUPPLY = "待补锁";
+
+        /** 已补锁（待补锁需求已被后续入库满足） */
+        public static final String FULFILLED = "已补锁";
     }
 }

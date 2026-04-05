@@ -36,13 +36,16 @@ public class UserDetailsServiceImpl implements UserDetailsService {
 
     @Override
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
+        if (username != null) {
+            username = username.trim();
+        }
         System.out.println(">>> UserDetailsServiceImpl.loadUserByUsername: " + username);
         LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(User::getUsername,username);
         User user = userMapper.selectOne(wrapper);
         if(Objects.isNull(user)){
             System.out.println(">>> User not found in database: " + username);
-            throw new RuntimeException("用户名或密码错误");
+            throw new UsernameNotFoundException("用户名或密码错误");
         }
         System.out.println(">>> User found: " + user.getUsername());
         System.out.println(">>> Database Password (Hash): " + user.getPassword());

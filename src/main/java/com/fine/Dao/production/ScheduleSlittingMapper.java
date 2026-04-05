@@ -16,6 +16,19 @@ public interface ScheduleSlittingMapper extends BaseMapper<ScheduleSlitting> {
             "WHERE ss.schedule_id = #{scheduleId} ORDER BY ss.plan_start_time ASC")
     List<ScheduleSlitting> selectByScheduleId(@Param("scheduleId") Long scheduleId);
 
+    /**
+     * 批量查询任务号（按排程ID）
+     */
+    @Select("<script>" +
+            "SELECT schedule_id AS scheduleId, task_no AS taskNo FROM schedule_slitting " +
+            "WHERE schedule_id IN " +
+            "<foreach collection='scheduleIds' item='id' open='(' separator=',' close=')'>" +
+            "#{id}" +
+            "</foreach> " +
+            "ORDER BY id DESC" +
+            "</script>")
+    List<Map<String, Object>> selectTaskNoByScheduleIds(@Param("scheduleIds") List<Long> scheduleIds);
+
     @Select("SELECT ss.*, e.equipment_name FROM schedule_slitting ss " +
             "LEFT JOIN equipment e ON ss.equipment_id = e.id " +
             "WHERE ss.id = #{id}")
@@ -24,10 +37,11 @@ public interface ScheduleSlittingMapper extends BaseMapper<ScheduleSlitting> {
     @Select("SELECT * FROM schedule_slitting WHERE task_no = #{taskNo}")
     ScheduleSlitting selectByTaskNo(@Param("taskNo") String taskNo);
 
-    @Select("SELECT CONCAT('SL-', DATE_FORMAT(NOW(), '%Y%m%d'), '-', " +
+    @Select("SELECT CONCAT('FQ-', DATE_FORMAT(COALESCE(#{planDate}, NOW()), '%y%m%d'), '-', " +
             "LPAD(IFNULL(MAX(CAST(SUBSTRING(task_no, -3) AS UNSIGNED)), 0) + 1, 3, '0')) " +
-            "FROM schedule_slitting WHERE task_no LIKE CONCAT('SL-', DATE_FORMAT(NOW(), '%Y%m%d'), '%')")
-    String generateTaskNo();
+            "FROM schedule_slitting " +
+            "WHERE task_no LIKE CONCAT('FQ-', DATE_FORMAT(COALESCE(#{planDate}, NOW()), '%y%m%d'), '-%')")
+    String generateTaskNo(@Param("planDate") java.util.Date planDate);
 
     @Insert("INSERT INTO schedule_slitting (schedule_id, task_no, equipment_id, equipment_code, " +
             "staff_id, staff_name, shift_code, plan_date, source_batch_no, source_stock_id, " +

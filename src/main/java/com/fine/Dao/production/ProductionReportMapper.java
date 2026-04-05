@@ -107,6 +107,21 @@ public interface ProductionReportMapper {
     @Select("SELECT task_type, SUM(output_qty) as total_qty, SUM(output_sqm) as total_sqm " +
             "FROM production_report WHERE report_date = CURDATE() GROUP BY task_type")
     List<Map<String, Object>> countTodayOutput();
+
+    /**
+     * 按班次统计当月/当年生产报工总平米数
+     */
+    @Select("<script>" +
+            "SELECT " +
+            "IFNULL(SUM(CASE WHEN DATE_FORMAT(pr.report_date, '%Y-%m') = DATE_FORMAT(CURDATE(), '%Y-%m') THEN pr.output_sqm ELSE 0 END), 0) AS monthArea, " +
+            "IFNULL(SUM(CASE WHEN YEAR(pr.report_date) = YEAR(CURDATE()) THEN pr.output_sqm ELSE 0 END), 0) AS yearArea " +
+            "FROM production_report pr " +
+            "WHERE 1=1 " +
+            "<if test='shiftCode != null and shiftCode != \"\"'>" +
+            "AND UPPER(pr.shift_code) = UPPER(#{shiftCode}) " +
+            "</if>" +
+            "</script>")
+    Map<String, Object> selectShiftProductionAreaSummary(@Param("shiftCode") String shiftCode);
     
     /**
      * 统计人员产量

@@ -92,7 +92,7 @@ public class CustomerPriorityController {
     /**
      * 重新计算所有待排程订单的优先级
      */
-    @PostMapping("/recalculate-all")
+    @RequestMapping(value = "/recalculate-all", method = {RequestMethod.POST, RequestMethod.GET})
     public ResponseResult<String> recalculateAll() {
         try {
             customerPriorityService.recalculateAllPriorities();

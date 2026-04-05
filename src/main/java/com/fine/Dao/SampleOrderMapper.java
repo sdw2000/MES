@@ -13,15 +13,15 @@ import org.apache.ibatis.annotations.Select;
 @Mapper
 public interface SampleOrderMapper extends BaseMapper<SampleOrder> {
     
-    /**
-     * 生成送样编号
-     * 格式：SP + 年月日(8位) + 流水号(3位)
-     * 例如：SP20260105001
-     */
-    @Select("SELECT CONCAT('SP', DATE_FORMAT(NOW(), '%Y%m%d'), " +
-            "LPAD(IFNULL(MAX(CAST(SUBSTRING(sample_no, 11) AS UNSIGNED)), 0) + 1, 3, '0')) " +
+        /**
+         * 生成送样编号
+         * 格式：SP + 年月日(6位) + '-' + 流水号(3位)
+         * 例如：SP260302-001
+         */
+        @Select("SELECT CONCAT('SP', DATE_FORMAT(NOW(), '%y%m%d'), '-', " +
+            "LPAD(IFNULL(MAX(CAST(SUBSTRING(sample_no, 10) AS UNSIGNED)), 0) + 1, 3, '0')) " +
             "FROM sample_orders " +
-            "WHERE sample_no LIKE CONCAT('SP', DATE_FORMAT(NOW(), '%Y%m%d'), '%') " +
+            "WHERE sample_no LIKE CONCAT('SP', DATE_FORMAT(NOW(), '%y%m%d'), '-%') " +
             "AND is_deleted = 0")
     String generateSampleNo();
 }

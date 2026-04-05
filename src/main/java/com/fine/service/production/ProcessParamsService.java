@@ -13,17 +13,17 @@ public interface ProcessParamsService extends IService<ProcessParams> {
     /**
      * 获取工艺参数分页
      */
-    IPage<ProcessParams> getProcessParamsPage(String materialCode, String processType, Integer page, Integer size);
+    IPage<ProcessParams> getProcessParamsPage(String materialCode, String processType, String equipmentCode, Integer page, Integer size);
     
     /**
      * 获取工艺参数列表
      */
-    Map<String, Object> getParamsList(String materialCode, String processType, Integer page, Integer size);
+    Map<String, Object> getParamsList(String materialCode, String processType, String equipmentCode, Integer page, Integer size);
     
     /**
      * 根据料号和工序类型获取参数
      */
-    ProcessParams getByMaterialAndProcess(String materialCode, String processType);
+    ProcessParams getByMaterialAndProcess(String materialCode, String processType, String equipmentCode);
     
     /**
      * 根据料号获取所有参数
@@ -53,7 +53,7 @@ public interface ProcessParamsService extends IService<ProcessParams> {
     /**
      * 导出参数列表
      */
-    List<ProcessParams> getParamsListForExport(String materialCode, String processType);
+    List<ProcessParams> getParamsListForExport(String materialCode, String processType, String equipmentCode);
     
     /**
      * 导入参数

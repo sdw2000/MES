@@ -14,7 +14,14 @@ import com.fine.model.production.Workshop;
 import com.fine.service.production.EquipmentService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.DataFormatter;
+import org.apache.poi.ss.usermodel.DateUtil;
+import org.apache.poi.ss.usermodel.Row;
 
+import java.math.BigDecimal;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -345,6 +352,12 @@ public class EquipmentServiceImpl extends ServiceImpl<EquipmentMapper, Equipment
         try (org.apache.poi.ss.usermodel.Workbook workbook = org.apache.poi.ss.usermodel.WorkbookFactory.create(file.getInputStream())) {
             org.apache.poi.ss.usermodel.Sheet sheet = workbook.getSheetAt(0);
             int lastRow = sheet.getLastRowNum();
+            Row headerRow = sheet.getRow(0);
+            Map<String, Integer> headerIndex = buildHeaderIndex(headerRow);
+
+            // 预加载字典，避免逐行查询
+            List<EquipmentType> typeDict = equipmentTypeMapper.selectAllEnabled();
+            List<Workshop> workshopDict = workshopMapper.selectAllEnabled();
 
             for (int i = 1; i <= lastRow; i++) {
                 org.apache.poi.ss.usermodel.Row row = sheet.getRow(i);
@@ -353,39 +366,78 @@ public class EquipmentServiceImpl extends ServiceImpl<EquipmentMapper, Equipment
                 try {
                     Equipment equipment = new Equipment();
                     // 设备编号
-                    equipment.setEquipmentCode(getCellStringValue(row.getCell(0)));
+                    equipment.setEquipmentCode(getCellStringValue(getCellByHeaderOrIndex(row, headerIndex, 0,
+                            "设备编号", "equipmentCode", "code")));
                     if (equipment.getEquipmentCode() == null || equipment.getEquipmentCode().isEmpty()) {
                         errorMsg.append("第").append(i + 1).append("行：设备编号不能为空\n");
                         failCount++;
                         continue;
                     }
 
-                    // 检查编号是否已存在
-                    if (equipmentMapper.checkCodeExists(equipment.getEquipmentCode(), 0L) > 0) {
-                        errorMsg.append("第").append(i + 1).append("行：设备编号已存在\n");
+                        equipment.setEquipmentName(getCellStringValue(getCellByHeaderOrIndex(row, headerIndex, 1,
+                            "设备名称", "equipmentName", "name")));
+
+                        String equipmentTypeRaw = getCellStringValue(getCellByHeaderOrIndex(row, headerIndex, 2,
+                            "设备类型", "设备类型编码", "equipmentType"));
+                        String equipmentTypeNameRaw = getCellStringValue(getCellByHeaderOrIndex(row, headerIndex, -1,
+                            "设备类型名称", "设备类型名", "typeName"));
+                        String resolvedTypeCode = resolveEquipmentTypeCode(equipmentTypeRaw, equipmentTypeNameRaw, typeDict);
+                        if (resolvedTypeCode == null || resolvedTypeCode.trim().isEmpty()) {
+                        errorMsg.append("第").append(i + 1).append("行：设备类型无法识别(")
+                            .append(equipmentTypeRaw == null ? "" : equipmentTypeRaw)
+                            .append(equipmentTypeNameRaw == null ? "" : "/" + equipmentTypeNameRaw)
+                            .append(")\n");
                         failCount++;
                         continue;
-                    }
+                        }
+                        equipment.setEquipmentType(resolvedTypeCode);
 
-                    equipment.setEquipmentName(getCellStringValue(row.getCell(1)));
-                    equipment.setEquipmentType(getCellStringValue(row.getCell(2)));
-                    equipment.setWorkshopId(getCellLongValue(row.getCell(3)));
-                    equipment.setBrand(getCellStringValue(row.getCell(4)));
-                    equipment.setModel(getCellStringValue(row.getCell(5)));
-                    equipment.setMaxWidth(getCellIntValue(row.getCell(6)));
-                    equipment.setMaxSpeed(getCellBigDecimalValue(row.getCell(7)));
-                    equipment.setDailyCapacity(getCellBigDecimalValue(row.getCell(8)));
-                    equipment.setPurchaseDate(getCellDateValue(row.getCell(9)));
-                    String statusVal = getCellStringValue(row.getCell(10));
+                        Long workshopId = getCellLongValue(getCellByHeaderOrIndex(row, headerIndex, 3,
+                            "车间ID", "workshopId"));
+                        if (workshopId == null) {
+                        String workshopName = getCellStringValue(getCellByHeaderOrIndex(row, headerIndex, 4,
+                            "所属车间", "车间", "workshopName"));
+                        workshopId = resolveWorkshopId(workshopName, workshopDict);
+                        }
+                        equipment.setWorkshopId(workshopId);
+
+                        equipment.setBrand(getCellStringValue(getCellByHeaderOrIndex(row, headerIndex, 5,
+                            "品牌", "brand")));
+                        equipment.setModel(getCellStringValue(getCellByHeaderOrIndex(row, headerIndex, 6,
+                            "型号", "model")));
+                        equipment.setMaxWidth(getCellIntValue(getCellByHeaderOrIndex(row, headerIndex, 7,
+                            "最大加工宽度", "maxWidth")));
+                        equipment.setMaxSpeed(getCellBigDecimalValue(getCellByHeaderOrIndex(row, headerIndex, 8,
+                            "最大速度", "maxSpeed")));
+                        equipment.setDailyCapacity(getCellBigDecimalValue(getCellByHeaderOrIndex(row, headerIndex, 9,
+                            "日产能", "dailyCapacity")));
+                        equipment.setPurchaseDate(getCellDateValue(getCellByHeaderOrIndex(row, headerIndex, 10,
+                            "购买日期", "purchaseDate")));
+                        String statusVal = getCellStringValue(getCellByHeaderOrIndex(row, headerIndex, 11,
+                            "状态", "status"));
+                        statusVal = normalizeStatus(statusVal);
                     equipment.setStatus(statusVal != null && !statusVal.isEmpty() ? statusVal : "normal");
-                    equipment.setLocation(getCellStringValue(row.getCell(11)));
-                    equipment.setRemark(getCellStringValue(row.getCell(12)));
+                        equipment.setLocation(getCellStringValue(getCellByHeaderOrIndex(row, headerIndex, 12,
+                            "设备位置", "位置", "location")));
+                        equipment.setRemark(getCellStringValue(getCellByHeaderOrIndex(row, headerIndex, 13,
+                            "备注", "remark")));
 
-                    equipment.setCreateTime(new Date());
-                    equipment.setUpdateTime(new Date());
-                    equipment.setIsDeleted(0);
-
-                    equipmentMapper.insert(equipment);
+                    Date now = new Date();
+                    LambdaQueryWrapper<Equipment> existedWrapper = new LambdaQueryWrapper<>();
+                    existedWrapper.eq(Equipment::getEquipmentCode, equipment.getEquipmentCode()).last("LIMIT 1");
+                    Equipment existed = equipmentMapper.selectOne(existedWrapper);
+                    if (existed == null) {
+                        equipment.setCreateTime(now);
+                        equipment.setUpdateTime(now);
+                        equipment.setIsDeleted(0);
+                        equipmentMapper.insert(equipment);
+                    } else {
+                        equipment.setId(existed.getId());
+                        equipment.setCreateTime(existed.getCreateTime());
+                        equipment.setUpdateTime(now);
+                        equipment.setIsDeleted(0);
+                        equipmentMapper.updateById(equipment);
+                    }
                     successCount++;
                 } catch (Exception e) {
                     errorMsg.append("第").append(i + 1).append("行：").append(e.getMessage()).append("\n");
@@ -401,11 +453,103 @@ public class EquipmentServiceImpl extends ServiceImpl<EquipmentMapper, Equipment
         return result;
     }
 
+    private Map<String, Integer> buildHeaderIndex(Row headerRow) {
+        Map<String, Integer> map = new HashMap<>();
+        if (headerRow == null) return map;
+        int last = headerRow.getLastCellNum();
+        for (int i = 0; i < last; i++) {
+            Cell c = headerRow.getCell(i);
+            String name = normalizeHeader(getCellStringValue(c));
+            if (name != null && !name.isEmpty()) {
+                map.putIfAbsent(name, i);
+            }
+        }
+        return map;
+    }
+
+    private Cell getCellByHeaderOrIndex(Row row, Map<String, Integer> headerIndex, int fallbackIndex, String... names) {
+        if (row == null) return null;
+        if (names != null) {
+            for (String n : names) {
+                String key = normalizeHeader(n);
+                Integer idx = headerIndex.get(key);
+                if (idx != null && idx >= 0) {
+                    return row.getCell(idx);
+                }
+            }
+        }
+        return fallbackIndex >= 0 ? row.getCell(fallbackIndex) : null;
+    }
+
+    private String normalizeHeader(String text) {
+        if (text == null) return "";
+        return text.replace(" ", "")
+                .replace("（", "(")
+                .replace("）", ")")
+                .replace("_", "")
+                .toLowerCase()
+                .trim();
+    }
+
+    private String resolveEquipmentTypeCode(String typeCodeRaw, String typeNameRaw, List<EquipmentType> dict) {
+        String code = trimToNull(typeCodeRaw);
+        String name = trimToNull(typeNameRaw);
+        if (dict == null) dict = new ArrayList<>();
+
+        if (code != null) {
+            for (EquipmentType t : dict) {
+                if (t != null && t.getTypeCode() != null && t.getTypeCode().equalsIgnoreCase(code)) {
+                    return t.getTypeCode();
+                }
+            }
+        }
+        if (name != null) {
+            for (EquipmentType t : dict) {
+                if (t != null && t.getTypeName() != null && t.getTypeName().equalsIgnoreCase(name)) {
+                    return t.getTypeCode();
+                }
+            }
+        }
+        // 兼容：若字典为空或未命中，回退用原始编码
+        return code;
+    }
+
+    private Long resolveWorkshopId(String workshopRaw, List<Workshop> dict) {
+        String text = trimToNull(workshopRaw);
+        if (text == null) return null;
+        if (dict == null) dict = new ArrayList<>();
+        for (Workshop w : dict) {
+            if (w == null) continue;
+            if (w.getWorkshopName() != null && w.getWorkshopName().equalsIgnoreCase(text)) {
+                return w.getId();
+            }
+            if (w.getWorkshopCode() != null && w.getWorkshopCode().equalsIgnoreCase(text)) {
+                return w.getId();
+            }
+        }
+        return null;
+    }
+
+    private String normalizeStatus(String status) {
+        String s = trimToNull(status);
+        if (s == null) return null;
+        if ("正常".equals(s)) return "normal";
+        if ("维护".equals(s) || "维护中".equals(s)) return "maintenance";
+        if ("故障".equals(s)) return "fault";
+        return s;
+    }
+
+    private String trimToNull(String value) {
+        if (value == null) return null;
+        String t = value.trim();
+        return t.isEmpty() ? null : t;
+    }
+
     // 辅助方法：获取单元格字符串值
     private String getCellStringValue(org.apache.poi.ss.usermodel.Cell cell) {
         if (cell == null) return null;
-        cell.setCellType(org.apache.poi.ss.usermodel.CellType.STRING);
-        return cell.getStringCellValue().trim();
+        String val = new DataFormatter().formatCellValue(cell);
+        return val == null ? null : val.trim();
     }
 
     // 辅助方法：获取单元格整数值
@@ -457,13 +601,19 @@ public class EquipmentServiceImpl extends ServiceImpl<EquipmentMapper, Equipment
     private Date getCellDateValue(org.apache.poi.ss.usermodel.Cell cell) {
         if (cell == null) return null;
         try {
-            if (cell.getCellType() == org.apache.poi.ss.usermodel.CellType.NUMERIC) {
+            if (cell.getCellType() == org.apache.poi.ss.usermodel.CellType.NUMERIC && DateUtil.isCellDateFormatted(cell)) {
                 return cell.getDateCellValue();
             } else {
                 String val = cell.getStringCellValue().trim();
                 if (val.isEmpty()) return null;
-                java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd");
-                return sdf.parse(val);
+                String[] patterns = new String[]{"yyyy-MM-dd", "yyyy/MM/dd", "yyyy-MM-dd HH:mm:ss", "yyyy/MM/dd HH:mm:ss"};
+                for (String p : patterns) {
+                    try {
+                        return new SimpleDateFormat(p).parse(val);
+                    } catch (Exception ignore) {
+                    }
+                }
+                return null;
             }
         } catch (Exception e) {
             return null;

@@ -65,6 +65,11 @@ public class PurchaseOrderController {
         return purchaseOrderService.searchOrders(keyword, status);
     }
 
+    @GetMapping("/generate-no")
+    public ResponseResult<?> generateOrderNo() {
+        return ResponseResult.success(purchaseOrderService.generateOrderNo());
+    }
+
     @GetMapping("/template")
     public void downloadTemplate(HttpServletResponse response) {
         purchaseOrderService.downloadTemplate(response);

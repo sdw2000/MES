@@ -5,11 +5,13 @@ import java.util.Map;
 
 public interface SalesDashboardService {
 
-    Map<String, Object> getSummary();
+    Map<String, Object> getSummary(Long salesUserId, Long documentationUserId);
 
-    List<Map<String, Object>> getTopCustomers();
+    List<Map<String, Object>> getTopCustomers(Long salesUserId, Long documentationUserId);
 
-    Map<String, Object> getYearTrend();
+    Map<String, Object> getYearTrend(Long salesUserId, Long documentationUserId);
 
-    Map<String, Object> getShipmentStats();
+    Map<String, Object> getShipmentStats(Long salesUserId, Long documentationUserId);
+
+    List<Map<String, Object>> getTodayOrderItems(Long salesUserId, Long documentationUserId);
 }

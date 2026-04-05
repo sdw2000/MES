@@ -25,6 +25,9 @@ public class ProcessParams implements Serializable {
     /** 工序类型：COATING/REWINDING/SLITTING/STRIPPING */
     private String processType;
 
+    /** 设备编码（可选，涂布场景可按机台配置） */
+    private String equipmentCode;
+
     // ========== 涂布参数 ==========
     /** 涂布速度(米/分钟) */
     private BigDecimal coatingSpeed;
@@ -105,4 +108,8 @@ public class ProcessParams implements Serializable {
     /** 工序类型名称 */
     @TableField(exist = false)
     private String processTypeName;
+
+    /** 设备名称 */
+    @TableField(exist = false)
+    private String equipmentName;
 }

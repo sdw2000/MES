@@ -26,6 +26,8 @@ public class TapeSpecServiceImpl implements TapeSpecService {
     @Autowired
     private TapeSpecMapper tapeSpecMapper;
 
+    private final DataFormatter dataFormatter = new DataFormatter();
+
     @Override
     public ResponseResult<?> getList(int page, int size, String materialCode, String productName,
                                      String colorCode, String baseMaterial, Integer status) {
@@ -134,7 +136,7 @@ public class TapeSpecServiceImpl implements TapeSpecService {
             Sheet sheet = workbook.createSheet("胶带规格");
 
             // 表头
-            String[] headers = {"序号", "产品名称", "胶带料号", "颜色", "基材厚度/μm", "基材材质",
+                String[] headers = {"序号", "产品名称", "胶带料号", "颜色代码", "颜色名称", "基材厚度/μm", "基材材质",
                     "胶水材质", "胶水厚度/μm", "初粘/#", "总厚度/μm", "厚度波动/μm",
                     "剥离力/N/25mm", "解卷力/N/25mm", "耐温/℃/0.5H", "状态"};
 
@@ -161,17 +163,18 @@ public class TapeSpecServiceImpl implements TapeSpecService {
                 row.createCell(1).setCellValue(spec.getProductName() != null ? spec.getProductName() : "");
                 row.createCell(2).setCellValue(spec.getMaterialCode() != null ? spec.getMaterialCode() : "");
                 row.createCell(3).setCellValue(spec.getColorCode() != null ? spec.getColorCode() : "");
-                row.createCell(4).setCellValue(spec.getBaseThickness() != null ? spec.getBaseThickness().doubleValue() : 0);
-                row.createCell(5).setCellValue(spec.getBaseMaterial() != null ? spec.getBaseMaterial() : "");
-                row.createCell(6).setCellValue(spec.getGlueMaterial() != null ? spec.getGlueMaterial() : "");
-                row.createCell(7).setCellValue(spec.getGlueThickness() != null ? spec.getGlueThickness().doubleValue() : 0);
-                row.createCell(8).setCellValue(spec.getInitialTackDisplay());
-                row.createCell(9).setCellValue(spec.getTotalThickness() != null ? spec.getTotalThickness().doubleValue() : 0);
-                row.createCell(10).setCellValue(spec.getThicknessRangeDisplay());
-                row.createCell(11).setCellValue(spec.getPeelStrengthDisplay());
-                row.createCell(12).setCellValue(spec.getUnwindForceDisplay());
-                row.createCell(13).setCellValue(spec.getHeatResistanceDisplay());
-                row.createCell(14).setCellValue(spec.getStatus() == 1 ? "启用" : "禁用");
+                row.createCell(4).setCellValue(spec.getColorName() != null ? spec.getColorName() : "");
+                row.createCell(5).setCellValue(spec.getBaseThickness() != null ? spec.getBaseThickness().doubleValue() : 0);
+                row.createCell(6).setCellValue(spec.getBaseMaterial() != null ? spec.getBaseMaterial() : "");
+                row.createCell(7).setCellValue(spec.getGlueMaterial() != null ? spec.getGlueMaterial() : "");
+                row.createCell(8).setCellValue(spec.getGlueThickness() != null ? spec.getGlueThickness().doubleValue() : 0);
+                row.createCell(9).setCellValue(spec.getInitialTackDisplay());
+                row.createCell(10).setCellValue(spec.getTotalThickness() != null ? spec.getTotalThickness().doubleValue() : 0);
+                row.createCell(11).setCellValue(spec.getThicknessRangeDisplay());
+                row.createCell(12).setCellValue(spec.getPeelStrengthDisplay());
+                row.createCell(13).setCellValue(spec.getUnwindForceDisplay());
+                row.createCell(14).setCellValue(spec.getHeatResistanceDisplay());
+                row.createCell(15).setCellValue(spec.getStatus() == 1 ? "启用" : "禁用");
                 rowNum++;
             }
 
@@ -209,29 +212,35 @@ public class TapeSpecServiceImpl implements TapeSpecService {
                     spec.setProductName(getCellStringValue(row.getCell(1)));
                     spec.setMaterialCode(getCellStringValue(row.getCell(2)));
                     spec.setColorCode(getCellStringValue(row.getCell(3)));
-                    spec.setBaseThickness(getCellDecimalValue(row.getCell(4)));
-                    spec.setBaseMaterial(getCellStringValue(row.getCell(5)));
-                    spec.setGlueMaterial(getCellStringValue(row.getCell(6)));
-                    spec.setGlueThickness(getCellDecimalValue(row.getCell(7)));
+                    spec.setColorName(getCellStringValue(row.getCell(4)));
+                    spec.setBaseThickness(getCellDecimalValue(row.getCell(5)));
+                    spec.setBaseMaterial(getCellStringValue(row.getCell(6)));
+                    spec.setGlueMaterial(getCellStringValue(row.getCell(7)));
+                    spec.setGlueThickness(getCellDecimalValue(row.getCell(8)));
 
                     // 解析初粘（支持范围值如"2~6"、"≤4"、"≥3"）
-                    parseRangeValue(getCellStringValue(row.getCell(8)), spec, "initialTack");
+                    parseRangeValue(getCellStringValue(row.getCell(9)), spec, "initialTack");
 
-                    spec.setTotalThickness(getCellDecimalValue(row.getCell(9)));
+                    spec.setTotalThickness(getCellDecimalValue(row.getCell(10)));
 
                     // 解析厚度波动范围
-                    parseThicknessRange(getCellStringValue(row.getCell(10)), spec);
+                    parseThicknessRange(getCellStringValue(row.getCell(11)), spec);
 
                     // 解析剥离力
-                    parseRangeValue(getCellStringValue(row.getCell(11)), spec, "peelStrength");
+                    parseRangeValue(getCellStringValue(row.getCell(12)), spec, "peelStrength");
 
                     // 解析解卷力
-                    parseRangeValue(getCellStringValue(row.getCell(12)), spec, "unwindForce");
+                    parseRangeValue(getCellStringValue(row.getCell(13)), spec, "unwindForce");
 
                     // 解析耐温
-                    parseRangeValue(getCellStringValue(row.getCell(13)), spec, "heatResistance");
+                    parseRangeValue(getCellStringValue(row.getCell(14)), spec, "heatResistance");
 
-                    spec.setStatus(1);
+                    String statusText = getCellStringValue(row.getCell(15));
+                    if ("禁用".equals(statusText) || "0".equals(statusText)) {
+                        spec.setStatus(0);
+                    } else {
+                        spec.setStatus(1);
+                    }
                     spec.setCreateBy(operator);
 
                     if (spec.getMaterialCode() == null || spec.getMaterialCode().isEmpty()) {
@@ -252,7 +261,13 @@ public class TapeSpecServiceImpl implements TapeSpecService {
                     successCount++;
 
                 } catch (Exception e) {
-                    errors.add("第" + (i + 1) + "行：" + e.getMessage());
+                    String message = e.getMessage();
+                    if (message == null || message.trim().isEmpty()) {
+                        message = e.getClass().getSimpleName();
+                    }
+                    String materialCode = getCellStringValue(row.getCell(2));
+                    String productName = getCellStringValue(row.getCell(1));
+                    errors.add("第" + (i + 1) + "行（料号=" + safeText(materialCode) + "，产品=" + safeText(productName) + "）：" + message);
                     failCount++;
                 }
             }
@@ -277,9 +292,9 @@ public class TapeSpecServiceImpl implements TapeSpecService {
             Workbook workbook = new XSSFWorkbook();
             Sheet sheet = workbook.createSheet("胶带规格导入模板");
 
-            String[] headers = {"序号", "产品名称", "胶带料号", "颜色代码", "基材厚度/μm", "基材材质",
+                String[] headers = {"序号", "产品名称", "胶带料号", "颜色代码", "颜色名称", "基材厚度/μm", "基材材质",
                     "胶水材质", "胶水厚度/μm", "初粘/#", "总厚度/μm", "厚度波动/μm",
-                    "剥离力/N/25mm", "解卷力/N/25mm", "耐温/℃/0.5H"};
+                    "剥离力/N/25mm", "解卷力/N/25mm", "耐温/℃/0.5H", "状态"};
 
             Row headerRow = sheet.createRow(0);
             CellStyle headerStyle = workbook.createCellStyle();
@@ -303,16 +318,18 @@ public class TapeSpecServiceImpl implements TapeSpecService {
             sampleRow.createCell(1).setCellValue("12μ无机翠绿PET胶带");
             sampleRow.createCell(2).setCellValue("1011-R02-0903-G03-0300");
             sampleRow.createCell(3).setCellValue("G03");
-            sampleRow.createCell(4).setCellValue(9);
-            sampleRow.createCell(5).setCellValue("PET");
-            sampleRow.createCell(6).setCellValue("亚克力");
-            sampleRow.createCell(7).setCellValue(3);
-            sampleRow.createCell(8).setCellValue("2~6");
-            sampleRow.createCell(9).setCellValue(12);
-            sampleRow.createCell(10).setCellValue("10~14");
-            sampleRow.createCell(11).setCellValue("2~4.5");
-            sampleRow.createCell(12).setCellValue("0.5~1.5");
-            sampleRow.createCell(13).setCellValue("≥110");
+            sampleRow.createCell(4).setCellValue("翠绿");
+            sampleRow.createCell(5).setCellValue(9);
+            sampleRow.createCell(6).setCellValue("PET");
+            sampleRow.createCell(7).setCellValue("亚克力");
+            sampleRow.createCell(8).setCellValue(3);
+            sampleRow.createCell(9).setCellValue("2~6");
+            sampleRow.createCell(10).setCellValue(12);
+            sampleRow.createCell(11).setCellValue("10~14");
+            sampleRow.createCell(12).setCellValue("2~4.5");
+            sampleRow.createCell(13).setCellValue("0.5~1.5");
+            sampleRow.createCell(14).setCellValue("≥110");
+            sampleRow.createCell(15).setCellValue("启用");
 
             // 说明行
             Row noteRow = sheet.createRow(3);
@@ -415,24 +432,17 @@ public class TapeSpecServiceImpl implements TapeSpecService {
 
     private String getCellStringValue(Cell cell) {
         if (cell == null) return null;
-        cell.setCellType(CellType.STRING);
-        String value = cell.getStringCellValue();
-        return value != null ? value.trim() : null;
+        String value = dataFormatter.formatCellValue(cell);
+        if (value == null) {
+            return null;
+        }
+        value = value.trim();
+        return value.isEmpty() ? null : value;
     }
 
     private BigDecimal getCellDecimalValue(Cell cell) {
-        if (cell == null) return null;
-        try {
-            if (cell.getCellType() == CellType.NUMERIC) {
-                return BigDecimal.valueOf(cell.getNumericCellValue());
-            } else {
-                String value = cell.getStringCellValue().trim();
-                if (value.isEmpty()) return null;
-                return new BigDecimal(value);
-            }
-        } catch (Exception e) {
-            return null;
-        }
+        String raw = getCellStringValue(cell);
+        return parseFlexibleNumber(raw, null, null);
     }
 
     /**
@@ -441,25 +451,27 @@ public class TapeSpecServiceImpl implements TapeSpecService {
     private void parseRangeValue(String value, TapeSpec spec, String field) {
         if (value == null || value.isEmpty()) return;
 
-        value = value.trim();
+        value = normalizeComparisonSymbols(value.trim());
         BigDecimal min = null, max = null;
         String type = "range";
 
-        if (value.startsWith("≤") || value.startsWith("<=")) {
+        if (value.startsWith("≤") || value.startsWith("<=") || value.startsWith("<")) {
             type = "lte";
-            max = new BigDecimal(value.replaceAll("[≤<=]", "").trim());
-        } else if (value.startsWith("≥") || value.startsWith(">=")) {
+            max = parseFlexibleNumber(value.replace("≤", "").replace("<=", "").replace("<", "").trim(), field, "最大值");
+        } else if (value.startsWith("≥") || value.startsWith(">=") || value.startsWith(">")) {
             type = "gte";
-            min = new BigDecimal(value.replaceAll("[≥>=]", "").trim());
-        } else if (value.contains("~") || value.contains("-")) {
-            String[] parts = value.split("[~\\-]");
+            min = parseFlexibleNumber(value.replace("≥", "").replace(">=", "").replace(">", "").trim(), field, "最小值");
+        } else if (value.contains("~") || value.contains("～") || value.contains("-")) {
+            String[] parts = value.split("[~～\\-]");
             if (parts.length == 2) {
-                min = new BigDecimal(parts[0].trim());
-                max = new BigDecimal(parts[1].trim());
+                min = parseFlexibleNumber(parts[0].trim(), field, "最小值");
+                max = parseFlexibleNumber(parts[1].trim(), field, "最大值");
+            } else {
+                throw new IllegalArgumentException(getFieldLabel(field) + "格式错误，示例：2~6 或 ≤4 或 ≥3");
             }
         } else {
             // 单值
-            min = new BigDecimal(value);
+            min = parseFlexibleNumber(value, field, "值");
             max = min;
         }
 
@@ -493,12 +505,75 @@ public class TapeSpecServiceImpl implements TapeSpecService {
         if (value == null || value.isEmpty()) return;
         value = value.trim();
 
-        if (value.contains("~") || value.contains("-")) {
-            String[] parts = value.split("[~\\-]");
+        if (value.contains("~") || value.contains("～") || value.contains("-")) {
+            String[] parts = value.split("[~～\\-]");
             if (parts.length == 2) {
-                spec.setTotalThicknessMin(new BigDecimal(parts[0].trim()));
-                spec.setTotalThicknessMax(new BigDecimal(parts[1].trim()));
+                spec.setTotalThicknessMin(parseFlexibleNumber(parts[0].trim(), "totalThickness", "最小值"));
+                spec.setTotalThicknessMax(parseFlexibleNumber(parts[1].trim(), "totalThickness", "最大值"));
+            } else {
+                throw new IllegalArgumentException("厚度波动格式错误，示例：10~14");
             }
+        } else {
+            throw new IllegalArgumentException("厚度波动格式错误，示例：10~14");
         }
+    }
+
+    private BigDecimal parseFlexibleNumber(String value, String field, String part) {
+        if (value == null || value.trim().isEmpty()) {
+            return null;
+        }
+        String normalized = value.trim()
+                .replace("μ", "")
+                .replace("µ", "")
+                .replace("℃", "")
+                .replace("°C", "")
+                .replace("°", "")
+                .replace("N/25mm", "")
+                .replace("n/25mm", "")
+                .replace("#", "")
+                .replace("g", "")
+                .replace("G", "")
+                .replace("，", "")
+                .replace(",", "")
+                .trim();
+        try {
+            return new BigDecimal(normalized);
+        } catch (Exception e) {
+            String label = getFieldLabel(field);
+            String suffix = (part == null || part.isEmpty()) ? "" : part;
+            throw new IllegalArgumentException(label + suffix + "不是有效数字：" + value);
+        }
+    }
+
+    private String getFieldLabel(String field) {
+        if (field == null) {
+            return "数值";
+        }
+        switch (field) {
+            case "initialTack":
+                return "初粘";
+            case "peelStrength":
+                return "剥离力";
+            case "unwindForce":
+                return "解卷力";
+            case "heatResistance":
+                return "耐温";
+            case "totalThickness":
+                return "厚度波动";
+            default:
+                return "数值";
+        }
+    }
+
+    private String safeText(String value) {
+        return (value == null || value.trim().isEmpty()) ? "空" : value;
+    }
+
+    private String normalizeComparisonSymbols(String value) {
+        return value
+                .replace("＞", ">")
+                .replace("＜", "<")
+                .replace("≥", ">=")
+                .replace("≤", "<=");
     }
 }

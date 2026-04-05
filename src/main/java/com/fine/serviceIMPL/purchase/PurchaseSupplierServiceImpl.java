@@ -9,6 +9,8 @@ import com.fine.Utils.ResponseResult;
 import com.fine.modle.purchase.PurchaseSupplier;
 import com.fine.modle.purchase.PurchaseSupplierContact;
 import com.fine.service.purchase.PurchaseSupplierService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -17,6 +19,8 @@ import java.util.List;
 
 @Service
 public class PurchaseSupplierServiceImpl extends ServiceImpl<PurchaseSupplierMapper, PurchaseSupplier> implements PurchaseSupplierService {
+
+    private static final Logger log = LoggerFactory.getLogger(PurchaseSupplierServiceImpl.class);
 
     private final PurchaseSupplierContactMapper contactMapper;
 
@@ -53,16 +57,26 @@ public class PurchaseSupplierServiceImpl extends ServiceImpl<PurchaseSupplierMap
         }
 
         // 保存联系人（先清除旧的再插入新的）
-        if (supplier.getId() != null && supplier.getContacts() != null) {
-            contactMapper.deleteBySupplierId(supplier.getId());
-            for (PurchaseSupplierContact c : supplier.getContacts()) {
-                c.setSupplierId(supplier.getId());
-                c.setIsDeleted(0);
-                c.setCreatedAt(now);
-                c.setUpdatedAt(now);
-                if (c.getIsPrimary() == null) c.setIsPrimary(0);
-                if (c.getIsDecisionMaker() == null) c.setIsDecisionMaker(0);
-                contactMapper.insert(c);
+        // 仅当请求中传入了有效联系人数据时才操作联系人表，避免导入等场景因联系人表缺失导致失败
+        if (supplier.getId() != null && hasValidContacts(supplier.getContacts())) {
+            try {
+                contactMapper.deleteBySupplierId(supplier.getId());
+                for (PurchaseSupplierContact c : supplier.getContacts()) {
+                    c.setSupplierId(supplier.getId());
+                    c.setIsDeleted(0);
+                    c.setCreatedAt(now);
+                    c.setUpdatedAt(now);
+                    if (c.getIsPrimary() == null) c.setIsPrimary(0);
+                    if (c.getIsDecisionMaker() == null) c.setIsDecisionMaker(0);
+                    contactMapper.insert(c);
+                }
+            } catch (Exception ex) {
+                String msg = ex.getMessage() == null ? "" : ex.getMessage();
+                if (msg.contains("purchase_supplier_contacts") || msg.contains("doesn't exist")) {
+                    log.warn("联系人表不存在，已跳过联系人保存。supplierId={}", supplier.getId());
+                } else {
+                    throw ex;
+                }
             }
         }
 
@@ -86,8 +100,35 @@ public class PurchaseSupplierServiceImpl extends ServiceImpl<PurchaseSupplierMap
         if (supplier == null || (supplier.getIsDeleted() != null && supplier.getIsDeleted() == 1)) {
             return new ResponseResult<>(404, "供应商不存在");
         }
-        List<PurchaseSupplierContact> contacts = contactMapper.selectBySupplierId(id);
+        List<PurchaseSupplierContact> contacts;
+        try {
+            contacts = contactMapper.selectBySupplierId(id);
+        } catch (Exception ex) {
+            String msg = ex.getMessage() == null ? "" : ex.getMessage();
+            if (msg.contains("purchase_supplier_contacts") || msg.contains("doesn't exist")) {
+                log.warn("联系人表不存在，返回空联系人列表。supplierId={}", id);
+                contacts = java.util.Collections.emptyList();
+            } else {
+                throw ex;
+            }
+        }
         supplier.setContacts(contacts);
         return ResponseResult.success(supplier);
+    }
+
+    private boolean hasValidContacts(List<PurchaseSupplierContact> contacts) {
+        if (contacts == null || contacts.isEmpty()) {
+            return false;
+        }
+        for (PurchaseSupplierContact c : contacts) {
+            if (c == null) continue;
+            if (StringUtils.hasText(c.getContactName())
+                    || StringUtils.hasText(c.getContactPhone())
+                    || StringUtils.hasText(c.getContactEmail())
+                    || StringUtils.hasText(c.getContactWechat())) {
+                return true;
+            }
+        }
+        return false;
     }
 }

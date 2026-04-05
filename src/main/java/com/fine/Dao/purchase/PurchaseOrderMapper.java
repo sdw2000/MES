@@ -60,4 +60,7 @@ public interface PurchaseOrderMapper extends BaseMapper<PurchaseOrder> {
             + "INNER JOIN purchase_order_items poi ON po.id = poi.order_id "
             + "WHERE poi.is_deleted = 0 AND po.is_deleted = 0 AND poi.id = #{itemId}")
     List<PurchaseOrder> selectByItemId(@Param("itemId") Long itemId);
+
+        @Select("SELECT order_no FROM purchase_orders WHERE is_deleted = 0 AND order_no LIKE CONCAT(#{prefix}, '%') ORDER BY order_no DESC LIMIT 1")
+        String selectLastOrderNoByPrefix(@Param("prefix") String prefix);
 }

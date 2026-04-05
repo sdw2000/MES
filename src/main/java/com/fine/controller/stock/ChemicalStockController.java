@@ -16,7 +16,7 @@ import java.util.List;
  * @author Fine
  * @date 2026-01-15
  */
-@PreAuthorize("hasAuthority('admin')")
+@PreAuthorize("hasAnyAuthority('admin','warehouse','production','finance','quality')")
 @RestController
 @RequestMapping("/api/stock/chemical")
 @CrossOrigin
@@ -25,18 +25,14 @@ public class ChemicalStockController {
     @Autowired
     private ChemicalStockService chemicalStockService;
     
-    /**
-     * 查询所有化工库存
-     */
+    /** 查询所有化工库存 */
     @GetMapping("/list")
     public ResponseResult<List<ChemicalStock>> getChemicalStockList() {
         List<ChemicalStock> list = chemicalStockService.getAllChemicalStock();
         return new ResponseResult<>(20000, "查询成功", list);
     }
     
-    /**
-     * 按类型查询化工库存
-     */
+    /** 按类型查询化工库存 */
     @GetMapping("/type/{chemicalType}")
     public ResponseResult<List<ChemicalStock>> getByType(@PathVariable String chemicalType) {
         List<ChemicalStock> list = chemicalStockService.getByType(chemicalType);
@@ -64,18 +60,14 @@ public class ChemicalStockController {
         return new ResponseResult<>(20000, "查询成功", details);
     }
     
-    /**
-     * 查询可用的化工明细
-     */
+    /** 查询可用的化工明细 */
     @GetMapping("/{id}/available")
     public ResponseResult<List<ChemicalStockDetail>> getAvailableDetails(@PathVariable Long id) {
         List<ChemicalStockDetail> details = chemicalStockService.getAvailableDetails(id);
         return new ResponseResult<>(20000, "查询成功", details);
     }
     
-    /**
-     * 查询即将过期的化工原料
-     */
+    /** 查询即将过期的化工原料 */
     @GetMapping("/expiring")
     public ResponseResult<List<ChemicalStockDetail>> getExpiringSoon(
             @RequestParam(defaultValue = "30") Integer days

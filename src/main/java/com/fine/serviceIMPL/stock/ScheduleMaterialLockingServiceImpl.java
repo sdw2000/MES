@@ -4,22 +4,38 @@ import com.fine.service.stock.ScheduleMaterialLockingService;
 import com.fine.Dao.stock.TapeStockMapper;
 import com.fine.Dao.stock.ScheduleMaterialLockMapper;
 import com.fine.Dao.stock.ScheduleMaterialAllocationMapper;
+import com.fine.Dao.stock.ScheduleProcurementPlanMapper;
+import com.fine.Dao.rd.TapeFormulaMapper;
+import com.fine.Dao.purchase.PurchaseOrderMapper;
+import com.fine.Dao.purchase.PurchaseOrderItemMapper;
 import com.fine.Dao.production.BatchScheduleMapper;
 import com.fine.Dao.production.SalesOrderMapper;
+import com.fine.modle.rd.TapeFormula;
+import com.fine.modle.rd.TapeFormulaItem;
 import com.fine.modle.stock.TapeStock;
 import com.fine.modle.stock.ScheduleMaterialLock;
 import com.fine.modle.stock.ScheduleMaterialAllocation;
+import com.fine.modle.stock.ScheduleProcurementPlan;
 import com.fine.modle.production.BatchSchedule;
 import com.fine.modle.SalesOrder;
+import com.fine.modle.PurchaseOrder;
+import com.fine.modle.PurchaseOrderItem;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.math.RoundingMode;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.StringJoiner;
 
 /**
  * 排程物料锁定服务实现
@@ -42,6 +58,18 @@ public class ScheduleMaterialLockingServiceImpl implements ScheduleMaterialLocki
     
     @Autowired
     private SalesOrderMapper salesOrderMapper;
+
+    @Autowired
+    private ScheduleProcurementPlanMapper scheduleProcurementPlanMapper;
+
+    @Autowired
+    private PurchaseOrderMapper purchaseOrderMapper;
+
+    @Autowired
+    private PurchaseOrderItemMapper purchaseOrderItemMapper;
+
+    @Autowired
+    private TapeFormulaMapper tapeFormulaMapper;
     
     /** 一次查询的最大物料卷数 */
     private static final int QUERY_LIMIT = 10;
@@ -179,14 +207,17 @@ public class ScheduleMaterialLockingServiceImpl implements ScheduleMaterialLocki
                 ScheduleMaterialLock lock = new ScheduleMaterialLock();
                 lock.setScheduleId(schedule.getId());
                 lock.setOrderId(order.getId());
+                lock.setOrderNo(order.getOrderNo());
                 lock.setFilmStockId(reel.getId());
                 lock.setFilmStockDetailId(reel.getId());
+                lock.setRollCode(reel.getQrCode() != null && !reel.getQrCode().trim().isEmpty() ? reel.getQrCode() : reel.getBatchNo());
                 lock.setLockedArea(canLock);
                 lock.setRequiredArea(requiredArea);
                 lock.setLockStatus(ScheduleMaterialLock.LockStatus.LOCKED);
                 lock.setLockedTime(LocalDateTime.now());
                 lock.setLockedByUserId(getCurrentUserId());
                 lock.setVersion(1);
+                lock.setRemark("source=schedule-lock;materialCode=" + (reel.getMaterialCode() == null ? "" : reel.getMaterialCode()));
                 
                 scheduleMaterialLockMapper.insert(lock);
                 log.debug("创建锁定记录，物料ID: {}, 锁定面积: {}", reel.getId(), canLock);
@@ -277,6 +308,12 @@ public class ScheduleMaterialLockingServiceImpl implements ScheduleMaterialLocki
                 if (lock == null) {
                     throw new AllocationException("锁定记录不存在，ID: " + lockId);
                 }
+                if (!isLockedStatus(lock.getLockStatus())) {
+                    throw new AllocationException("仅支持锁定中的记录领料，ID: " + lockId + "，当前状态: " + lock.getLockStatus());
+                }
+                if (lock.getFilmStockId() == null) {
+                    throw new AllocationException("锁定记录未关联库存，无法领料，ID: " + lockId);
+                }
                 
                 // 更新锁定状态为 已领料
                 int updateResult = scheduleMaterialLockMapper.updateStatus(lockId, 
@@ -320,7 +357,7 @@ public class ScheduleMaterialLockingServiceImpl implements ScheduleMaterialLocki
                 if (lock == null) {
                     throw new AllocationException("锁定记录不存在，ID: " + lockId);
                 }
-                if (!ScheduleMaterialLock.LockStatus.ALLOCATED.equals(lock.getLockStatus())) {
+                if (!isAllocatedStatus(lock.getLockStatus())) {
                     throw new AllocationException("仅支持已领料的记录退料，ID: " + lockId + "，当前状态: " + lock.getLockStatus());
                 }
 
@@ -345,6 +382,24 @@ public class ScheduleMaterialLockingServiceImpl implements ScheduleMaterialLocki
             log.error("生产退料异常", e);
             throw new AllocationException("生产退料失败: " + e.getMessage(), e);
         }
+    }
+
+    private boolean isLockedStatus(String status) {
+        if (status == null) {
+            return false;
+        }
+        String s = status.trim();
+        return ScheduleMaterialLock.LockStatus.LOCKED.equals(s) || "LOCKED".equalsIgnoreCase(s);
+    }
+
+    private boolean isAllocatedStatus(String status) {
+        if (status == null) {
+            return false;
+        }
+        String s = status.trim();
+        return ScheduleMaterialLock.LockStatus.ALLOCATED.equals(s)
+                || "ALLOCATED".equalsIgnoreCase(s)
+                || "PICKED".equalsIgnoreCase(s);
     }
     
     /**
@@ -446,6 +501,305 @@ public class ScheduleMaterialLockingServiceImpl implements ScheduleMaterialLocki
             return new ArrayList<>();
         }
         return scheduleMaterialLockMapper.selectByOrderId(order.getId());
+    }
+
+    @Override
+    public List<ScheduleMaterialLock> queryOrderLockedStocks(LocalDate planDate,
+                                                             String materialCode,
+                                                             String orderNo,
+                                                             String rollCode,
+                                                             String processType,
+                                                             Integer requiredLength) {
+        LocalDate date = planDate == null ? LocalDate.now() : planDate;
+        String mc = materialCode == null ? null : materialCode.trim();
+        String ono = orderNo == null ? null : orderNo.trim();
+        String rno = rollCode == null ? null : rollCode.trim();
+        String pt = processType == null ? null : processType.trim();
+        return scheduleMaterialLockMapper.selectOrderLockedStocks(date, mc, ono, rno, pt, requiredLength);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int generateProcurementPlansFromPendingLocks() {
+        List<Map<String, Object>> rows = scheduleProcurementPlanMapper.selectPendingShortageForProcurement();
+        if (rows == null || rows.isEmpty()) {
+            return 0;
+        }
+        int created = 0;
+        for (Map<String, Object> row : rows) {
+            if (row == null) {
+                continue;
+            }
+            Long scheduleId = null;
+            Object sid = row.get("scheduleId");
+            if (sid instanceof Number) {
+                scheduleId = ((Number) sid).longValue();
+            } else if (sid != null) {
+                try { scheduleId = Long.parseLong(String.valueOf(sid)); } catch (Exception ignore) {}
+            }
+            String orderNo = row.get("orderNo") == null ? null : String.valueOf(row.get("orderNo"));
+            String materialCode = row.get("materialCode") == null ? null : String.valueOf(row.get("materialCode"));
+            BigDecimal shortage = toScale2Decimal(row.get("shortageArea"));
+            if (shortage.compareTo(BigDecimal.ZERO) <= 0 || materialCode == null || materialCode.trim().isEmpty()) {
+                continue;
+            }
+
+            created += createProcurementPlansByBomOrDirect(scheduleId, orderNo, materialCode.trim(), shortage);
+        }
+        return created;
+    }
+
+    private int createProcurementPlansByBomOrDirect(Long scheduleId,
+                                                    String orderNo,
+                                                    String finishedMaterialCode,
+                                                    BigDecimal shortageArea) {
+        TapeFormula formula = tapeFormulaMapper.selectByMaterialCode(finishedMaterialCode);
+        if (formula == null || formula.getId() == null) {
+            return insertProcurementPlanIfAbsent(
+                    scheduleId,
+                    orderNo,
+                    finishedMaterialCode,
+                    shortageArea,
+                    "source=pending-supply-auto-generate;mode=direct"
+            );
+        }
+
+        List<TapeFormulaItem> items = tapeFormulaMapper.selectItemsByFormulaId(formula.getId());
+        if (items == null || items.isEmpty()) {
+            return insertProcurementPlanIfAbsent(
+                    scheduleId,
+                    orderNo,
+                    finishedMaterialCode,
+                    shortageArea,
+                    "source=pending-supply-auto-generate;mode=direct;reason=no-formula-items"
+            );
+        }
+
+        BigDecimal coatingArea = formula.getCoatingArea();
+        if (coatingArea == null || coatingArea.compareTo(BigDecimal.ZERO) <= 0) {
+            return insertProcurementPlanIfAbsent(
+                    scheduleId,
+                    orderNo,
+                    finishedMaterialCode,
+                    shortageArea,
+                    "source=pending-supply-auto-generate;mode=direct;reason=invalid-coating-area"
+            );
+        }
+
+        BigDecimal areaFactor = shortageArea.divide(coatingArea, 8, RoundingMode.HALF_UP);
+        BigDecimal totalWeight = formula.getTotalWeight() == null ? BigDecimal.ZERO : formula.getTotalWeight();
+        int created = 0;
+        boolean hasValidBomQty = false;
+
+        for (TapeFormulaItem item : items) {
+            if (item == null || item.getMaterialCode() == null || item.getMaterialCode().trim().isEmpty()) {
+                continue;
+            }
+            BigDecimal qty = BigDecimal.ZERO;
+            if (item.getWeight() != null && item.getWeight().compareTo(BigDecimal.ZERO) > 0) {
+                qty = item.getWeight().multiply(areaFactor);
+            } else if (item.getRatio() != null
+                    && item.getRatio().compareTo(BigDecimal.ZERO) > 0
+                    && totalWeight.compareTo(BigDecimal.ZERO) > 0) {
+                qty = totalWeight
+                        .multiply(item.getRatio())
+                        .divide(new BigDecimal("100"), 8, RoundingMode.HALF_UP)
+                        .multiply(areaFactor);
+            }
+
+            qty = qty.setScale(2, RoundingMode.HALF_UP);
+            if (qty.compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+            hasValidBomQty = true;
+            String rawCode = item.getMaterialCode().trim();
+            String remark = "source=pending-supply-auto-generate;mode=bom;finishedMaterial=" + finishedMaterialCode
+                    + ";formulaId=" + formula.getId()
+                    + ";shortageArea=" + shortageArea.toPlainString();
+            created += insertProcurementPlanIfAbsent(scheduleId, orderNo, rawCode, qty, remark);
+        }
+
+        if (!hasValidBomQty) {
+            return insertProcurementPlanIfAbsent(
+                    scheduleId,
+                    orderNo,
+                    finishedMaterialCode,
+                    shortageArea,
+                    "source=pending-supply-auto-generate;mode=direct;reason=no-valid-bom-qty"
+            );
+        }
+        return created;
+    }
+
+    private int insertProcurementPlanIfAbsent(Long scheduleId,
+                                              String orderNo,
+                                              String materialCode,
+                                              BigDecimal requiredArea,
+                                              String remark) {
+        if (materialCode == null || materialCode.trim().isEmpty()) {
+            return 0;
+        }
+        BigDecimal req = requiredArea == null ? BigDecimal.ZERO : requiredArea.setScale(2, RoundingMode.HALF_UP);
+        if (req.compareTo(BigDecimal.ZERO) <= 0) {
+            return 0;
+        }
+
+        int exists = scheduleProcurementPlanMapper.countOpenPlan(scheduleId, orderNo, materialCode.trim());
+        if (exists > 0) {
+            return 0;
+        }
+
+        String ts = java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyMMddHHmmss"));
+        String planNo = "SPP" + ts + String.format("%03d", (int) (Math.random() * 1000));
+        int ok = scheduleProcurementPlanMapper.insertPlan(
+                planNo,
+                scheduleId,
+                orderNo,
+                materialCode.trim(),
+                req,
+                "PENDING",
+                remark
+        );
+        return ok > 0 ? 1 : 0;
+    }
+
+    private BigDecimal toScale2Decimal(Object value) {
+        if (value == null) {
+            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        }
+        try {
+            return new BigDecimal(String.valueOf(value)).setScale(2, RoundingMode.HALF_UP);
+        } catch (Exception ignore) {
+            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int createPurchaseOrdersFromProcurementPlans() {
+        List<ScheduleProcurementPlan> plans = scheduleProcurementPlanMapper.selectPendingPlans();
+        if (plans == null || plans.isEmpty()) {
+            return 0;
+        }
+
+        Map<String, BigDecimal> materialQty = new LinkedHashMap<>();
+        Map<String, List<ScheduleProcurementPlan>> materialPlans = new LinkedHashMap<>();
+        BigDecimal totalRequired = BigDecimal.ZERO;
+
+        for (ScheduleProcurementPlan plan : plans) {
+            if (plan == null || plan.getRequiredArea() == null || plan.getRequiredArea().compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+            String materialCode = plan.getMaterialCode();
+            if (materialCode == null || materialCode.trim().isEmpty()) {
+                continue;
+            }
+            String code = materialCode.trim();
+            BigDecimal qty = plan.getRequiredArea().setScale(2, RoundingMode.HALF_UP);
+            if (qty.compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+
+            materialQty.put(code, materialQty.getOrDefault(code, BigDecimal.ZERO).add(qty).setScale(2, RoundingMode.HALF_UP));
+            materialPlans.computeIfAbsent(code, k -> new ArrayList<>()).add(plan);
+            totalRequired = totalRequired.add(qty).setScale(2, RoundingMode.HALF_UP);
+        }
+
+        if (materialQty.isEmpty()) {
+            return 0;
+        }
+
+        Map<String, Long> materialToItemId = new HashMap<>();
+        Map<String, String> materialToOrderNo = new HashMap<>();
+        for (Map.Entry<String, BigDecimal> entry : materialQty.entrySet()) {
+            String materialCode = entry.getKey();
+            BigDecimal qty = entry.getValue();
+            List<ScheduleProcurementPlan> linkedPlans = materialPlans.get(materialCode);
+            StringJoiner planNoJoiner = new StringJoiner(",");
+            StringJoiner orderNoJoiner = new StringJoiner(",");
+            if (linkedPlans != null) {
+                for (ScheduleProcurementPlan p : linkedPlans) {
+                    if (p == null) {
+                        continue;
+                    }
+                    if (p.getPlanNo() != null && !p.getPlanNo().trim().isEmpty()) {
+                        planNoJoiner.add(p.getPlanNo().trim());
+                    }
+                    if (p.getOrderNo() != null && !p.getOrderNo().trim().isEmpty()) {
+                        orderNoJoiner.add(p.getOrderNo().trim());
+                    }
+                }
+            }
+
+            PurchaseOrder po = new PurchaseOrder();
+            po.setOrderNo(generatePurchaseOrderNo());
+            po.setSupplier("AUTO-PROCUREMENT");
+            po.setOrderDate(java.util.Date.from(LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant()));
+            po.setDeliveryDate(java.util.Date.from(LocalDate.now().plusDays(7).atStartOfDay(ZoneId.systemDefault()).toInstant()));
+            po.setStatus("pending");
+            po.setRemark("source=schedule_procurement_plan;mode=grouped-by-material;materialCode=" + materialCode + ";planCount=" + (linkedPlans == null ? 0 : linkedPlans.size()));
+            po.setCreatedBy("system");
+            po.setUpdatedBy("system");
+            po.setCreatedAt(new java.util.Date());
+            po.setUpdatedAt(new java.util.Date());
+            po.setIsDeleted(0);
+            po.setTotalArea(qty);
+            po.setRequiredArea(qty);
+            po.setTotalAmount(BigDecimal.ZERO);
+            purchaseOrderMapper.insert(po);
+
+            PurchaseOrderItem item = new PurchaseOrderItem();
+            item.setOrderId(po.getId());
+            item.setMaterialCode(materialCode);
+            item.setMaterialName(materialCode);
+            item.setSqm(qty);
+            item.setRolls(1);
+            item.setUnitPrice(BigDecimal.ZERO);
+            item.setAmount(BigDecimal.ZERO);
+            item.setRemark("linkedPlans=" + planNoJoiner.toString() + ";orderNos=" + orderNoJoiner.toString());
+            item.setCreatedBy("system");
+            item.setUpdatedBy("system");
+            item.setCreatedAt(new java.util.Date());
+            item.setUpdatedAt(new java.util.Date());
+            item.setIsDeleted(0);
+            purchaseOrderItemMapper.insert(item);
+            materialToItemId.put(materialCode, item.getId());
+            materialToOrderNo.put(materialCode, po.getOrderNo());
+        }
+
+        for (ScheduleProcurementPlan plan : plans) {
+            if (plan == null || plan.getMaterialCode() == null) {
+                continue;
+            }
+            String code = plan.getMaterialCode().trim();
+            Long itemId = materialToItemId.get(code);
+            String poNo = materialToOrderNo.get(code);
+            if (itemId == null || poNo == null) {
+                continue;
+            }
+            scheduleProcurementPlanMapper.updateLinkInfo(
+                    plan.getId(),
+                    "LINKED",
+                    poNo,
+                    itemId
+            );
+        }
+        return materialQty.size();
+    }
+
+    private String generatePurchaseOrderNo() {
+        String dateCode = java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("yyMMdd"));
+        String prefix = "CD" + dateCode;
+        String last = purchaseOrderMapper.selectLastOrderNoByPrefix(prefix);
+        int nextSeq = 1;
+        if (last != null && last.length() > prefix.length()) {
+            try {
+                nextSeq = Integer.parseInt(last.substring(prefix.length())) + 1;
+            } catch (Exception ignore) {
+                nextSeq = 1;
+            }
+        }
+        return prefix + String.format("%02d", nextSeq);
     }
     
     /**
