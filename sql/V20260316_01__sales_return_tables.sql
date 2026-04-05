@@ -1,0 +1,47 @@
+-- 版本化DDL：退货模块基础表
+CREATE TABLE IF NOT EXISTS sales_return_orders (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    return_no VARCHAR(64) NOT NULL UNIQUE,
+    customer VARCHAR(128) NOT NULL,
+    return_date DATE NOT NULL,
+    status VARCHAR(32) DEFAULT 'confirmed',
+    total_amount DECIMAL(18,2) DEFAULT 0,
+    total_area DECIMAL(18,2) DEFAULT 0,
+    statement_amount DECIMAL(18,2) DEFAULT 0,
+    statement_month VARCHAR(7),
+    reason VARCHAR(255),
+    remark VARCHAR(500),
+    created_by VARCHAR(64),
+    updated_by VARCHAR(64),
+    created_at DATETIME,
+    updated_at DATETIME,
+    is_deleted TINYINT DEFAULT 0,
+    INDEX idx_sro_customer (customer),
+    INDEX idx_sro_month (statement_month),
+    INDEX idx_sro_date (return_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS sales_return_items (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    return_id BIGINT NOT NULL,
+    order_no VARCHAR(64),
+    source_order_item_id BIGINT,
+    material_code VARCHAR(128),
+    material_name VARCHAR(255),
+    color_code VARCHAR(64),
+    thickness DECIMAL(18,2),
+    width DECIMAL(18,2),
+    length DECIMAL(18,2),
+    rolls INT DEFAULT 0,
+    sqm DECIMAL(18,2) DEFAULT 0,
+    unit_price DECIMAL(18,4) DEFAULT 0,
+    amount DECIMAL(18,2) DEFAULT 0,
+    remark VARCHAR(500),
+    created_by VARCHAR(64),
+    updated_by VARCHAR(64),
+    created_at DATETIME,
+    updated_at DATETIME,
+    is_deleted TINYINT DEFAULT 0,
+    INDEX idx_sri_return_id (return_id),
+    INDEX idx_sri_order_no (order_no)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

@@ -20,6 +20,8 @@ CREATE TABLE `customers` (
   `customer_type` VARCHAR(20) NOT NULL DEFAULT '企业客户' COMMENT '客户类型：企业客户、个人客户',
   `customer_level` VARCHAR(20) NOT NULL DEFAULT 'C级客户' COMMENT '客户等级：A级客户、B级客户、C级客户、潜在客户',
   `industry` VARCHAR(100) DEFAULT NULL COMMENT '所属行业',
+  `order_no_prefix` VARCHAR(20) DEFAULT NULL COMMENT '订单号前缀',
+  `order_no_suffix` VARCHAR(20) DEFAULT NULL COMMENT '订单号后缀',
   
   -- 企业信息
   `tax_number` VARCHAR(50) DEFAULT NULL COMMENT '纳税人识别号',

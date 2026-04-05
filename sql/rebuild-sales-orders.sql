@@ -47,7 +47,7 @@ CREATE TABLE `sales_order_items` (
   `order_id` BIGINT(20) NOT NULL COMMENT '关联的订单ID',
   `material_code` VARCHAR(50) NOT NULL COMMENT '产品编码/物料代码',
   `material_name` VARCHAR(200) NOT NULL COMMENT '产品名称/物料名称',
-  `thickness` DECIMAL(10,6) DEFAULT NULL COMMENT '厚度（毫米，存储时已从μm转换）',
+  `thickness` DECIMAL(10,6) DEFAULT NULL COMMENT '厚度（μm）',
   `width` DECIMAL(10,2) NOT NULL COMMENT '宽度（毫米）',
   `length` DECIMAL(12,2) NOT NULL COMMENT '长度（毫米，存储时已从米转换）',
   `rolls` INT(11) NOT NULL COMMENT '卷数',

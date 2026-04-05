@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS `quotations` (
   `customer` VARCHAR(200) NOT NULL COMMENT '客户名称',
   `contact_person` VARCHAR(100) COMMENT '联系人',
   `contact_phone` VARCHAR(50) COMMENT '联系电话',
+  `source_sample_no` VARCHAR(64) COMMENT '来源送样单号',
   `quotation_date` DATE COMMENT '报价日期',
   `valid_until` DATE COMMENT '有效期截止日期',
   `status` VARCHAR(20) DEFAULT 'draft' COMMENT '报价状态（draft-草稿，submitted-已提交，accepted-已接受，rejected-已拒绝，expired-已过期）',
@@ -31,11 +32,15 @@ CREATE TABLE IF NOT EXISTS `quotation_items` (
   `quotation_id` BIGINT NOT NULL COMMENT '关联的报价单ID',
   `material_code` VARCHAR(50) COMMENT '物料代码',
   `material_name` VARCHAR(200) COMMENT '物料名称',
+  `specification` VARCHAR(255) COMMENT '规格',
+  `model` VARCHAR(100) COMMENT '型号',
+  `color_code` VARCHAR(100) COMMENT '颜色',
   `length` DECIMAL(10,2) COMMENT '长度（毫米）',
   `width` DECIMAL(10,2) COMMENT '宽度（毫米）',
   `thickness` DECIMAL(10,6) COMMENT '厚度（微米）',
   `quantity` INT COMMENT '数量（卷数）',
   `unit` VARCHAR(20) DEFAULT '卷' COMMENT '单位',
+  `sample_no` VARCHAR(64) COMMENT '来源送样单号',
   `unit_price` DECIMAL(15,2) COMMENT '单价（每平方米）',
   `remark` VARCHAR(500) COMMENT '备注',
   `created_by` VARCHAR(100) COMMENT '创建人',
@@ -49,6 +54,36 @@ CREATE TABLE IF NOT EXISTS `quotation_items` (
   INDEX `idx_is_deleted` (`is_deleted`),
   FOREIGN KEY (`quotation_id`) REFERENCES `quotations`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='报价单明细表';
+
+CREATE TABLE IF NOT EXISTS `quotation_item_versions` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+  `quotation_id` BIGINT COMMENT '报价单ID',
+  `quotation_item_id` BIGINT COMMENT '报价明细ID',
+  `quotation_no` VARCHAR(64) COMMENT '报价单号',
+  `customer` VARCHAR(200) NOT NULL COMMENT '客户名称',
+  `material_code` VARCHAR(100) COMMENT '物料代码',
+  `material_name` VARCHAR(200) COMMENT '物料名称',
+  `specification` VARCHAR(255) COMMENT '规格',
+  `model` VARCHAR(100) COMMENT '型号',
+  `color_code` VARCHAR(100) COMMENT '颜色',
+  `length` DECIMAL(18,6) COMMENT '长度',
+  `width` DECIMAL(18,6) COMMENT '宽度',
+  `thickness` DECIMAL(18,6) COMMENT '厚度',
+  `unit` VARCHAR(20) COMMENT '单位',
+  `unit_price` DECIMAL(18,6) COMMENT '单价',
+  `quotation_date` DATE COMMENT '报价日期',
+  `valid_until` DATE COMMENT '有效期至',
+  `quotation_status` VARCHAR(20) COMMENT '报价状态',
+  `version_no` INT NOT NULL COMMENT '版本号',
+  `spec_key` VARCHAR(255) NOT NULL COMMENT '同规格唯一键',
+  `source_sample_no` VARCHAR(64) COMMENT '来源送样单号',
+  `created_by` VARCHAR(100) COMMENT '创建人',
+  `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  PRIMARY KEY (`id`),
+  INDEX `idx_qiv_customer_spec` (`customer`, `spec_key`),
+  INDEX `idx_qiv_quote_item` (`quotation_item_id`),
+  INDEX `idx_qiv_quote` (`quotation_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='报价明细版本历史表';
 
 -- 3. 插入测试数据
 

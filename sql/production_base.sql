@@ -166,6 +166,7 @@ CREATE TABLE IF NOT EXISTS `process_params` (
     `id` BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键ID',
     `material_code` VARCHAR(50) NOT NULL COMMENT '产品料号',
     `process_type` VARCHAR(20) NOT NULL COMMENT '工序类型：COATING/REWINDING/SLITTING/STRIPPING',
+    `equipment_code` VARCHAR(50) NOT NULL DEFAULT '' COMMENT '设备编码',
     
     -- 涂布参数
     `coating_speed` DECIMAL(10,2) COMMENT '涂布速度(米/分钟)',
@@ -202,9 +203,10 @@ CREATE TABLE IF NOT EXISTS `process_params` (
     `create_by` VARCHAR(50) COMMENT '创建人',
     `update_by` VARCHAR(50) COMMENT '更新人',
     
-    UNIQUE KEY `uk_material_process` (`material_code`, `process_type`),
+    UNIQUE KEY `uk_material_process_equipment` (`material_code`, `process_type`, `equipment_code`),
     INDEX `idx_material_code` (`material_code`),
-    INDEX `idx_process_type` (`process_type`)
+    INDEX `idx_process_type` (`process_type`),
+    INDEX `idx_equipment_code` (`equipment_code`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='工艺参数表';
 
 -- 10. 安全库存表
