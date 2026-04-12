@@ -9,7 +9,7 @@ import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/purchase/receipts")
-@PreAuthorize("hasAuthority('admin')")
+@PreAuthorize("hasAnyAuthority('admin','purchase')")
 public class PurchaseReceiptController {
 
     @Autowired
@@ -19,8 +19,9 @@ public class PurchaseReceiptController {
     public ResponseResult<?> list(@RequestParam(defaultValue = "1") Integer page,
                                   @RequestParam(defaultValue = "20") Integer size,
                                   @RequestParam(required = false) String supplier,
-                                  @RequestParam(required = false) String status) {
-        return receiptService.list(page, size, supplier, status);
+                                  @RequestParam(required = false) String status,
+                                  @RequestParam(required = false) String reconciliationStatus) {
+        return receiptService.list(page, size, supplier, status, reconciliationStatus);
     }
 
     @GetMapping("/{id}")

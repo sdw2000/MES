@@ -1,7 +1,11 @@
 package com.fine.filler;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.Objects;
+import java.util.Locale;
+import java.util.Set;
 import javax.servlet.FilterChain;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
@@ -72,6 +76,9 @@ public class JwtAuthenticationTokenFilter extends OncePerRequestFilter {
         if(Objects.isNull(loginUser)){
             throw new org.springframework.security.authentication.BadCredentialsException("用户未登录");
         }
+
+        // 兼容历史会话：涂布/coating 自动补齐 production 权限
+        loginUser.setPermissions(normalizePermissions(loginUser.getPermissions()));
         
         //存入SecurityContextHolder
         UsernamePasswordAuthenticationToken authenticationToken =
@@ -79,6 +86,25 @@ public class JwtAuthenticationTokenFilter extends OncePerRequestFilter {
         SecurityContextHolder.getContext().setAuthentication(authenticationToken);
         //放行
         filterChain.doFilter(request, response);
+    }
+
+    private java.util.List<String> normalizePermissions(java.util.List<String> rawPermissions) {
+        Set<String> normalized = new LinkedHashSet<>();
+        if (rawPermissions != null) {
+            for (String raw : rawPermissions) {
+                String role = raw == null ? "" : raw.trim();
+                if (role.isEmpty()) {
+                    continue;
+                }
+                String lower = role.toLowerCase(Locale.ROOT);
+                normalized.add(lower);
+                if ("涂布".equals(role) || "coating".equals(lower)) {
+                    normalized.add("coating");
+                    normalized.add("production");
+                }
+            }
+        }
+        return new ArrayList<>(normalized);
     }
 }
 

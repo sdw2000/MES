@@ -35,7 +35,6 @@ public class PurchaseQuotation {
     @JsonFormat(pattern = "yyyy-MM-dd", timezone = "GMT+8")
     private Date validUntil;
 
-    private BigDecimal totalAmount;
     private BigDecimal totalArea;
 
     private String status; // draft/submitted/accepted/rejected/expired

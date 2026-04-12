@@ -5,10 +5,16 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fine.Dao.CustomerContactMapper;
 import com.fine.Dao.CustomerMapper;
+import com.fine.Dao.QuotationMapper;
+import com.fine.Dao.SampleOrderMapper;
 import com.fine.Dao.UserMapper;
+import com.fine.Dao.production.SalesOrderMapper;
 import com.fine.modle.Customer;
 import com.fine.modle.CustomerContact;
 import com.fine.modle.CustomerDTO;
+import com.fine.modle.Quotation;
+import com.fine.modle.SampleOrder;
+import com.fine.modle.SalesOrder;
 import com.fine.modle.User;
 import com.fine.service.CustomerService;
 import org.springframework.beans.BeanUtils;
@@ -16,8 +22,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 客户服务实现类
@@ -35,6 +46,15 @@ public class CustomerServiceImpl implements CustomerService {
 
     @Autowired
     private UserMapper userMapper;
+
+    @Autowired
+    private QuotationMapper quotationMapper;
+
+    @Autowired
+    private SalesOrderMapper salesOrderMapper;
+
+    @Autowired
+    private SampleOrderMapper sampleOrderMapper;
     
     @Override
     public IPage<CustomerDTO> getCustomerPage(Integer current, Integer size, CustomerDTO query) {
@@ -45,7 +65,119 @@ public class CustomerServiceImpl implements CustomerService {
     
     @Override
     public CustomerDTO getCustomerDetailById(Long id) {
-        return customerMapper.selectCustomerDetailById(id);
+        CustomerDTO customer = customerMapper.selectCustomerDetailById(id);
+        if (customer == null) {
+            return null;
+        }
+
+        // 统一保证非空集合
+        customer.setQuotations(new ArrayList<>());
+        customer.setSalesOrders(new ArrayList<>());
+        customer.setSampleOrders(new ArrayList<>());
+
+        // 兼容客户别名匹配（历史数据里 customer 字段可能存 code/name/shortName）
+        Set<String> customerKeys = new HashSet<>();
+        if (customer.getCustomerCode() != null && !customer.getCustomerCode().trim().isEmpty()) {
+            customerKeys.add(customer.getCustomerCode().trim());
+        }
+        if (customer.getCustomerName() != null && !customer.getCustomerName().trim().isEmpty()) {
+            customerKeys.add(customer.getCustomerName().trim());
+        }
+        if (customer.getShortName() != null && !customer.getShortName().trim().isEmpty()) {
+            customerKeys.add(customer.getShortName().trim());
+        }
+
+        // 报价单记录
+        if (!customerKeys.isEmpty()) {
+            List<Quotation> quotations = quotationMapper.selectList(
+                    new QueryWrapper<Quotation>()
+                            .eq("is_deleted", 0)
+                            .in("customer", customerKeys)
+                            .orderByDesc("quotation_date", "created_at")
+            );
+            if (quotations != null) {
+                List<CustomerDTO.CustomerQuotationDTO> qDtos = new ArrayList<>();
+                for (Quotation q : quotations) {
+                    if (q == null) continue;
+                    CustomerDTO.CustomerQuotationDTO dto = new CustomerDTO.CustomerQuotationDTO();
+                    dto.setId(q.getId());
+                    dto.setQuotationNo(q.getQuotationNo());
+                    dto.setTotalAmount(null); // 报价总额在该表未统一落库，避免误导
+                    dto.setQuotationDate(formatDate(q.getQuotationDate()));
+                    dto.setStatus(q.getStatus());
+                    qDtos.add(dto);
+                }
+                customer.setQuotations(qDtos);
+                customer.setQuotationCount(qDtos.size());
+            }
+
+            // 销售订单记录 + 累计订单金额
+            List<SalesOrder> salesOrders = salesOrderMapper.selectList(
+                    new QueryWrapper<SalesOrder>()
+                            .eq("is_deleted", 0)
+                            .in("customer", customerKeys)
+                            .orderByDesc("order_date", "created_at")
+            );
+            BigDecimal totalOrderAmount = BigDecimal.ZERO;
+            if (salesOrders != null) {
+                List<CustomerDTO.CustomerSalesOrderDTO> soDtos = new ArrayList<>();
+                for (SalesOrder so : salesOrders) {
+                    if (so == null) continue;
+                    CustomerDTO.CustomerSalesOrderDTO dto = new CustomerDTO.CustomerSalesOrderDTO();
+                    dto.setId(so.getId());
+                    dto.setOrderNo(so.getOrderNo());
+                    dto.setTotalAmount(so.getTotalAmount());
+                    dto.setOrderDate(so.getOrderDate() == null ? null : so.getOrderDate().toString());
+                    dto.setStatus(so.getStatus());
+                    soDtos.add(dto);
+                    if (so.getTotalAmount() != null) {
+                        totalOrderAmount = totalOrderAmount.add(so.getTotalAmount());
+                    }
+                }
+                customer.setSalesOrders(soDtos);
+                customer.setSalesOrderCount(soDtos.size());
+            }
+            customer.setTotalOrderAmount(totalOrderAmount);
+        }
+
+        // 送样记录（优先 customer_id 精确匹配）
+        List<SampleOrder> sampleOrders = sampleOrderMapper.selectList(
+                new QueryWrapper<SampleOrder>()
+                        .eq("is_deleted", 0)
+                        .eq("customer_id", customer.getId())
+                        .orderByDesc("send_date", "create_time")
+        );
+        if ((sampleOrders == null || sampleOrders.isEmpty()) && customer.getCustomerName() != null && !customer.getCustomerName().trim().isEmpty()) {
+            sampleOrders = sampleOrderMapper.selectList(
+                    new QueryWrapper<SampleOrder>()
+                            .eq("is_deleted", 0)
+                            .eq("customer_name", customer.getCustomerName().trim())
+                            .orderByDesc("send_date", "create_time")
+            );
+        }
+        if (sampleOrders != null) {
+            List<CustomerDTO.CustomerSampleOrderDTO> sDtos = new ArrayList<>();
+            for (SampleOrder so : sampleOrders) {
+                if (so == null) continue;
+                CustomerDTO.CustomerSampleOrderDTO dto = new CustomerDTO.CustomerSampleOrderDTO();
+                dto.setId(so.getId());
+                dto.setSampleNo(so.getSampleNo());
+                dto.setSendDate(so.getSendDate() == null ? null : so.getSendDate().toString());
+                dto.setStatus(so.getStatus());
+                dto.setTrackingNumber(so.getTrackingNumber());
+                sDtos.add(dto);
+            }
+            customer.setSampleOrders(sDtos);
+            customer.setSampleOrderCount(sDtos.size());
+        }
+
+        return customer;
+    }
+
+    private String formatDate(java.util.Date date) {
+        if (date == null) return null;
+        return DateTimeFormatter.ofPattern("yyyy-MM-dd")
+                .format(date.toInstant().atZone(java.time.ZoneId.systemDefault()).toLocalDate());
     }
       @Override
     @Transactional(rollbackFor = Exception.class)
@@ -775,8 +907,7 @@ public class CustomerServiceImpl implements CustomerService {
     private String getCellStringValue(org.apache.poi.ss.usermodel.Cell cell) {
         if (cell == null) return null;
         try {
-            cell.setCellType(org.apache.poi.ss.usermodel.CellType.STRING);
-            String value = cell.getStringCellValue();
+            String value = new org.apache.poi.ss.usermodel.DataFormatter().formatCellValue(cell);
             return value != null ? value.trim() : null;
         } catch (Exception e) {
             return null;

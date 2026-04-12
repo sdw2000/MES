@@ -4,6 +4,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.Locale;
+import java.util.Set;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
@@ -119,12 +123,13 @@ public class LoginServiceImpl implements LoginServcie {
         
         // 从数据库获取用户角色
         List<String> roleNames = roleService.getRoleNamesByUserId(id);
+        List<String> normalizedRoleNames = normalizeRoles(roleNames);
         String[] roles;
-        if (roleNames == null || roleNames.isEmpty()) {
+        if (normalizedRoleNames == null || normalizedRoleNames.isEmpty()) {
             // 如果没有分配角色，默认给一个基础角色
             roles = new String[]{"user"};
         } else {
-            roles = roleNames.toArray(new String[0]);
+            roles = normalizedRoleNames.toArray(new String[0]);
         }
         
         map.put("roles", roles);
@@ -135,6 +140,27 @@ public class LoginServiceImpl implements LoginServcie {
         map.put("id", id);
           
         return new ResponseResult<>(20000, "登陆成功", map);
+    }
+
+    private List<String> normalizeRoles(List<String> roleNames) {
+        Set<String> normalized = new LinkedHashSet<>();
+        if (roleNames != null) {
+            for (String raw : roleNames) {
+                String role = raw == null ? "" : raw.trim();
+                if (role.isEmpty()) {
+                    continue;
+                }
+                String lower = role.toLowerCase(Locale.ROOT);
+                normalized.add(lower);
+
+                // 兼容“涂布”岗位别名：coating 同时具备 production
+                if ("涂布".equals(role) || "coating".equals(lower)) {
+                    normalized.add("coating");
+                    normalized.add("production");
+                }
+            }
+        }
+        return new ArrayList<>(normalized);
     }
     
     @Override

@@ -12,7 +12,7 @@ public interface SalesOrderService extends IService<SalesOrder> {
     /**
      * 获取所有订单列表
      */
-    ResponseResult<?> getAllOrders(Integer pageNum, Integer pageSize, String orderNo, String customer, String completionStatus,
+    ResponseResult<?> getAllOrders(Integer pageNum, Integer pageSize, String orderNo, String customer, String lifecycleStatus,
                                    Boolean showCompleted, String startDate, String endDate, String sortProp, String sortOrder);
     
     /**
@@ -29,6 +29,11 @@ public interface SalesOrderService extends IService<SalesOrder> {
      * 删除订单（逻辑删除）
      */
     ResponseResult<?> deleteOrder(String orderNo);
+
+    /**
+     * 删除订单明细（逻辑删除）
+     */
+    ResponseResult<?> deleteOrderItem(String orderNo, Long itemId);
 
     /**
      * 取消订单（必须填写取消原因）

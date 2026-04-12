@@ -1,10 +1,14 @@
 package com.fine.controller.rd;
 
 import com.fine.Utils.ResponseResult;
+import com.fine.modle.LoginUser;
+import com.fine.modle.rd.DictItem;
 import com.fine.modle.rd.TapeSpec;
 import com.fine.service.rd.TapeSpecService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -16,7 +20,7 @@ import java.math.BigDecimal;
  */
 @RestController
 @RequestMapping("/api/tape-spec")
-@PreAuthorize("hasAnyAuthority('admin','rd','sales','production','warehouse','finance','quality','packaging','packing')")
+@PreAuthorize("hasAnyAuthority('admin','rd','sales','production','warehouse','finance','quality','packaging','packing','purchase')")
 public class TapeSpecController {
 
     @Autowired
@@ -59,8 +63,7 @@ public class TapeSpecController {
     @PostMapping
     @PreAuthorize("hasAnyAuthority('admin','rd')")
     public ResponseResult<?> create(@RequestBody TapeSpec spec) {
-        // TODO: 从当前登录用户获取operator
-        return tapeSpecService.create(spec, "admin");
+        return tapeSpecService.create(spec, getCurrentUsername());
     }
 
     /**
@@ -69,7 +72,15 @@ public class TapeSpecController {
     @PutMapping
     @PreAuthorize("hasAnyAuthority('admin','rd')")
     public ResponseResult<?> update(@RequestBody TapeSpec spec) {
-        return tapeSpecService.update(spec, "admin");
+        return tapeSpecService.update(spec, getCurrentUsername());
+    }
+
+    private String getCurrentUsername() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication != null && authentication.getPrincipal() instanceof LoginUser) {
+            return ((LoginUser) authentication.getPrincipal()).getUsername();
+        }
+        return "system";
     }
 
     /**
@@ -95,6 +106,43 @@ public class TapeSpecController {
     @GetMapping("/dict/color")
     public ResponseResult<?> getColorDict() {
         return tapeSpecService.getColorDict();
+    }
+
+    /**
+     * 颜色字典管理列表
+     */
+    @GetMapping("/dict/color/list")
+    @PreAuthorize("hasAnyAuthority('admin','rd')")
+    public ResponseResult<?> getColorDictList(@RequestParam(required = false) String keyword,
+                                              @RequestParam(required = false) Integer status) {
+        return tapeSpecService.getColorDictList(keyword, status);
+    }
+
+    /**
+     * 新增颜色字典
+     */
+    @PostMapping("/dict/color")
+    @PreAuthorize("hasAnyAuthority('admin','rd')")
+    public ResponseResult<?> createColorDict(@RequestBody DictItem item) {
+        return tapeSpecService.createColorDict(item, "admin");
+    }
+
+    /**
+     * 更新颜色字典
+     */
+    @PutMapping("/dict/color")
+    @PreAuthorize("hasAnyAuthority('admin','rd')")
+    public ResponseResult<?> updateColorDict(@RequestBody DictItem item) {
+        return tapeSpecService.updateColorDict(item, "admin");
+    }
+
+    /**
+     * 删除颜色字典
+     */
+    @DeleteMapping("/dict/color/{id}")
+    @PreAuthorize("hasAnyAuthority('admin','rd')")
+    public ResponseResult<?> deleteColorDict(@PathVariable Long id) {
+        return tapeSpecService.deleteColorDict(id);
     }
 
     /**

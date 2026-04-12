@@ -107,8 +107,13 @@ public class QualityInspectionController {
 
     private String getCurrentPath() {
         // Simple helper using RequestContextHolder to detect path
-        return org.springframework.web.context.request.RequestContextHolder.getRequestAttributes() instanceof org.springframework.web.context.request.ServletRequestAttributes
-                ? ((org.springframework.web.context.request.ServletRequestAttributes) org.springframework.web.context.request.RequestContextHolder.getRequestAttributes()).getRequest().getRequestURI()
-                : "";
+        org.springframework.web.context.request.RequestAttributes attrs =
+            org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
+        if (attrs instanceof org.springframework.web.context.request.ServletRequestAttributes) {
+            javax.servlet.http.HttpServletRequest request =
+                ((org.springframework.web.context.request.ServletRequestAttributes) attrs).getRequest();
+            return request == null ? "" : request.getRequestURI();
+        }
+        return "";
     }
 }

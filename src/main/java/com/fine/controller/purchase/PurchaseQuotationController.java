@@ -2,18 +2,23 @@ package com.fine.controller.purchase;
 
 import com.fine.Utils.ResponseResult;
 import com.fine.modle.purchase.PurchaseQuotation;
+import com.fine.serviceIMPL.purchase.PurchaseQuotationPriceSheetInitService;
 import com.fine.service.purchase.PurchaseQuotationService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/purchase/quotations")
-@PreAuthorize("hasAuthority('admin')")
+@PreAuthorize("hasAnyAuthority('admin','purchase')")
 public class PurchaseQuotationController {
 
     @Autowired
     private PurchaseQuotationService quotationService;
+
+    @Autowired
+    private PurchaseQuotationPriceSheetInitService priceSheetInitService;
 
     @GetMapping
     public ResponseResult<?> list(@RequestParam(defaultValue = "1") Integer page,
@@ -41,5 +46,12 @@ public class PurchaseQuotationController {
     @DeleteMapping("/{id}")
     public ResponseResult<?> delete(@PathVariable Long id) {
         return quotationService.deleteQuotation(id);
+    }
+
+    @PostMapping("/initialize-from-price-sheet")
+    @PreAuthorize("hasAnyAuthority('admin','purchase')")
+    public ResponseResult<?> initializeFromPriceSheet(@RequestParam("file") MultipartFile file,
+                                                      @RequestParam(value = "operator", required = false) String operator) {
+        return priceSheetInitService.initializeFromPriceSheet(file, operator);
     }
 }

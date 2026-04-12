@@ -39,13 +39,21 @@ function Wait-PortReleased {
     return $false
 }
 
-$conn = Get-NetTCPConnection -LocalPort 8090 -ErrorAction SilentlyContinue
+$conn = Get-NetTCPConnection -LocalPort 8090 -State Listen -ErrorAction SilentlyContinue |
+    Where-Object { $_.OwningProcess -gt 0 } |
+    Select-Object -First 1
+
 if (-not $conn) {
     Write-Host '8090 idle'
     exit 0
 }
 
-$processIdToCheck = [int]($conn | Select-Object -First 1 -ExpandProperty OwningProcess)
+$processIdToCheck = [int]($conn.OwningProcess)
+if ($processIdToCheck -le 0) {
+    Write-Host '8090 idle'
+    exit 0
+}
+
 if (-not (Test-IsMesProcess -ProcessIdToCheck $processIdToCheck)) {
     $message = "Port 8090 is occupied by non-MES process $processIdToCheck"
     if ($FailIfNonMes) {

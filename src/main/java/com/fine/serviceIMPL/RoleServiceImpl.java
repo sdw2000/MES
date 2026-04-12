@@ -37,6 +37,7 @@ public class RoleServiceImpl implements RoleService {
     @Override
     public ResponseResult<?> getAllRoles() {
         try {
+            ensurePurchaseRoleExists();
             LambdaQueryWrapper<Role> wrapper = new LambdaQueryWrapper<>();
             wrapper.orderByAsc(Role::getId);
             List<Role> roles = roleMapper.selectList(wrapper);
@@ -50,6 +51,7 @@ public class RoleServiceImpl implements RoleService {
     @Override
     public ResponseResult<?> getRolePage(Integer page, Integer size, String keyword) {
         try {
+            ensurePurchaseRoleExists();
             int current = (page == null || page < 1) ? 1 : page;
             int pageSize = (size == null || size < 1) ? 10 : size;
 
@@ -253,5 +255,23 @@ public class RoleServiceImpl implements RoleService {
             e.printStackTrace();
             return new ResponseResult<>(500, "操作失败: " + e.getMessage());
         }
+    }
+
+    private void ensurePurchaseRoleExists() {
+        LambdaQueryWrapper<Role> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(Role::getName, "purchase");
+        Role existing = roleMapper.selectOne(wrapper);
+        if (existing != null) {
+            return;
+        }
+
+        Role purchaseRole = new Role();
+        purchaseRole.setName("purchase");
+        purchaseRole.setDisplayName("采购人员");
+        purchaseRole.setDescription("采购业务角色，拥有采购模块访问权限");
+        purchaseRole.setStatus(1);
+        purchaseRole.setCreatedAt(LocalDateTime.now());
+        purchaseRole.setUpdatedAt(LocalDateTime.now());
+        roleMapper.insert(purchaseRole);
     }
 }

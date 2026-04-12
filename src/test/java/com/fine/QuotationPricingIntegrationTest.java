@@ -3,7 +3,6 @@ package com.fine;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.when;
@@ -56,6 +55,7 @@ public class QuotationPricingIntegrationTest {
     private QuotationServiceImpl quotationService;
 
     @BeforeEach
+    @SuppressWarnings("null")
     public void setup() {
         MockitoAnnotations.openMocks(this);
 
@@ -66,8 +66,8 @@ public class QuotationPricingIntegrationTest {
         UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(loginUser, null, loginUser.getAuthorities());
         SecurityContextHolder.getContext().setAuthentication(auth);
 
-        doNothing().when(jdbcTemplate).execute(anyString());
-        when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), any(), any())).thenReturn(0);
+        doNothing().when(jdbcTemplate).execute(any(String.class));
+        when(jdbcTemplate.queryForObject(any(String.class), eq(Integer.class), any(), any())).thenReturn(0);
 
         when(quotationMapper.insert(any(Quotation.class))).thenAnswer(invocation -> {
             Quotation q = invocation.getArgument(0);

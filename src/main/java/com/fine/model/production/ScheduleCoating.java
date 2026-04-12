@@ -17,7 +17,7 @@ public class ScheduleCoating {
     /** 排程ID */
     private Long scheduleId;
     
-    /** 任务单号（CT-YYYYMMDD-XXX） */
+    /** 任务单号（CT-YYYYMMDD-NNN） */
     private String taskNo;
     
     /** 设备ID */

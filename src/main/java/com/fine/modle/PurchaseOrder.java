@@ -59,6 +59,9 @@ public class PurchaseOrder {
     private BigDecimal totalArea;
     private BigDecimal requiredArea;
 
+    // 对账状态：UNRECONCILED / PARTIAL / RECONCILED
+    private String reconciliationStatus;
+
     // 规格概要（可选）
     private Integer thickness;
     private Integer width;

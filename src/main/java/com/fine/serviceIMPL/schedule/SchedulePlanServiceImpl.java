@@ -6,6 +6,7 @@ import com.fine.modle.schedule.SchedulePlan;
 import com.fine.service.schedule.SchedulePlanService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
@@ -19,7 +20,7 @@ public class SchedulePlanServiceImpl extends ServiceImpl<SchedulePlanMapper, Sch
     private SchedulePlanMapper planMapper;
 
     @Override
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public boolean upsertPlan(SchedulePlan plan) {
         return planMapper.upsertPlan(plan) > 0;
     }

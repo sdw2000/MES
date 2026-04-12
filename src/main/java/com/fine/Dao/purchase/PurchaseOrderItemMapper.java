@@ -29,7 +29,7 @@ public interface PurchaseOrderItemMapper extends BaseMapper<PurchaseOrderItem> {
             + "SELECT * FROM ("
             + "  SELECT "
             + "    poi.id, poi.order_id, poi.material_code, poi.material_name, poi.color_code, "
-            + "    poi.thickness, poi.width, poi.length, poi.rolls, poi.sqm, poi.unit_price, poi.amount, poi.remark, "
+            + "    poi.thickness, poi.width, poi.length, poi.rolls, poi.sqm, poi.unit_price, poi.amount, poi.raw_spec, poi.remark, "
             + "    poi.created_by, poi.updated_by, poi.created_at, poi.updated_at, poi.is_deleted, "
             + "    po.order_no AS order_no, po.delivery_date AS delivery_date "
             + "  FROM purchase_order_items poi "
@@ -44,4 +44,17 @@ public interface PurchaseOrderItemMapper extends BaseMapper<PurchaseOrderItem> {
             Page<PurchaseOrderItem> page,
             @Param("orderNo") String orderNo,
             @Param("materialCode") String materialCode);
+
+    @Update("<script>"
+            + "UPDATE purchase_order_items "
+            + "SET is_deleted = 1, updated_by = #{updatedBy}, updated_at = NOW() "
+            + "WHERE order_id = #{orderId} AND is_deleted = 0 "
+            + "<if test='keepIds != null and keepIds.size() > 0'>"
+            + "  AND id NOT IN "
+            + "  <foreach collection='keepIds' item='id' open='(' separator=',' close=')'>#{id}</foreach>"
+            + "</if>"
+            + "</script>")
+    int logicDeleteMissingItems(@Param("orderId") Long orderId,
+                                @Param("keepIds") java.util.List<Long> keepIds,
+                                @Param("updatedBy") String updatedBy);
 }

@@ -1,18 +1,34 @@
 package com.fine.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.fine.Dao.CustomerMaterialMappingMapper;
 import com.fine.Dao.LabelPrintTemplateConfigMapper;
+import com.fine.Utils.RedisCache;
 import com.fine.Utils.ResponseResult;
+import com.fine.entity.CustomerMaterialMapping;
 import com.fine.entity.LabelPrintTemplateConfig;
+import com.fine.modle.DeliveryNotice;
+import com.fine.modle.DeliveryNoticeItem;
+import com.fine.service.DeliveryNoticeService;
+import com.fine.service.SalesOrderService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @RestController
 @RequestMapping("/basic-data/label-print-config")
@@ -23,18 +39,45 @@ public class LabelPrintTemplateConfigController {
     private static final String BIZ_TYPE_SALES_CONTRACT_DEFAULT = "sales_contract_default";
     private static final String BIZ_TYPE_DELIVERY_NOTICE_TEMPLATE = "delivery_notice_template";
     private static final String BIZ_TYPE_DELIVERY_NOTICE_DEFAULT = "delivery_notice_default";
+        private static final String LIST_SCOPE_LABEL_RULE = "label-rule";
+        private static final String DELIVERY_TEMPLATE_DEFAULT_REMARK = "{\"compact\":false,\"showCarrierPhone\":true,\"showCustomerOrderNo\":true,\"showItemArea\":true,\"showItemBox\":true,\"showItemRemark\":true,\"showFooterNotes\":true}";
+        private static final List<String> RESERVED_TEMPLATE_BIZ_TYPES = Arrays.asList(
+            BIZ_TYPE_SALES_CONTRACT_TEMPLATE,
+            BIZ_TYPE_SALES_CONTRACT_DEFAULT,
+            BIZ_TYPE_DELIVERY_NOTICE_TEMPLATE,
+            BIZ_TYPE_DELIVERY_NOTICE_DEFAULT
+        );
+    private static final String TEMPLATE_PREVIEW_SAMPLE_DATA_KEY = "label_print:template_preview_sample_data";
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Autowired
     private LabelPrintTemplateConfigMapper configMapper;
+
+    @Autowired
+    private SalesOrderService salesOrderService;
+
+    @Autowired
+    private DeliveryNoticeService deliveryNoticeService;
+
+    @Autowired
+    private CustomerMaterialMappingMapper customerMaterialMappingMapper;
+
+    @Autowired
+    private RedisCache redisCache;
 
     @GetMapping("/list")
     public ResponseResult<List<LabelPrintTemplateConfig>> list(
             @RequestParam(required = false) String bizType,
             @RequestParam(required = false) String customerCode,
-            @RequestParam(required = false) Integer isActive
+            @RequestParam(required = false) Integer isActive,
+            @RequestParam(required = false) String scope
     ) {
         try {
             QueryWrapper<LabelPrintTemplateConfig> wrapper = new QueryWrapper<>();
+            if (isLabelRuleScope(scope)) {
+                wrapper.notIn("biz_type", RESERVED_TEMPLATE_BIZ_TYPES);
+            }
             if (bizType != null && !bizType.trim().isEmpty()) {
                 wrapper.like("biz_type", bizType.trim());
             }
@@ -68,9 +111,16 @@ public class LabelPrintTemplateConfigController {
 
     @PostMapping("/batch-save")
     @Transactional(rollbackFor = Exception.class)
-    public ResponseResult<List<LabelPrintTemplateConfig>> batchSave(@RequestBody(required = false) List<LabelPrintTemplateConfig> configs) {
+    public ResponseResult<List<LabelPrintTemplateConfig>> batchSave(
+            @RequestBody(required = false) List<LabelPrintTemplateConfig> configs,
+            @RequestParam(required = false) String scope) {
         try {
             QueryWrapper<LabelPrintTemplateConfig> deleteWrapper = new QueryWrapper<>();
+            boolean labelRuleScope = isLabelRuleScope(scope);
+            if (labelRuleScope) {
+                // 仅覆盖“标签规则”域，避免误删送货单/合同模板配置
+                deleteWrapper.notIn("biz_type", RESERVED_TEMPLATE_BIZ_TYPES);
+            }
             configMapper.delete(deleteWrapper);
 
             List<LabelPrintTemplateConfig> saved = new ArrayList<>();
@@ -85,6 +135,10 @@ public class LabelPrintTemplateConfigController {
                         continue;
                     }
                     if (item.getTemplateKey() == null || item.getTemplateKey().trim().isEmpty()) {
+                        continue;
+                    }
+                    if (labelRuleScope && RESERVED_TEMPLATE_BIZ_TYPES.contains(item.getBizType().trim())) {
+                        // 标签规则域禁止写入其他模板域
                         continue;
                     }
 
@@ -217,6 +271,7 @@ public class LabelPrintTemplateConfigController {
     @GetMapping("/delivery-notice/templates")
     public ResponseResult<List<LabelPrintTemplateConfig>> deliveryNoticeTemplates() {
         try {
+            ensureDeliveryTemplatesReferencedByDefaultsExist();
             QueryWrapper<LabelPrintTemplateConfig> wrapper = new QueryWrapper<>();
             wrapper.eq("biz_type", BIZ_TYPE_DELIVERY_NOTICE_TEMPLATE)
                     .eq("is_active", 1)
@@ -235,6 +290,7 @@ public class LabelPrintTemplateConfigController {
     @GetMapping("/delivery-notice/templates/all")
     public ResponseResult<List<LabelPrintTemplateConfig>> deliveryNoticeTemplatesAll() {
         try {
+            ensureDeliveryTemplatesReferencedByDefaultsExist();
             QueryWrapper<LabelPrintTemplateConfig> wrapper = new QueryWrapper<>();
             wrapper.eq("biz_type", BIZ_TYPE_DELIVERY_NOTICE_TEMPLATE)
                     .orderByAsc("sort_no")
@@ -413,6 +469,359 @@ public class LabelPrintTemplateConfigController {
         }
     }
 
+    /**
+     * 打印模板数据查询（按模板键返回可渲染数据）
+     * 示例：
+     * - 销售合同：/template-data?bizType=sales_contract_template&templateKey=contract_standard_v1&orderNo=SO001
+     * - 发货通知：/template-data?bizType=delivery_notice_template&templateKey=delivery_standard_v1&noticeId=123
+     */
+    @GetMapping("/template-data")
+    public ResponseResult<Map<String, Object>> getTemplateData(
+            @RequestParam String bizType,
+            @RequestParam String templateKey,
+            @RequestParam(required = false) String orderNo,
+            @RequestParam(required = false) Long noticeId) {
+        try {
+            String safeBizType = bizType == null ? "" : bizType.trim();
+            String safeTemplateKey = templateKey == null ? "" : templateKey.trim();
+            if (safeBizType.isEmpty()) {
+                return ResponseResult.error("bizType不能为空");
+            }
+            if (safeTemplateKey.isEmpty()) {
+                return ResponseResult.error("templateKey不能为空");
+            }
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("bizType", safeBizType);
+            result.put("templateKey", safeTemplateKey);
+
+            if (BIZ_TYPE_SALES_CONTRACT_TEMPLATE.equalsIgnoreCase(safeBizType)) {
+                if (orderNo == null || orderNo.trim().isEmpty()) {
+                    return ResponseResult.error("sales_contract_template场景下，orderNo不能为空");
+                }
+                ResponseResult<?> detail = salesOrderService.getOrderByOrderNo(orderNo.trim());
+                Integer code = detail == null ? null : detail.getCode();
+                if (detail == null || !((code != null && code == 200) || (code != null && code == 20000))) {
+                    return ResponseResult.error("查询销售订单打印数据失败: " + (detail == null ? "未知错误" : detail.getMsg()));
+                }
+                result.put("source", "sales_order");
+                result.put("data", detail.getData());
+                return ResponseResult.success(result);
+            }
+
+            if (BIZ_TYPE_DELIVERY_NOTICE_TEMPLATE.equalsIgnoreCase(safeBizType)) {
+                if (noticeId == null) {
+                    return ResponseResult.error("delivery_notice_template场景下，noticeId不能为空");
+                }
+                DeliveryNotice notice = deliveryNoticeService.getDeliveryNoticeDetail(noticeId);
+                if (notice == null) {
+                    return ResponseResult.error("发货通知不存在");
+                }
+
+                int totalQty = 0;
+                int totalBox = 0;
+                BigDecimal totalArea = BigDecimal.ZERO;
+                List<DeliveryNoticeItem> items = notice.getItems() == null ? new ArrayList<>() : notice.getItems();
+                for (DeliveryNoticeItem item : items) {
+                    if (item == null) {
+                        continue;
+                    }
+                    totalQty += item.getQuantity() == null ? 0 : item.getQuantity();
+                    totalBox += item.getBoxCount() == null ? 0 : item.getBoxCount();
+                    totalArea = totalArea.add(item.getAreaSize() == null ? BigDecimal.ZERO : item.getAreaSize());
+                }
+
+                Map<String, Object> summary = new HashMap<>();
+                summary.put("totalQty", totalQty);
+                summary.put("totalBox", totalBox);
+                summary.put("totalArea", totalArea);
+
+                result.put("source", "delivery_notice");
+                result.put("data", notice);
+                result.put("summary", summary);
+                return ResponseResult.success(result);
+            }
+
+            return ResponseResult.error("暂不支持的bizType: " + safeBizType);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseResult.error("查询打印模板数据失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 每个模板独立查询接口：销售合同
+     */
+    @GetMapping("/template-data/sales-contract/{templateKey}")
+    public ResponseResult<Map<String, Object>> getSalesContractTemplateData(
+            @PathVariable String templateKey,
+            @RequestParam String orderNo) {
+        return getTemplateData(BIZ_TYPE_SALES_CONTRACT_TEMPLATE, templateKey, orderNo, null);
+    }
+
+    /**
+     * 每个模板独立查询接口：发货通知
+     * 规则：按 客户 + 料号 + 三规格(厚/宽/长) 匹配 customer_material_mapping
+     */
+    @GetMapping("/template-data/delivery-notice/{templateKey}")
+    public ResponseResult<Map<String, Object>> getDeliveryNoticeTemplateData(
+            @PathVariable String templateKey,
+            @RequestParam Long noticeId) {
+        try {
+            String safeTemplateKey = templateKey == null ? "" : templateKey.trim();
+            if (safeTemplateKey.isEmpty()) {
+                return ResponseResult.error("templateKey不能为空");
+            }
+            if (noticeId == null) {
+                return ResponseResult.error("noticeId不能为空");
+            }
+
+            DeliveryNotice notice = deliveryNoticeService.getDeliveryNoticeDetail(noticeId);
+            if (notice == null) {
+                return ResponseResult.error("发货通知不存在");
+            }
+
+            applyCustomerMaterialMappingForDeliveryPrint(notice);
+
+            int totalQty = 0;
+            int totalBox = 0;
+            BigDecimal totalArea = BigDecimal.ZERO;
+            List<DeliveryNoticeItem> items = notice.getItems() == null ? new ArrayList<>() : notice.getItems();
+            for (DeliveryNoticeItem item : items) {
+                if (item == null) {
+                    continue;
+                }
+                totalQty += item.getQuantity() == null ? 0 : item.getQuantity();
+                totalBox += item.getBoxCount() == null ? 0 : item.getBoxCount();
+                totalArea = totalArea.add(item.getAreaSize() == null ? BigDecimal.ZERO : item.getAreaSize());
+            }
+
+            Map<String, Object> summary = new HashMap<>();
+            summary.put("totalQty", totalQty);
+            summary.put("totalBox", totalBox);
+            summary.put("totalArea", totalArea);
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("bizType", BIZ_TYPE_DELIVERY_NOTICE_TEMPLATE);
+            result.put("templateKey", safeTemplateKey);
+            result.put("source", "delivery_notice");
+            result.put("data", notice);
+            result.put("summary", summary);
+            return ResponseResult.success(result);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseResult.error("查询发货通知模板数据失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 模板预览示例数据：读取共享配置（Redis）
+     */
+    @GetMapping("/template-preview-samples")
+    public ResponseResult<Map<String, Object>> getTemplatePreviewSamples() {
+        try {
+            Map<String, Object> result = readTemplatePreviewSamplesFromCache();
+            return ResponseResult.success(result);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseResult.error("读取模板预览示例数据失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 模板预览示例数据：保存共享配置（Redis）
+     */
+    @PostMapping("/template-preview-samples")
+    @Transactional(rollbackFor = Exception.class)
+    public ResponseResult<Map<String, Object>> saveTemplatePreviewSamples(@RequestBody(required = false) Map<String, Object> body) {
+        try {
+            Map<String, Object> data = body == null ? new HashMap<>() : new HashMap<>(body);
+            String json = objectMapper.writeValueAsString(data);
+            redisCache.setCacheObject(TEMPLATE_PREVIEW_SAMPLE_DATA_KEY, Objects.requireNonNull(json));
+            return ResponseResult.success("保存成功", data);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseResult.error("保存模板预览示例数据失败: " + e.getMessage());
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> readTemplatePreviewSamplesFromCache() {
+        try {
+            String json = redisCache.getCacheObject(TEMPLATE_PREVIEW_SAMPLE_DATA_KEY);
+            if (json == null || json.trim().isEmpty()) {
+                return new HashMap<>();
+            }
+            Map<String, Object> data = (Map<String, Object>) objectMapper.readValue(json, Map.class);
+            return data == null ? new HashMap<>() : new HashMap<>(data);
+        } catch (Exception e) {
+            return new HashMap<>();
+        }
+    }
+
+    private void applyCustomerMaterialMappingForDeliveryPrint(DeliveryNotice notice) {
+        if (notice == null || notice.getItems() == null || notice.getItems().isEmpty()) {
+            return;
+        }
+        String customerCode = notice.getCustomer() == null ? "" : notice.getCustomer().trim();
+        if (customerCode.isEmpty()) {
+            return;
+        }
+
+        for (DeliveryNoticeItem item : notice.getItems()) {
+            if (item == null) {
+                continue;
+            }
+            String materialCode = item.getMaterialCode() == null ? "" : item.getMaterialCode().trim();
+            if (materialCode.isEmpty()) {
+                continue;
+            }
+
+            BigDecimal[] dims = parseSpecDimensions(item.getSpec());
+            BigDecimal thickness = dims[0];
+            BigDecimal width = dims[1];
+            BigDecimal length = dims[2];
+
+            CustomerMaterialMapping matched = findBestMapping(customerCode, materialCode, thickness, width, length, item.getRemark());
+            if (matched == null) {
+                continue;
+            }
+
+            // 物料代码栏：我司料号
+            if (notBlank(matched.getMaterialCode())) {
+                item.setMaterialCode(matched.getMaterialCode().trim());
+            }
+            // 产品名称：客户名称
+            if (notBlank(matched.getCustomerMaterialName())) {
+                item.setMaterialName(matched.getCustomerMaterialName().trim());
+            }
+            // 规格栏：客户规格
+            item.setSpec(buildSpecText(
+                    matched.getCustomerThickness() == null ? thickness : matched.getCustomerThickness(),
+                    matched.getCustomerWidth() == null ? width : matched.getCustomerWidth(),
+                    matched.getCustomerLength() == null ? length : matched.getCustomerLength(),
+                    item.getSpec()
+            ));
+            // 物料编号：客户物料编号
+            if (notBlank(matched.getCustomerMaterialCode())) {
+                item.setCustomerMaterialNo(matched.getCustomerMaterialCode().trim());
+            }
+            // 备注：优先订单明细备注；若为空再回退客户产品代码
+            if (!notBlank(item.getRemark()) && notBlank(matched.getCustomerMaterialCode())) {
+                item.setRemark(matched.getCustomerMaterialCode().trim());
+            }
+        }
+    }
+
+    private CustomerMaterialMapping findBestMapping(String customerCode,
+                                                    String materialCode,
+                                                    BigDecimal thickness,
+                                                    BigDecimal width,
+                                                    BigDecimal length,
+                                                    String customerMaterialCodeHint) {
+        QueryWrapper<CustomerMaterialMapping> qw = new QueryWrapper<>();
+        qw.eq("customer_code", customerCode)
+                .eq("is_active", 1)
+                .orderByDesc("update_time")
+                .orderByDesc("id");
+
+        List<CustomerMaterialMapping> candidates = customerMaterialMappingMapper.selectList(qw);
+        if (candidates == null || candidates.isEmpty()) {
+            return null;
+        }
+
+        String materialNorm = normalizeMaterialCode(materialCode);
+        String hint = customerMaterialCodeHint == null ? "" : customerMaterialCodeHint.trim();
+
+        return candidates.stream()
+                .max(Comparator.comparingInt(m -> mappingScore(m, materialNorm, thickness, width, length, hint)))
+                .filter(m -> mappingScore(m, materialNorm, thickness, width, length, hint) > 0)
+                .orElse(null);
+    }
+
+    private int mappingScore(CustomerMaterialMapping m,
+                             String materialNorm,
+                             BigDecimal thickness,
+                             BigDecimal width,
+                             BigDecimal length,
+                             String customerMaterialCodeHint) {
+        if (m == null) {
+            return -1;
+        }
+        int score = 0;
+        String mapMaterialNorm = normalizeMaterialCode(m.getMaterialCode());
+        if (notBlank(materialNorm) && notBlank(mapMaterialNorm) && materialNorm.equals(mapMaterialNorm)) {
+            score += 100;
+        }
+        if (notBlank(customerMaterialCodeHint) && notBlank(m.getCustomerMaterialCode())
+                && customerMaterialCodeHint.trim().equals(m.getCustomerMaterialCode().trim())) {
+            score += 120;
+        }
+
+        if (numberEq(thickness, m.getThickness())) score += 20;
+        if (numberEq(width, m.getWidth())) score += 20;
+        if (numberEq(length, m.getLength())) score += 20;
+
+        if (numberEq(thickness, m.getCustomerThickness())) score += 10;
+        if (numberEq(width, m.getCustomerWidth())) score += 10;
+        if (numberEq(length, m.getCustomerLength())) score += 10;
+
+        return score;
+    }
+
+    private String normalizeMaterialCode(String code) {
+        if (!notBlank(code)) {
+            return "";
+        }
+        return code.trim().toUpperCase().replaceAll("[\\s\\-_]", "");
+    }
+
+    private boolean numberEq(BigDecimal a, BigDecimal b) {
+        if (a == null || b == null) {
+            return false;
+        }
+        return a.subtract(b).abs().compareTo(new BigDecimal("0.0001")) < 0;
+    }
+
+    private String buildSpecText(BigDecimal thickness, BigDecimal width, BigDecimal length, String fallback) {
+        if (thickness == null || width == null || length == null) {
+            return fallback;
+        }
+        return fmt(thickness) + "μm*" + fmt(width) + "mm*" + fmt(length) + "m";
+    }
+
+    private String fmt(BigDecimal value) {
+        if (value == null) {
+            return "";
+        }
+        return value.stripTrailingZeros().toPlainString();
+    }
+
+    private BigDecimal[] parseSpecDimensions(String spec) {
+        BigDecimal[] out = new BigDecimal[] {null, null, null};
+        if (!notBlank(spec)) {
+            return out;
+        }
+        Matcher matcher = Pattern.compile("\\d+(?:\\.\\d+)?").matcher(spec);
+        List<BigDecimal> nums = new ArrayList<>();
+        while (matcher.find()) {
+            try {
+                nums.add(new BigDecimal(matcher.group()));
+            } catch (Exception ignore) {
+            }
+        }
+        if (nums.size() >= 3) {
+            out[0] = nums.get(0);
+            out[1] = nums.get(1);
+            out[2] = nums.get(2);
+        }
+        return out;
+    }
+
+    private boolean notBlank(String v) {
+        return v != null && !v.trim().isEmpty();
+    }
+
     private String toSafeString(Object value) {
         return value == null ? null : String.valueOf(value).trim();
     }
@@ -430,7 +839,7 @@ public class LabelPrintTemplateConfigController {
 
     private String buildDeliveryTemplateRemark(Map<String, Object> body) {
         if (body == null) {
-            return "{\"compact\":false,\"showCarrierPhone\":true,\"showCustomerOrderNo\":true,\"showItemArea\":true,\"showItemBox\":true,\"showItemRemark\":true,\"showFooterNotes\":true}";
+            return DELIVERY_TEMPLATE_DEFAULT_REMARK;
         }
         Boolean compact = parseBooleanLike(body.get("compact"), false);
         Boolean showCarrierPhone = parseBooleanLike(body.get("showCarrierPhone"), true);
@@ -450,6 +859,97 @@ public class LabelPrintTemplateConfigController {
                 showItemRemark,
                 showFooterNotes
         );
+    }
+
+    private boolean isLabelRuleScope(String scope) {
+        return LIST_SCOPE_LABEL_RULE.equalsIgnoreCase(scope == null ? "" : scope.trim());
+    }
+
+    private void ensureDeliveryTemplatesReferencedByDefaultsExist() {
+        QueryWrapper<LabelPrintTemplateConfig> templateQw = new QueryWrapper<>();
+        templateQw.eq("biz_type", BIZ_TYPE_DELIVERY_NOTICE_TEMPLATE);
+        List<LabelPrintTemplateConfig> templates = configMapper.selectList(templateQw);
+
+        Set<String> existsKeys = new LinkedHashSet<>();
+        int maxSortNo = 0;
+        if (templates != null) {
+            for (LabelPrintTemplateConfig one : templates) {
+                if (one == null) {
+                    continue;
+                }
+                if (one.getTemplateKey() != null && !one.getTemplateKey().trim().isEmpty()) {
+                    existsKeys.add(one.getTemplateKey().trim());
+                }
+                if (one.getSortNo() != null && one.getSortNo() > maxSortNo) {
+                    maxSortNo = one.getSortNo();
+                }
+            }
+        }
+
+        QueryWrapper<LabelPrintTemplateConfig> defaultQw = new QueryWrapper<>();
+        defaultQw.eq("biz_type", BIZ_TYPE_DELIVERY_NOTICE_DEFAULT)
+                .eq("is_active", 1)
+                .isNotNull("template_key")
+                .orderByDesc("update_time");
+        List<LabelPrintTemplateConfig> defaults = configMapper.selectList(defaultQw);
+        if (defaults == null || defaults.isEmpty()) {
+            return;
+        }
+
+        Set<String> missingTemplateKeys = new LinkedHashSet<>();
+        for (LabelPrintTemplateConfig one : defaults) {
+            if (one == null || one.getTemplateKey() == null || one.getTemplateKey().trim().isEmpty()) {
+                continue;
+            }
+            String key = one.getTemplateKey().trim();
+            if (!existsKeys.contains(key)) {
+                missingTemplateKeys.add(key);
+            }
+        }
+        if (missingTemplateKeys.isEmpty()) {
+            return;
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        for (String key : missingTemplateKeys) {
+            LabelPrintTemplateConfig entity = new LabelPrintTemplateConfig();
+            entity.setBizType(BIZ_TYPE_DELIVERY_NOTICE_TEMPLATE);
+            entity.setSceneName(guessDeliveryTemplateSceneName(key));
+            entity.setTemplateKey(key);
+            entity.setCustomerCode(null);
+            entity.setSortNo(++maxSortNo);
+            entity.setIsActive(1);
+            entity.setRemark(DELIVERY_TEMPLATE_DEFAULT_REMARK);
+            entity.setCreateBy("system");
+            entity.setCreateTime(now);
+            entity.setUpdateBy("system");
+            entity.setUpdateTime(now);
+            configMapper.insert(entity);
+        }
+    }
+
+    private String guessDeliveryTemplateSceneName(String templateKey) {
+        String key = templateKey == null ? "" : templateKey.trim();
+        if (key.isEmpty()) {
+            return "发货通知模板";
+        }
+        String lower = key.toLowerCase();
+        if (lower.contains("wanbao") || key.contains("万宝")) {
+            return "万宝发货通知模板";
+        }
+        if (lower.contains("liyuan") || key.contains("力源")) {
+            return "力源发货通知模板";
+        }
+        if (lower.contains("yiwei") || key.contains("亿纬")) {
+            return "亿纬发货通知模板";
+        }
+        if (lower.contains("standard") || key.contains("标准")) {
+            return "标准发货通知模板";
+        }
+        if (lower.contains("simple") || key.contains("简版")) {
+            return "简版发货通知模板";
+        }
+        return key;
     }
 
     private Boolean parseBooleanLike(Object value, boolean defaultValue) {

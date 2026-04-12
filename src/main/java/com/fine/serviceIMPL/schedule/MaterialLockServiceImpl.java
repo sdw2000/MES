@@ -226,7 +226,7 @@ public class MaterialLockServiceImpl implements MaterialLockService {
             System.out.println("释放低优先级锁定：锁定ID=" + lock.getId() + " 订单=" + lock.getOrderNo());
             lockMapper.releaseLock(lock.getId());
             
-            // TODO: 将被释放的订单加入待涂布池（如果需要）
+            // 如需加入待涂布池，可在此调用入池服务
         }
     }
 

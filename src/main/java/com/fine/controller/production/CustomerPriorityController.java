@@ -1,7 +1,6 @@
 package com.fine.controller.production;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
-import com.fine.model.schedule.OrderCustomerPriority;
 import com.fine.service.schedule.CustomerPriorityService;
 import com.fine.Utils.ResponseResult;
 import org.springframework.beans.factory.annotation.Autowired;

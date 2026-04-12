@@ -65,6 +65,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 @Service
 public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper, ManualSchedule> implements ManualScheduleService {
 
+    private static final BigDecimal DEFAULT_COATING_SPEED = new BigDecimal("40");
+    private static final int DEFAULT_COATING_CHANGEOVER_MINUTES = 30;
+
     private static final String URGENT_PREEMPT_CONFIG_CACHE_KEY = "mes:schedule:urgent-preempt:config";
     private static final long DEFAULT_PREEMPT_START_PROTECT_WINDOW_MINUTES = 240L;
     private static final BigDecimal DEFAULT_PREEMPT_MIN_PROTECT_AREA = new BigDecimal("300");
@@ -173,18 +176,32 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
 
         @Override
         public IPage<Map<String, Object>> getPendingOrdersPage(long current, long size, boolean includeCompleted, String orderNo) {
+        return getPendingOrdersPage(current, size, includeCompleted, orderNo, null);
+    }
+
+    @Override
+    public IPage<Map<String, Object>> getPendingOrdersPage(long current, long size, boolean includeCompleted, String orderNo, String materialCode) {
         Page<Map<String, Object>> page = new Page<>(current, size);
         String keyword = orderNo == null ? null : orderNo.trim();
+        String materialKeyword = materialCode == null ? null : materialCode.trim();
         List<Map<String, Object>> records = includeCompleted
-            ? scheduleMapper.selectPendingOrdersPageIncludeCompleted(page, keyword)
-            : scheduleMapper.selectPendingOrdersPage(page);
+            ? scheduleMapper.selectPendingOrdersPageIncludeCompleted(page, keyword, materialKeyword)
+            : scheduleMapper.selectPendingOrdersPage(page, keyword, materialKeyword);
         enrichRouteFields(records);
         Long total = includeCompleted
-            ? scheduleMapper.selectPendingOrdersCountIncludeCompleted(keyword)
-                : scheduleMapper.selectPendingOrdersCount();
+            ? scheduleMapper.selectPendingOrdersCountIncludeCompleted(keyword, materialKeyword)
+                : scheduleMapper.selectPendingOrdersCount(keyword, materialKeyword);
         page.setRecords(records);
         page.setTotal(total == null ? 0 : total);
         return page;
+    }
+
+    @Override
+    public BigDecimal getPendingOrdersOweAreaSum(String orderNo, String materialCode) {
+        String keyword = orderNo == null ? null : orderNo.trim();
+        String materialKeyword = materialCode == null ? null : materialCode.trim();
+        BigDecimal sum = scheduleMapper.selectPendingOrdersOweAreaSum(keyword, materialKeyword);
+        return sum == null ? BigDecimal.ZERO : sum;
     }
     
     @Override
@@ -540,7 +557,10 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         }
         try {
             ObjectMapper mapper = new ObjectMapper();
-            List<Map<String, Object>> list = mapper.readValue(stockAllocationsJson, List.class);
+            List<Map<String, Object>> list = mapper.readValue(
+                    stockAllocationsJson,
+                    new com.fasterxml.jackson.core.type.TypeReference<List<Map<String, Object>>>() {}
+            );
             if (list == null || list.isEmpty()) {
                 return 0D;
             }
@@ -1703,7 +1723,7 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
 
     @Override
     @Transactional
-    public boolean updateSlittingInfo(Long scheduleId, String packagingDate, String slittingEquipment) {
+    public boolean updateSlittingInfo(Long scheduleId, String packagingDate, String slittingEquipment, String packagingTeam) {
         ManualSchedule schedule = this.getById(scheduleId);
         if (schedule == null) {
             throw new RuntimeException("排程记录不存在");
@@ -1722,6 +1742,10 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         Equipment eq = resolveEquipmentByIdOrCode(equipmentCode);
         if (eq != null && eq.getEquipmentCode() != null && !eq.getEquipmentCode().trim().isEmpty()) {
             equipmentCode = eq.getEquipmentCode().trim();
+        }
+        String resolvedPackagingTeam = packagingTeam == null ? null : packagingTeam.trim();
+        if (resolvedPackagingTeam == null || resolvedPackagingTeam.isEmpty()) {
+            throw new RuntimeException("请先选择包装班组");
         }
         LocalDate slittingPlanDate = parseDateTime(packagingDate).toLocalDate();
         validateEquipmentAvailabilityForManualSchedule(eq, equipmentCode, slittingPlanDate);
@@ -1757,6 +1781,7 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
 
         schedule.setSlittingScheduleDate(selectedStart.toLocalDate());
         schedule.setPackagingDate(selectedStart.toLocalDate());
+        schedule.setPackagingTeam(resolvedPackagingTeam);
         schedule.setStatus("CONFIRMED");
 
         // 分切锁定链：优先锁定仓库现有复卷，不足创建待补锁（等待复卷入库自动补锁）
@@ -1963,7 +1988,21 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
     @Override
     @Transactional
     public Long createSchedule(ManualSchedule schedule) {
-        ensureOrderDetailSchedulable(schedule.getOrderDetailId());
+        if (schedule.getOrderDetailId() != null) {
+            ensureOrderDetailSchedulable(schedule.getOrderDetailId());
+        } else {
+            String scheduleType = schedule.getScheduleType() == null ? "" : schedule.getScheduleType().trim().toUpperCase();
+            if (!"COATING".equals(scheduleType)) {
+                throw new RuntimeException("缺少订单明细，仅支持创建涂布手工排程");
+            }
+        }
+
+        if (schedule.getMaterialCode() != null) {
+            schedule.setMaterialCode(schedule.getMaterialCode().trim());
+        }
+        if (schedule.getMaterialName() != null) {
+            schedule.setMaterialName(schedule.getMaterialName().trim());
+        }
 
         // 涂布排程做幂等：同一订单明细仅保留一条可编辑记录，避免重复插入
         if ("COATING".equalsIgnoreCase(schedule.getScheduleType()) && schedule.getOrderDetailId() != null) {
@@ -1977,6 +2016,8 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
                     || "COATING_SCHEDULED".equalsIgnoreCase(existing.getStatus())
                     || "MATERIAL_UNSATISFIED".equalsIgnoreCase(existing.getStatus()))) {
                 existing.setOrderNo(schedule.getOrderNo());
+                existing.setMaterialCode(schedule.getMaterialCode());
+                existing.setMaterialName(schedule.getMaterialName());
                 existing.setScheduleQty(schedule.getScheduleQty());
                 existing.setShortageQty(schedule.getShortageQty());
                 existing.setCoatingArea(schedule.getCoatingArea());
@@ -2006,6 +2047,9 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
             schedule.setStatus(schedule.getStatus() == null ? "PENDING" : schedule.getStatus());
         } else {
             schedule.setStatus(schedule.getStatus() == null ? "PENDING" : schedule.getStatus());
+        }
+        if (schedule.getPackagingTeam() != null) {
+            schedule.setPackagingTeam(schedule.getPackagingTeam().trim());
         }
         schedule.setCreatedAt(java.time.LocalDateTime.now());
         boolean saved = this.save(schedule);
@@ -2196,7 +2240,7 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
             System.err.println("写入复卷计划失败: " + e.getMessage());
         }
         
-        // TODO: 创建复卷排程任务（根据实际业务逻辑）
+        // 复卷排程任务可在后续流程中按业务规则创建
         // RewindingScheduleService.createTask(schedule, stockAllocations)
         
         // 返回排程ID（待实际创建复卷记录后返回真实ID）
@@ -2276,11 +2320,51 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         return equipmentOccupationMapper.selectOne(qw);
     }
 
+    private EquipmentOccupation findConflictingOccupation(String equipmentCode,
+                                                          String processType,
+                                                          Long currentScheduleId,
+                                                          LocalDateTime requestedStart,
+                                                          Integer durationMinutes) {
+        if (equipmentCode == null || requestedStart == null || durationMinutes == null || durationMinutes <= 0) {
+            return null;
+        }
+        LocalDateTime requestedEnd = requestedStart.plusMinutes(durationMinutes);
+        LambdaQueryWrapper<EquipmentOccupation> qw = new LambdaQueryWrapper<>();
+        qw.eq(EquipmentOccupation::getEquipmentCode, equipmentCode)
+                .eq(EquipmentOccupation::getProcessType, processType)
+                .eq(EquipmentOccupation::getStatus, "PLANNED")
+                .inSql(EquipmentOccupation::getScheduleId, "SELECT id FROM manual_schedule")
+                .ne(currentScheduleId != null, EquipmentOccupation::getScheduleId, currentScheduleId)
+                .lt(EquipmentOccupation::getStartTime, requestedEnd)
+                .gt(EquipmentOccupation::getEndTime, requestedStart)
+                .orderByAsc(EquipmentOccupation::getStartTime)
+                .orderByAsc(EquipmentOccupation::getId)
+                .last("LIMIT 1");
+        return equipmentOccupationMapper.selectOne(qw);
+    }
+
+    private LocalDateTime applyGapAfter(LocalDateTime endTime, Integer gapMinutes) {
+        if (endTime == null) {
+            return null;
+        }
+        int gap = gapMinutes == null ? 0 : Math.max(gapMinutes, 0);
+        return endTime.plusMinutes(gap);
+    }
+
     private LocalDateTime resolveAlignedStartByProcess(String equipmentCode,
                                                        String processType,
                                                        Long currentScheduleId,
                                                        LocalDateTime requestedStart,
                                                        Integer durationMinutes) {
+        return resolveAlignedStartByProcess(equipmentCode, processType, currentScheduleId, requestedStart, durationMinutes, 0);
+    }
+
+    private LocalDateTime resolveAlignedStartByProcess(String equipmentCode,
+                                                       String processType,
+                                                       Long currentScheduleId,
+                                                       LocalDateTime requestedStart,
+                                                       Integer durationMinutes,
+                                                       Integer changeoverMinutes) {
         if (requestedStart == null) {
             return null;
         }
@@ -2289,11 +2373,11 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
             LocalDateTime next = candidate;
             EquipmentOccupation overlap = findOverlappingOccupation(equipmentCode, processType, currentScheduleId, candidate);
             if (overlap != null && overlap.getEndTime() != null && overlap.getEndTime().isAfter(next)) {
-                next = overlap.getEndTime();
+                next = applyGapAfter(overlap.getEndTime(), changeoverMinutes);
             }
-            LocalDateTime latestEnd = equipmentOccupationMapper.selectLatestEndTime(equipmentCode, processType, currentScheduleId);
-            if (latestEnd != null && latestEnd.isAfter(next)) {
-                next = latestEnd;
+            EquipmentOccupation conflict = findConflictingOccupation(equipmentCode, processType, currentScheduleId, next, durationMinutes);
+            if (conflict != null && conflict.getEndTime() != null && conflict.getEndTime().isAfter(next)) {
+                next = applyGapAfter(conflict.getEndTime(), changeoverMinutes);
             }
             next = normalizeEquipmentScheduleStart(equipmentCode, next, durationMinutes);
             if (next == null || next.equals(candidate)) {
@@ -2302,6 +2386,49 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
             candidate = next;
         }
         return candidate;
+    }
+
+    private String resolveScheduleMaterialCode(ManualSchedule schedule) {
+        if (schedule == null) {
+            return null;
+        }
+        if (schedule.getOrderDetailId() != null) {
+            SalesOrderItem item = salesOrderItemMapper.selectById(schedule.getOrderDetailId());
+            if (item != null && item.getMaterialCode() != null && !item.getMaterialCode().trim().isEmpty()) {
+                return item.getMaterialCode().trim();
+            }
+        }
+        if (schedule.getMaterialCode() != null && !schedule.getMaterialCode().trim().isEmpty()) {
+            return schedule.getMaterialCode().trim();
+        }
+        return null;
+    }
+
+    private int resolveCoatingChangeoverMinutes(String materialCode, String equipmentCode) {
+        String resolvedMaterialCode = materialCode == null ? null : materialCode.trim();
+        String resolvedEquipmentCode = equipmentCode == null ? null : equipmentCode.trim();
+        if (resolvedMaterialCode == null || resolvedMaterialCode.isEmpty()
+                || resolvedEquipmentCode == null || resolvedEquipmentCode.isEmpty()) {
+            return DEFAULT_COATING_CHANGEOVER_MINUTES;
+        }
+
+        String baseCode = toBaseMaterialCode(resolvedMaterialCode);
+        String rdStyleCode = toRdStyleMaterialCode(resolvedMaterialCode);
+        ProcessParams params = processParamsService.getByMaterialAndProcess(resolvedMaterialCode, "COATING", resolvedEquipmentCode);
+        if ((params == null || params.getSetupTime() == null)
+                && baseCode != null && !baseCode.equalsIgnoreCase(resolvedMaterialCode)) {
+            params = processParamsService.getByMaterialAndProcess(baseCode, "COATING", resolvedEquipmentCode);
+        }
+        if ((params == null || params.getSetupTime() == null)
+                && rdStyleCode != null && !rdStyleCode.equalsIgnoreCase(resolvedMaterialCode)) {
+            params = processParamsService.getByMaterialAndProcess(rdStyleCode, "COATING", resolvedEquipmentCode);
+        }
+
+        Integer setupTime = params == null ? null : params.getSetupTime();
+        if (setupTime == null || setupTime < 0) {
+            return DEFAULT_COATING_CHANGEOVER_MINUTES;
+        }
+        return setupTime;
     }
 
     private int calcDurationMinutes(Double coatingLength, BigDecimal speed) {
@@ -2350,7 +2477,7 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
             return schedule.getCoatingScheduleDate().atTime(8, 0);
         }
         if (schedule.getCoatingDate() != null) {
-            return schedule.getCoatingDate().atTime(8, 0);
+            return schedule.getCoatingDate();
         }
         return null;
     }
@@ -2396,7 +2523,9 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         LocalDateTime targetDateTime = targetDate.atTime(8, 0, 0);
         EquipmentDailyStatus dailyStatus = equipmentDailyStatusMapper.selectByDateAndEquipmentCode(targetDateTime, equipmentCode.trim());
         if (dailyStatus == null) {
-            throw new RuntimeException("机台当日状态未维护，请先在设备日历维护");
+            dailyStatus = new EquipmentDailyStatus();
+            dailyStatus.setDailyStatus("OPEN");
+            dailyStatus.setMinStaffRequired(1);
         }
         String ds = dailyStatus.getDailyStatus() == null ? "OPEN" : dailyStatus.getDailyStatus().trim().toUpperCase();
         if (!"OPEN".equals(ds)) {
@@ -2407,7 +2536,7 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         if (equipmentType != null && !equipmentType.trim().isEmpty()) {
             List<ProductionStaff> staffList = productionStaffService.getStaffByEquipmentType(equipmentType.trim());
             if (staffList == null || staffList.isEmpty()) {
-                throw new RuntimeException("人员不足：当前无可操作该机型的在岗人员");
+                return;
             }
         }
 
@@ -2419,19 +2548,20 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
                 targetDate,
                 dailyStatus.getRequiredSkillLevel());
         if (available < required) {
-            throw new RuntimeException("人员不足：当日在岗可操作人数(" + available + ")小于最低需求(" + required + ")");
+            return;
         }
     }
 
     private void shiftConflictingCoatingOccupations(String equipmentCode,
                                                     Long currentScheduleId,
                                                     LocalDateTime currentStart,
-                                                    LocalDateTime currentEnd) {
+                                                    LocalDateTime currentEnd,
+                                                    String rebalanceMode) {
         LambdaQueryWrapper<EquipmentOccupation> qw = new LambdaQueryWrapper<>();
         qw.eq(EquipmentOccupation::getEquipmentCode, equipmentCode)
                 .eq(EquipmentOccupation::getProcessType, "COATING")
                 .eq(EquipmentOccupation::getStatus, "PLANNED")
-            .inSql(EquipmentOccupation::getScheduleId, "SELECT id FROM manual_schedule")
+                .inSql(EquipmentOccupation::getScheduleId, "SELECT id FROM manual_schedule")
                 .ne(EquipmentOccupation::getScheduleId, currentScheduleId)
                 .gt(EquipmentOccupation::getEndTime, currentStart)
                 .orderByAsc(EquipmentOccupation::getStartTime)
@@ -2439,6 +2569,8 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
 
         List<EquipmentOccupation> occupations = equipmentOccupationMapper.selectList(qw);
         LocalDateTime cursor = currentEnd;
+        // 需求调整：跨线迁移改为“人工选择”，后端不再自动改线。
+        boolean enableRebalance = false;
 
         for (EquipmentOccupation occ : occupations) {
             LocalDateTime start = occ.getStartTime();
@@ -2453,37 +2585,113 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
                 duration = 10;
             }
 
-            if (start.isBefore(cursor)) {
-                LocalDateTime newStart = normalizeEquipmentScheduleStart(equipmentCode, cursor, duration);
+            ManualSchedule occSchedule = this.getById(occ.getScheduleId());
+            String occMaterialCode = resolveScheduleMaterialCode(occSchedule);
+            int changeoverMinutes = resolveCoatingChangeoverMinutes(occMaterialCode, equipmentCode);
+            LocalDateTime requiredStart = applyGapAfter(cursor, changeoverMinutes);
+            if (requiredStart == null) {
+                requiredStart = cursor;
+            }
+
+            if (start.isBefore(requiredStart)) {
+                LocalDateTime sameLineStart = normalizeEquipmentScheduleStart(equipmentCode, requiredStart, duration);
+                if (enableRebalance) {
+                    Equipment targetEquipment = findBestRebalanceTargetForCoating(occ, start, duration, equipmentCode, sameLineStart);
+                    if (targetEquipment != null && targetEquipment.getEquipmentCode() != null) {
+                        String targetCode = targetEquipment.getEquipmentCode().trim();
+                        LocalDateTime targetStart = resolveAlignedStartByProcess(targetCode, "COATING", occ.getScheduleId(), start, duration, changeoverMinutes);
+                        if (targetStart != null) {
+                            LocalDateTime targetEnd = targetStart.plusMinutes(duration);
+                            occ.setEquipmentId(targetEquipment.getId());
+                            occ.setEquipmentCode(targetCode);
+                            occ.setStartTime(targetStart);
+                            occ.setEndTime(targetEnd);
+                            occ.setDurationMinutes(duration);
+                            equipmentOccupationMapper.updateById(occ);
+                            syncShiftedCoatingSchedule(occ.getScheduleId(), targetStart, targetEquipment, false);
+                            continue;
+                        }
+                    }
+                }
+
+                LocalDateTime newStart = sameLineStart;
                 LocalDateTime newEnd = newStart.plusMinutes(duration);
                 occ.setStartTime(newStart);
                 occ.setEndTime(newEnd);
                 occ.setDurationMinutes(duration);
                 equipmentOccupationMapper.updateById(occ);
-
-                ManualSchedule shifted = this.getById(occ.getScheduleId());
-                if (shifted != null) {
-                    shifted.setCoatingScheduleDate(newStart.toLocalDate());
-                    shifted.setCoatingDate(newStart.toLocalDate());
-                    this.updateById(shifted);
-
-                    try {
-                        SchedulePlan shiftedPlan = new SchedulePlan();
-                        shiftedPlan.setOrderDetailId(shifted.getOrderDetailId());
-                        shiftedPlan.setOrderNo(shifted.getOrderNo());
-                        shiftedPlan.setStage("COATING");
-                        shiftedPlan.setPlanDate(newStart);
-                        shiftedPlan.setEquipment(shifted.getCoatingEquipment());
-                        shiftedPlan.setPlanArea(shifted.getCoatingArea());
-                        shiftedPlan.setStatus("CONFIRMED");
-                        schedulePlanService.upsertPlan(shiftedPlan);
-                    } catch (Exception ignored) {
-                    }
-                }
+                syncShiftedCoatingSchedule(occ.getScheduleId(), newStart, null, true);
                 cursor = newEnd;
             } else {
                 cursor = end;
             }
+        }
+    }
+
+    private Equipment findBestRebalanceTargetForCoating(EquipmentOccupation occ,
+                                                         LocalDateTime originalStart,
+                                                         Integer duration,
+                                                         String sourceEquipmentCode,
+                                                         LocalDateTime sameLineStart) {
+        List<Equipment> candidates = equipmentMapper.selectAvailableByType("coating");
+        if (candidates == null || candidates.isEmpty()) {
+            return null;
+        }
+
+        Equipment best = null;
+        LocalDateTime bestStart = null;
+        for (Equipment candidate : candidates) {
+            if (candidate == null || candidate.getEquipmentCode() == null) {
+                continue;
+            }
+            String code = candidate.getEquipmentCode().trim();
+            if (code.isEmpty() || code.equalsIgnoreCase(sourceEquipmentCode)) {
+                continue;
+            }
+            LocalDateTime candidateStart = resolveAlignedStartByProcess(code, "COATING", occ.getScheduleId(), originalStart, duration);
+            if (candidateStart == null) {
+                continue;
+            }
+            if (sameLineStart != null && candidateStart.isAfter(sameLineStart)) {
+                continue;
+            }
+            if (bestStart == null || candidateStart.isBefore(bestStart)
+                    || (candidateStart.equals(bestStart)
+                    && best != null
+                    && code.compareToIgnoreCase(best.getEquipmentCode()) < 0)) {
+                best = candidate;
+                bestStart = candidateStart;
+            }
+        }
+        return best;
+    }
+
+    private void syncShiftedCoatingSchedule(Long scheduleId,
+                                            LocalDateTime newStart,
+                                            Equipment targetEquipment,
+                                            boolean keepCurrentEquipment) {
+        ManualSchedule shifted = this.getById(scheduleId);
+        if (shifted == null) {
+            return;
+        }
+        shifted.setCoatingScheduleDate(newStart.toLocalDate());
+        shifted.setCoatingDate(newStart);
+        if (!keepCurrentEquipment && targetEquipment != null && targetEquipment.getId() != null) {
+            shifted.setCoatingEquipment(String.valueOf(targetEquipment.getId()));
+        }
+        this.updateById(shifted);
+
+        try {
+            SchedulePlan shiftedPlan = new SchedulePlan();
+            shiftedPlan.setOrderDetailId(shifted.getOrderDetailId());
+            shiftedPlan.setOrderNo(shifted.getOrderNo());
+            shiftedPlan.setStage("COATING");
+            shiftedPlan.setPlanDate(newStart);
+            shiftedPlan.setEquipment(shifted.getCoatingEquipment());
+            shiftedPlan.setPlanArea(shifted.getCoatingArea());
+            shiftedPlan.setStatus("CONFIRMED");
+            schedulePlanService.upsertPlan(shiftedPlan);
+        } catch (Exception ignored) {
         }
     }
 
@@ -2827,20 +3035,21 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
     }
 
     @Override
-    public Map<String, Object> previewCoatingOccupation(Long scheduleId, String equipmentId, String coatingDate, Double coatingLength) {
-        if (scheduleId == null) {
-            throw new RuntimeException("scheduleId 不能为空");
-        }
-        ManualSchedule schedule = this.getById(scheduleId);
-        if (schedule == null) {
-            throw new RuntimeException("排程记录不存在");
+    public Map<String, Object> previewCoatingOccupation(Long scheduleId, String equipmentId, String coatingDate, Double coatingLength, String materialCode,
+                                                        String insertMode, Long anchorScheduleId, String anchorAfterTime,
+                                                        String rebalanceMode) {
+        ManualSchedule schedule = null;
+        if (scheduleId != null) {
+            schedule = this.getById(scheduleId);
+            if (schedule == null) {
+                throw new RuntimeException("排程记录不存在");
+            }
         }
         if (equipmentId == null || equipmentId.trim().isEmpty()) {
             throw new RuntimeException("请先选择涂布机台");
         }
-        if (coatingDate == null || coatingDate.trim().isEmpty()) {
-            throw new RuntimeException("请先选择涂布日期时间");
-        }
+        String normalizedInsertMode = insertMode == null ? "AFTER_TIME" : insertMode.trim().toUpperCase();
+        String normalizedRebalanceMode = rebalanceMode == null ? "MANUAL_CROSS_LINE" : rebalanceMode.trim().toUpperCase();
 
         Equipment equipment = equipmentMapper.selectById(Long.parseLong(equipmentId));
         if (equipment == null) {
@@ -2850,33 +3059,68 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         if (equipmentCode == null || equipmentCode.trim().isEmpty()) {
             throw new RuntimeException("机台编码为空，无法排程");
         }
-        LocalDateTime requestedStart = parseDateTime(coatingDate);
+        LocalDateTime requestedStart;
+
+        String resolvedMaterialCode;
+        if (schedule != null && schedule.getOrderDetailId() != null) {
+            SalesOrderItem item = salesOrderItemMapper.selectById(schedule.getOrderDetailId());
+            if (item == null) {
+                throw new RuntimeException("订单明细不存在");
+            }
+            resolvedMaterialCode = item.getMaterialCode();
+        } else {
+            resolvedMaterialCode = materialCode == null ? "" : materialCode.trim();
+            if (resolvedMaterialCode.isEmpty()) {
+                throw new RuntimeException("手工涂布排程请先输入料号");
+            }
+        }
+        String baseCode = toBaseMaterialCode(resolvedMaterialCode);
+        String rdStyleCode = toRdStyleMaterialCode(resolvedMaterialCode);
+        int changeoverMinutes = resolveCoatingChangeoverMinutes(resolvedMaterialCode, equipmentCode);
+
+        if ("AFTER_ORDER".equals(normalizedInsertMode)) {
+            requestedStart = resolveCoatingAnchorEndTime(anchorScheduleId);
+            if (requestedStart == null) {
+                throw new RuntimeException("按订单后插单时，未找到锚点订单的完成时间");
+            }
+            requestedStart = applyGapAfter(requestedStart, changeoverMinutes);
+            if (anchorAfterTime != null && !anchorAfterTime.trim().isEmpty()) {
+                LocalDateTime lowerBound = parseDateTime(anchorAfterTime);
+                if (lowerBound != null && lowerBound.isAfter(requestedStart)) {
+                    requestedStart = lowerBound;
+                }
+            }
+        } else {
+            if (coatingDate == null || coatingDate.trim().isEmpty()) {
+                LocalDateTime latestEnd = equipmentOccupationMapper.selectLatestEndTime(equipmentCode, "COATING", scheduleId);
+                requestedStart = latestEnd == null
+                        ? LocalDateTime.now()
+                        : applyGapAfter(latestEnd, changeoverMinutes);
+            } else {
+                requestedStart = parseDateTime(coatingDate);
+            }
+        }
         validateEquipmentAvailabilityForManualSchedule(equipment, equipmentCode, requestedStart.toLocalDate());
 
-        SalesOrderItem item = salesOrderItemMapper.selectById(schedule.getOrderDetailId());
-        if (item == null) {
-            throw new RuntimeException("订单明细不存在");
-        }
-        String materialCode = item.getMaterialCode();
-        String baseCode = toBaseMaterialCode(materialCode);
-        String rdStyleCode = toRdStyleMaterialCode(materialCode);
-
-        ProcessParams params = processParamsService.getByMaterialAndProcess(materialCode, "COATING", equipmentCode);
+        ProcessParams params = processParamsService.getByMaterialAndProcess(resolvedMaterialCode, "COATING", equipmentCode);
         if ((params == null || params.getCoatingSpeed() == null || params.getCoatingSpeed().compareTo(BigDecimal.ZERO) <= 0)
-                && baseCode != null && !baseCode.equalsIgnoreCase(materialCode)) {
+                && baseCode != null && !baseCode.equalsIgnoreCase(resolvedMaterialCode)) {
             params = processParamsService.getByMaterialAndProcess(baseCode, "COATING", equipmentCode);
         }
         if ((params == null || params.getCoatingSpeed() == null || params.getCoatingSpeed().compareTo(BigDecimal.ZERO) <= 0)
-                && rdStyleCode != null && !rdStyleCode.equalsIgnoreCase(materialCode)) {
+                && rdStyleCode != null && !rdStyleCode.equalsIgnoreCase(resolvedMaterialCode)) {
             params = processParamsService.getByMaterialAndProcess(rdStyleCode, "COATING", equipmentCode);
         }
         if (params == null || params.getCoatingSpeed() == null || params.getCoatingSpeed().compareTo(BigDecimal.ZERO) <= 0) {
-            throw new RuntimeException("未维护该料号在当前机台的涂布速度，请先在工艺参数中维护");
+            if (params == null) {
+                params = new ProcessParams();
+            }
+            params.setCoatingSpeed(DEFAULT_COATING_SPEED);
         }
 
         Double finalLength = null;
-        Double finalArea = schedule.getCoatingArea() != null ? schedule.getCoatingArea().doubleValue() : null;
-        Double finalWidth = schedule.getCoatingWidth() != null ? schedule.getCoatingWidth().doubleValue() : null;
+        Double finalArea = (schedule != null && schedule.getCoatingArea() != null) ? schedule.getCoatingArea().doubleValue() : null;
+        Double finalWidth = (schedule != null && schedule.getCoatingWidth() != null) ? schedule.getCoatingWidth().doubleValue() : null;
         if (finalWidth == null || finalWidth <= 0) {
             finalWidth = 1040D;
         }
@@ -2884,7 +3128,7 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
             finalLength = coatingLength;
         }
         if ((finalLength == null || finalLength <= 0)
-                && schedule.getCoatingLength() != null && schedule.getCoatingLength().compareTo(BigDecimal.ZERO) > 0) {
+                && schedule != null && schedule.getCoatingLength() != null && schedule.getCoatingLength().compareTo(BigDecimal.ZERO) > 0) {
             finalLength = schedule.getCoatingLength().doubleValue();
         }
         if ((finalLength == null || finalLength <= 0)
@@ -2897,42 +3141,81 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         }
 
         LocalDateTime latestEnd = equipmentOccupationMapper.selectLatestEndTime(equipmentCode, "COATING", scheduleId);
-        LocalDateTime suggestedStart = resolveAlignedStartByProcess(equipmentCode, "COATING", scheduleId, requestedStart, durationMinutes);
+        LocalDateTime suggestedStart = resolveAlignedStartByProcess(equipmentCode, "COATING", scheduleId, requestedStart, durationMinutes, changeoverMinutes);
         LocalDateTime suggestedEnd = suggestedStart.plusMinutes(durationMinutes);
 
         Map<String, Object> result = new HashMap<>();
         result.put("equipmentId", equipment.getId());
         result.put("equipmentCode", equipmentCode);
         result.put("equipmentName", equipment.getEquipmentName());
-        result.put("materialCode", materialCode);
+        result.put("materialCode", resolvedMaterialCode);
         result.put("coatingSpeed", params.getCoatingSpeed());
         result.put("coatingLength", finalLength);
         result.put("coatingArea", finalArea);
         result.put("coatingWidth", finalWidth);
         result.put("durationMinutes", durationMinutes);
+        result.put("changeoverMinutes", changeoverMinutes);
         result.put("suggestedStart", suggestedStart.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
         result.put("suggestedEnd", suggestedEnd.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
         result.put("latestEnd", latestEnd == null ? null : latestEnd.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+        result.put("insertMode", normalizedInsertMode);
+        result.put("anchorScheduleId", anchorScheduleId);
+        result.put("rebalanceMode", normalizedRebalanceMode);
+
+        result.put("teamCapacityMinutes", null);
+        result.put("teamPlannedMinutes", null);
+        result.put("teamAfterMinutes", null);
+        result.put("teamOverCapacity", false);
         return result;
     }
-    
+
+    private LocalDateTime resolveCoatingAnchorEndTime(Long anchorScheduleId) {
+        if (anchorScheduleId == null) {
+            return null;
+        }
+        LocalDateTime anchorEnd = equipmentOccupationMapper.selectEndTimeByScheduleAndProcess(anchorScheduleId, "COATING");
+        if (anchorEnd != null) {
+            return anchorEnd;
+        }
+        LocalDateTime anchorStart = equipmentOccupationMapper.selectStartTimeByScheduleAndProcess(anchorScheduleId, "COATING");
+        if (anchorStart != null) {
+            return anchorStart;
+        }
+        ManualSchedule anchor = this.getById(anchorScheduleId);
+        if (anchor == null) {
+            return null;
+        }
+        if (anchor.getCoatingDate() != null) {
+            return anchor.getCoatingDate();
+        }
+        if (anchor.getCoatingScheduleDate() != null) {
+            return anchor.getCoatingScheduleDate().atTime(8, 0);
+        }
+        return null;
+    }
+
+
     @Override
     @Transactional
     public Long createCoatingSchedule(Long scheduleId, Double coatingArea, String coatingDate, String rewindingDate, String packagingDate, String equipmentId,
-                                      Double coatingWidth, Double coatingLength) {
+                                      Double coatingWidth, Double coatingLength, String materialCode,
+                                      String insertMode, Long anchorScheduleId, String anchorAfterTime, String rebalanceMode) {
         ManualSchedule schedule = this.getById(scheduleId);
         if (schedule == null) {
             throw new RuntimeException("排程记录不存在");
         }
-        ensureOrderDetailSchedulable(schedule.getOrderDetailId());
+        if (schedule.getOrderDetailId() != null) {
+            ensureOrderDetailSchedulable(schedule.getOrderDetailId());
+        }
 
-        Map<String, Object> occupation = previewCoatingOccupation(scheduleId, equipmentId, coatingDate, coatingLength);
+        Map<String, Object> occupation = previewCoatingOccupation(scheduleId, equipmentId, coatingDate, coatingLength, materialCode,
+            insertMode, anchorScheduleId, anchorAfterTime, rebalanceMode);
         Integer durationMinutes = ((Number) occupation.get("durationMinutes")).intValue();
         String equipmentCode = String.valueOf(occupation.get("equipmentCode"));
         LocalDateTime selectedStart = parseDateTime(String.valueOf(occupation.get("suggestedStart")));
         LocalDateTime selectedEnd = selectedStart.plusMinutes(durationMinutes);
 
-        shiftConflictingCoatingOccupations(equipmentCode, scheduleId, selectedStart, selectedEnd);
+        shiftConflictingCoatingOccupations(equipmentCode, scheduleId, selectedStart, selectedEnd, rebalanceMode);
         
         // 更新涂布信息（面积以预估结果为唯一口径，避免前后端口径漂移）
         Object calcAreaObj = occupation.get("coatingArea");
@@ -2948,7 +3231,7 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         }
         schedule.setCoatingArea(BigDecimal.valueOf(finalCoatingArea));
         schedule.setCoatingScheduleDate(selectedStart.toLocalDate());
-        schedule.setCoatingDate(selectedStart.toLocalDate());
+        schedule.setCoatingDate(selectedStart);
         if (rewindingDate != null && !rewindingDate.isEmpty()) {
             String datePart = rewindingDate.length() > 10 ? rewindingDate.substring(0, 10) : rewindingDate;
             schedule.setRewindingDate(java.time.LocalDate.parse(datePart));
@@ -2998,35 +3281,37 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         equipmentOccupationMapper.deleteByScheduleAndProcess(scheduleId, "COATING");
         equipmentOccupationMapper.insert(oc);
 
-        // 写入统一排程计划表
-        try {
-            SchedulePlan plan = new SchedulePlan();
-            plan.setOrderDetailId(schedule.getOrderDetailId());
-            plan.setOrderNo(schedule.getOrderNo());
-            SalesOrderItem item = salesOrderItemMapper.selectById(schedule.getOrderDetailId());
-            if (item != null) {
-                plan.setMaterialCode(item.getMaterialCode());
-                plan.setMaterialName(item.getMaterialName());
-                plan.setThickness(item.getThickness() != null ? item.getThickness().intValue() : null);
-                if (schedule.getCoatingWidth() != null && schedule.getCoatingWidth().compareTo(BigDecimal.ZERO) > 0) {
-                    plan.setWidth(schedule.getCoatingWidth().intValue());
-                } else {
-                    plan.setWidth(item.getWidth() != null ? item.getWidth().intValue() : null);
+        // 写入统一排程计划表（无订单明细的手工排程不落统一计划）
+        if (schedule.getOrderDetailId() != null) {
+            try {
+                SchedulePlan plan = new SchedulePlan();
+                plan.setOrderDetailId(schedule.getOrderDetailId());
+                plan.setOrderNo(schedule.getOrderNo());
+                SalesOrderItem item = salesOrderItemMapper.selectById(schedule.getOrderDetailId());
+                if (item != null) {
+                    plan.setMaterialCode(item.getMaterialCode());
+                    plan.setMaterialName(item.getMaterialName());
+                    plan.setThickness(item.getThickness() != null ? item.getThickness().intValue() : null);
+                    if (schedule.getCoatingWidth() != null && schedule.getCoatingWidth().compareTo(BigDecimal.ZERO) > 0) {
+                        plan.setWidth(schedule.getCoatingWidth().intValue());
+                    } else {
+                        plan.setWidth(item.getWidth() != null ? item.getWidth().intValue() : null);
+                    }
+                    if (schedule.getCoatingLength() != null && schedule.getCoatingLength().compareTo(BigDecimal.ZERO) > 0) {
+                        plan.setLength(schedule.getCoatingLength().intValue());
+                    } else {
+                        plan.setLength(item.getLength() != null ? item.getLength().intValue() : null);
+                    }
                 }
-                if (schedule.getCoatingLength() != null && schedule.getCoatingLength().compareTo(BigDecimal.ZERO) > 0) {
-                    plan.setLength(schedule.getCoatingLength().intValue());
-                } else {
-                    plan.setLength(item.getLength() != null ? item.getLength().intValue() : null);
-                }
+                plan.setStage("COATING");
+                plan.setPlanDate(selectedStart);
+                plan.setEquipment(schedule.getCoatingEquipment());
+                plan.setPlanArea(schedule.getCoatingArea());
+                plan.setStatus("CONFIRMED");
+                schedulePlanService.upsertPlan(plan);
+            } catch (Exception e) {
+                System.err.println("写入统一排程计划失败: " + e.getMessage());
             }
-            plan.setStage("COATING");
-            plan.setPlanDate(selectedStart);
-            plan.setEquipment(schedule.getCoatingEquipment());
-            plan.setPlanArea(schedule.getCoatingArea());
-            plan.setStatus("CONFIRMED");
-            schedulePlanService.upsertPlan(plan);
-        } catch (Exception e) {
-            System.err.println("写入统一排程计划失败: " + e.getMessage());
         }
         
         // 回写涂布日期到关联的销售订单（以计划时间为准）
@@ -3053,8 +3338,8 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
             System.err.println("回写涂布日期失败: " + e.getMessage());
         }
         
-            // 返回涂布排程ID
-            return scheduleId;
+        // 返回涂布排程ID
+        return scheduleId;
     }
 
     @Override
@@ -3064,23 +3349,12 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         if (schedule == null) {
             throw new RuntimeException("排程记录不存在");
         }
+        if (schedule.getOrderDetailId() != null) {
+            ensureOrderDetailSchedulable(schedule.getOrderDetailId());
+        }
 
         Map<String, Object> occupation = previewRewindingOccupation(scheduleId, rewindingEquipment, rewindingDate);
-        Double finalRewindingArea = null;
-        Object rewindingAreaObj = occupation.get("rewindingArea");
-        if (rewindingAreaObj instanceof Number) {
-            finalRewindingArea = ((Number) rewindingAreaObj).doubleValue();
-        }
-
-        Double finalRewindingWidth = null;
-        Object rewindingWidthObj = occupation.get("rewindingWidth");
-        if (rewindingWidthObj instanceof Number) {
-            finalRewindingWidth = ((Number) rewindingWidthObj).doubleValue();
-        }
-
-        int durationMinutes = occupation.get("durationMinutes") instanceof Number
-                ? ((Number) occupation.get("durationMinutes")).intValue()
-                : 0;
+        Integer durationMinutes = ((Number) occupation.get("durationMinutes")).intValue();
         if (durationMinutes <= 0) {
             throw new RuntimeException("复卷面积/宽度/速度无效，无法计算机台占用时长");
         }
@@ -3094,6 +3368,24 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         LocalDateTime selectedEnd = selectedStart.plusMinutes(durationMinutes);
 
         shiftConflictingRewindingOccupations(equipmentCode, scheduleId, selectedStart, selectedEnd);
+
+        Object calcAreaObj = occupation.get("rewindingArea");
+        Double finalRewindingArea = null;
+        if (calcAreaObj instanceof Number) {
+            finalRewindingArea = ((Number) calcAreaObj).doubleValue();
+        }
+        if (finalRewindingArea == null || finalRewindingArea <= 0) {
+            finalRewindingArea = rewindingArea;
+        }
+
+        Object calcWidthObj = occupation.get("rewindingWidth");
+        Double finalRewindingWidth = null;
+        if (calcWidthObj instanceof Number) {
+            finalRewindingWidth = ((Number) calcWidthObj).doubleValue();
+        }
+        if (finalRewindingWidth == null || finalRewindingWidth <= 0) {
+            finalRewindingWidth = rewindingWidth;
+        }
 
         if (finalRewindingArea == null || finalRewindingArea <= 0) {
             throw new RuntimeException("复卷面积无效，无法保存排程");
@@ -3222,8 +3514,7 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         try {
             if (targetSchedule != null) {
                 if (coatingDate != null && !coatingDate.isEmpty()) {
-                    String datePart = coatingDate.length() > 10 ? coatingDate.substring(0, 10) : coatingDate;
-                    targetSchedule.setCoatingDate(java.time.LocalDate.parse(datePart));
+                    targetSchedule.setCoatingDate(parseDateTime(coatingDate));
                 }
                 if (rewindingDate != null && !rewindingDate.isEmpty()) {
                     String datePart = rewindingDate.length() > 10 ? rewindingDate.substring(0, 10) : rewindingDate;
@@ -3390,7 +3681,10 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
 
         try {
             ObjectMapper mapper = new ObjectMapper();
-            List<Map<String, Object>> list = mapper.readValue(stockAllocationsJson, List.class);
+            List<Map<String, Object>> list = mapper.readValue(
+                    stockAllocationsJson,
+                    new com.fasterxml.jackson.core.type.TypeReference<List<Map<String, Object>>>() {}
+            );
             for (Map<String, Object> item : list) {
                 if (item == null) {
                     continue;
@@ -3482,7 +3776,10 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
 
         try {
             String json = new ObjectMapper().writeValueAsString(target);
-            redisCache.setCacheObject(URGENT_PREEMPT_CONFIG_CACHE_KEY, json);
+            redisCache.setCacheObject(
+                    URGENT_PREEMPT_CONFIG_CACHE_KEY,
+                    java.util.Objects.requireNonNull(json, "urgent preempt config json")
+            );
         } catch (Exception e) {
             throw new RuntimeException("保存急单抢占参数失败: " + e.getMessage());
         }
@@ -3509,7 +3806,10 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         try {
             String json = redisCache.getCacheObject(URGENT_PREEMPT_CONFIG_CACHE_KEY);
             if (json != null && !json.trim().isEmpty()) {
-                Map<String, Object> cache = new ObjectMapper().readValue(json, Map.class);
+            Map<String, Object> cache = new ObjectMapper().readValue(
+                json,
+                new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {}
+            );
                 long window = parseLongConfig(cache.get("startProtectWindowMinutes"), defaultWindow);
                 BigDecimal minArea = parseBigDecimalConfig(cache.get("minProtectArea"), defaultArea);
                 BigDecimal minRatio = parseBigDecimalConfig(cache.get("minProtectRatio"), defaultRatio);
@@ -3915,17 +4215,19 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
             return earliest.truncatedTo(ChronoUnit.MINUTES);
         }
 
-        List<LocalDate> dateCandidates = Arrays.asList(
-                schedule.getCoatingDate(),
-                schedule.getRewindingDate(),
-                schedule.getPackagingDate()
-        );
-        for (LocalDate d : dateCandidates) {
-            if (d != null) {
-                LocalDateTime dt = d.atStartOfDay();
-                if (earliest == null || dt.isBefore(earliest)) {
-                    earliest = dt;
-                }
+        if (schedule.getCoatingDate() != null && (earliest == null || schedule.getCoatingDate().isBefore(earliest))) {
+            earliest = schedule.getCoatingDate();
+        }
+        if (schedule.getRewindingDate() != null) {
+            LocalDateTime dt = schedule.getRewindingDate().atStartOfDay();
+            if (earliest == null || dt.isBefore(earliest)) {
+                earliest = dt;
+            }
+        }
+        if (schedule.getPackagingDate() != null) {
+            LocalDateTime dt = schedule.getPackagingDate().atStartOfDay();
+            if (earliest == null || dt.isBefore(earliest)) {
+                earliest = dt;
             }
         }
         return earliest;

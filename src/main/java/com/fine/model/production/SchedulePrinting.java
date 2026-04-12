@@ -26,7 +26,7 @@ public class SchedulePrinting {
     private Long scheduleId;
     
     /**
-     * 任务单号（PR-YYYYMMDD-XXX）
+    * 任务单号（PR-YYYYMMDD-NNN）
      */
     private String taskNo;
     

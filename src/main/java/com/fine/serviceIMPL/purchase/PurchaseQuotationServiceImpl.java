@@ -1,6 +1,7 @@
 package com.fine.serviceIMPL.purchase;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -20,6 +21,7 @@ import java.math.BigDecimal;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
 
 @Service
 public class PurchaseQuotationServiceImpl extends ServiceImpl<PurchaseQuotationMapper, PurchaseQuotation> implements PurchaseQuotationService {
@@ -52,17 +54,27 @@ public class PurchaseQuotationServiceImpl extends ServiceImpl<PurchaseQuotationM
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ResponseResult<?> create(PurchaseQuotation quotation) {
-        if (!StringUtils.hasText(quotation.getQuotationNo())) {
-            quotation.setQuotationNo(generateQuotationNo());
-        }
         if (!StringUtils.hasText(quotation.getStatus())) {
             quotation.setStatus("draft");
         }
         quotation.setIsDeleted(0);
         quotation.setCreatedAt(new Date());
         quotation.setUpdatedAt(new Date());
-        calculateTotals(quotation);
-        quotationMapper.insert(quotation);
+
+        int retryTimes = 5;
+        for (int attempt = 0; attempt < retryTimes; attempt++) {
+            if (!StringUtils.hasText(quotation.getQuotationNo()) || attempt > 0) {
+                quotation.setQuotationNo(generateQuotationNo(attempt));
+            }
+            try {
+                quotationMapper.insert(quotation);
+                break;
+            } catch (org.springframework.dao.DuplicateKeyException ex) {
+                if (attempt == retryTimes - 1) {
+                    throw ex;
+                }
+            }
+        }
 
         if (!CollectionUtils.isEmpty(quotation.getItems())) {
             for (PurchaseQuotationItem item : quotation.getItems()) {
@@ -87,7 +99,6 @@ public class PurchaseQuotationServiceImpl extends ServiceImpl<PurchaseQuotationM
         quotation.setCreatedAt(existing.getCreatedAt());
         quotation.setUpdatedAt(new Date());
         quotation.setIsDeleted(0);
-        calculateTotals(quotation);
         quotationMapper.updateById(quotation);
 
         LambdaQueryWrapper<PurchaseQuotationItem> del = new LambdaQueryWrapper<>();
@@ -115,35 +126,56 @@ public class PurchaseQuotationServiceImpl extends ServiceImpl<PurchaseQuotationM
         if (quotation == null) {
             return new ResponseResult<>(404, "报价单不存在");
         }
-        quotation.setIsDeleted(1);
-        quotationMapper.updateById(quotation);
-        LambdaQueryWrapper<PurchaseQuotationItem> del = new LambdaQueryWrapper<>();
-        del.eq(PurchaseQuotationItem::getQuotationId, id);
-        quotationItemMapper.delete(del);
+
+        LambdaUpdateWrapper<PurchaseQuotation> quotationDeleteWrapper = new LambdaUpdateWrapper<>();
+        quotationDeleteWrapper
+                .eq(PurchaseQuotation::getId, id)
+                .eq(PurchaseQuotation::getIsDeleted, 0)
+                .set(PurchaseQuotation::getIsDeleted, 1)
+                .set(PurchaseQuotation::getUpdatedAt, new Date());
+        int affected = quotationMapper.update(null, quotationDeleteWrapper);
+        if (affected <= 0) {
+            return new ResponseResult<>(409, "报价单删除失败或已被删除");
+        }
+
+        LambdaUpdateWrapper<PurchaseQuotationItem> itemDeleteWrapper = new LambdaUpdateWrapper<>();
+        itemDeleteWrapper
+                .eq(PurchaseQuotationItem::getQuotationId, id)
+                .eq(PurchaseQuotationItem::getIsDeleted, 0)
+                .set(PurchaseQuotationItem::getIsDeleted, 1)
+                .set(PurchaseQuotationItem::getUpdatedAt, new Date());
+        quotationItemMapper.update(null, itemDeleteWrapper);
+
         return ResponseResult.success();
     }
 
     @Override
     public String generateQuotationNo() {
-        String prefix = "PQ-" + new SimpleDateFormat("yyyyMMdd").format(new Date()) + "-";
-        String seq = new SimpleDateFormat("HHmmss").format(new Date());
-        return prefix + seq;
+        return generateQuotationNo(0);
     }
 
+    private String generateQuotationNo(int attempt) {
+        String datePart = new SimpleDateFormat("yyyyMMdd").format(new Date());
+        String timePart = new SimpleDateFormat("HHmmssSSS").format(new Date());
+        int randomPart = ThreadLocalRandom.current().nextInt(1000, 10000);
+        if (attempt > 0) {
+            return String.format("PQ-%s-%s-%d-%d", datePart, timePart, attempt, randomPart);
+        }
+        return String.format("PQ-%s-%s-%d", datePart, timePart, randomPart);
+    }
+
+    @SuppressWarnings("unused")
     private void calculateTotals(PurchaseQuotation quotation) {
-        BigDecimal totalAmount = BigDecimal.ZERO;
         BigDecimal totalArea = BigDecimal.ZERO;
         if (!CollectionUtils.isEmpty(quotation.getItems())) {
             for (PurchaseQuotationItem item : quotation.getItems()) {
                 calculateItem(item);
-                if (item.getAmount() != null) totalAmount = totalAmount.add(item.getAmount());
                 // 仅薄膜类（有宽度+长度）累计面积；其他原材料sqm承载总重
                 if (item.getSqm() != null && item.getWidth() != null && item.getLength() != null) {
                     totalArea = totalArea.add(item.getSqm());
                 }
             }
         }
-        quotation.setTotalAmount(totalAmount);
         quotation.setTotalArea(totalArea);
     }
 

@@ -16,7 +16,7 @@ import javax.servlet.http.HttpServletResponse;
  */
 @RestController
 @RequestMapping("/api/tape-formula")
-@PreAuthorize("hasAnyAuthority('admin','rd','production','warehouse','finance','quality')")
+@PreAuthorize("hasAnyAuthority('admin','rd','production','warehouse','finance','quality','purchase')")
 public class TapeFormulaController {
 
     @Autowired
@@ -139,9 +139,10 @@ public class TapeFormulaController {
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) String materialCode,
             @RequestParam(required = false) String materialName,
+            @RequestParam(required = false) String materialCategory,
             @RequestParam(required = false) String materialType,
             @RequestParam(required = false) Integer status) {
-        return tapeFormulaService.getRawMaterialPage(page, size, materialCode, materialName, materialType, status);
+        return tapeFormulaService.getRawMaterialPage(page, size, materialCode, materialName, materialCategory, materialType, status);
     }
 
     /**
@@ -186,9 +187,10 @@ public class TapeFormulaController {
     public void exportRawMaterials(HttpServletResponse response,
                                    @RequestParam(required = false) String materialCode,
                                    @RequestParam(required = false) String materialName,
+                                   @RequestParam(required = false) String materialCategory,
                                    @RequestParam(required = false) String materialType,
                                    @RequestParam(required = false) Integer status) {
-        tapeFormulaService.exportRawMaterials(response, materialCode, materialName, materialType, status);
+        tapeFormulaService.exportRawMaterials(response, materialCode, materialName, materialCategory, materialType, status);
     }
 
     /**
@@ -206,5 +208,14 @@ public class TapeFormulaController {
     @GetMapping("/raw-material/template")
     public void downloadRawMaterialTemplate(HttpServletResponse response) {
         tapeFormulaService.downloadRawMaterialTemplate(response);
+    }
+
+    /**
+     * 初始化原材料基础数据
+     */
+    @PostMapping("/raw-material/initialize")
+    @PreAuthorize("hasAnyAuthority('admin','rd')")
+    public ResponseResult<?> initializeRawMaterials() {
+        return tapeFormulaService.initializeRawMaterials();
     }
 }

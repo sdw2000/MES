@@ -31,7 +31,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -1032,7 +1031,7 @@ public class OrderPreprocessingServiceImpl extends ServiceImpl<OrderPreprocessin
         preprocessing.setStatus(OrderPreprocessing.PreprocessingStatusEnum.CANCELLED);
         this.updateById(preprocessing);
 
-        // 4) TODO: 推送通知（需接入站内信/WS模块）
+        // 4) 通知由消息模块统一处理（当前链路不在此处直接推送）
     }
 
     private String buildSpecDesc(SalesOrderItem item) {

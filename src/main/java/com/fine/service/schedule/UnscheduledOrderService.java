@@ -9,7 +9,7 @@ import java.util.Map;
  * 未排程订单 Service
  * 主要用于查询和管理未排程的订单
  */
-public interface UnscheduledOrderService extends IService<Map> {
+public interface UnscheduledOrderService extends IService<Map<String, Object>> {
     
     /**
      * 分页查询未排程订单列表

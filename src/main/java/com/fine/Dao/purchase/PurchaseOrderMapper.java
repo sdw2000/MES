@@ -18,13 +18,24 @@ public interface PurchaseOrderMapper extends BaseMapper<PurchaseOrder> {
             + "  po.id, po.order_no, po.supplier, po.supplier_order_no, "
             + "  po.buyer AS buyerUserId, po.handler AS handlerUserId, "
             + "  po.contact_name, po.contact_phone, "
-            + "  po.total_amount, po.total_area, po.required_area, "
+            + "  COALESCE(agg.total_amount, po.total_amount, 0) AS total_amount, "
+            + "  COALESCE(agg.total_qty, po.total_area, 0) AS total_area, "
+            + "  po.required_area, "
+            + "  po.reconciliation_status, "
             + "  po.thickness, po.width, po.order_date, po.delivery_date, "
             + "  po.delivery_address, po.status, po.remark, "
             + "  po.created_by, po.updated_by, po.created_at, po.updated_at, po.is_deleted, "
             + "  COALESCE(bu.real_name, '') AS buyerUserName, "
             + "  COALESCE(hu.real_name, '') AS handlerUserName "
             + "FROM purchase_orders po "
+            + "LEFT JOIN ("
+            + "  SELECT poi.order_id, "
+            + "         IFNULL(SUM(IFNULL(poi.amount, 0)), 0) AS total_amount, "
+            + "         IFNULL(SUM(COALESCE(poi.stock_qty, poi.sqm, 0)), 0) AS total_qty "
+            + "  FROM purchase_order_items poi "
+            + "  WHERE poi.is_deleted = 0 "
+            + "  GROUP BY poi.order_id"
+            + ") agg ON agg.order_id = po.id "
             + "LEFT JOIN customers c ON po.supplier COLLATE utf8mb4_unicode_ci = c.customer_code COLLATE utf8mb4_unicode_ci "
             + "LEFT JOIN users bu ON po.buyer = bu.id "
             + "LEFT JOIN users hu ON po.handler = hu.id "
@@ -43,6 +54,9 @@ public interface PurchaseOrderMapper extends BaseMapper<PurchaseOrder> {
             + "<if test='endDate != null and endDate != \"\"'> "
             + "  AND po.order_date &lt;= #{endDate} "
             + "</if>"
+            + "<if test='reconciliationStatus != null and reconciliationStatus != \"\"'> "
+            + "  AND po.reconciliation_status = #{reconciliationStatus} "
+            + "</if>"
             + "ORDER BY po.created_at DESC"
             + "</script>")
     IPage<PurchaseOrder> selectOrdersWithSupplierSearch(
@@ -50,7 +64,8 @@ public interface PurchaseOrderMapper extends BaseMapper<PurchaseOrder> {
             @Param("orderNo") String orderNo,
             @Param("supplierKeyword") String supplierKeyword,
             @Param("startDate") String startDate,
-            @Param("endDate") String endDate
+            @Param("endDate") String endDate,
+            @Param("reconciliationStatus") String reconciliationStatus
     );
 
     @Select("SELECT * FROM purchase_orders WHERE order_no = #{orderNo} AND is_deleted = 0 LIMIT 1")

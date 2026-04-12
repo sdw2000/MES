@@ -12,6 +12,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -31,6 +32,7 @@ import com.fine.Dao.schedule.ManualScheduleMapper;
 import com.fine.Dao.stock.TapeStockMapper;
 import com.fine.Dao.rd.TapeSpecMapper;
 import com.fine.Dao.DeliveryNoticeItemMapper;
+import com.fine.Dao.DeliveryNoticeMapper;
 import com.fine.Utils.ResponseResult;
 import com.fine.modle.LoginUser;
 import com.fine.modle.SalesOrder;
@@ -50,6 +52,8 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 
 @Service
 public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOrder> implements SalesOrderService {
+
+    private static final LocalDate DEFAULT_LIFECYCLE_V2_ENFORCE_DATE = LocalDate.of(2026, 3, 31);
 
     private static final Set<String> LEGACY_ORDER_STATUSES = new HashSet<>(Arrays.asList(
         "pending", "processing", "completed", "cancelled", "canceled", "closed"
@@ -80,6 +84,9 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
     private DeliveryNoticeItemMapper deliveryNoticeItemMapper;
 
     @Autowired
+    private DeliveryNoticeMapper deliveryNoticeMapper;
+
+    @Autowired
     private CustomerMapper customerMapper;
 
     @Autowired
@@ -88,14 +95,21 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
     @Autowired
     private TapeStockMapper tapeStockMapper;
 
+    /**
+     * 生命周期V2强制生效日期：该日期及之后的新订单强制使用V2状态。
+     * 可通过配置覆盖：sales.order.lifecycle-v2-enforce-date=yyyy-MM-dd
+     */
+    @Value("${sales.order.lifecycle-v2-enforce-date:2026-03-31}")
+    private String lifecycleV2EnforceDate;
+
     @Override
-    public ResponseResult<?> getAllOrders(Integer pageNum, Integer pageSize, String orderNo, String customer, String completionStatus,
+    public ResponseResult<?> getAllOrders(Integer pageNum, Integer pageSize, String orderNo, String customer, String lifecycleStatus,
                                           Boolean showCompleted, String startDate, String endDate, String sortProp, String sortOrder) {
         try {
             LoginUser loginUser = getLoginUser();
             Long salesUserId = null;
             Long documentationPersonUserId = null;
-            if (loginUser != null && !hasRole(loginUser, "admin")) {
+            if (loginUser != null && !hasGlobalOrderScope(loginUser)) {
                 Long uid = getCurrentUserId(loginUser);
                 if (uid == null) {
                     Page<SalesOrder> emptyPage = new Page<>(pageNum != null ? pageNum : 1, pageSize != null ? pageSize : 10);
@@ -116,7 +130,7 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
                 page, 
                 orderNo, 
                 customer,  // 现在支持客户代码、客户名称、简称的模糊搜索
-                completionStatus,
+                lifecycleStatus,
                 showCompleted,
                 startDate, 
                 endDate,
@@ -503,6 +517,13 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
                 return new ResponseResult<>(403, "无权限操作该订单");
             }
 
+            String oldCustomerOrderNo = trimToNull(existingOrder.getCustomerOrderNo());
+            String newCustomerOrderNo = trimToNull(salesOrder.getCustomerOrderNo());
+            if (newCustomerOrderNo == null) {
+                newCustomerOrderNo = trimToNull(salesOrder.getOrderNo());
+            }
+            salesOrder.setCustomerOrderNo(newCustomerOrderNo);
+
             String incomingStatus = trimToNull(salesOrder.getStatus());
             String existingStatus = trimToNull(existingOrder.getStatus());
             if (incomingStatus != null && !incomingStatus.equalsIgnoreCase(existingStatus == null ? "" : existingStatus)) {
@@ -548,6 +569,13 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
             
             // 更新订单主表
             salesOrderMapper.updateById(salesOrder);
+
+            // 若客户订单号发生变更，同步更新关联发货单，避免展示旧值
+            if (!java.util.Objects.equals(oldCustomerOrderNo, newCustomerOrderNo)
+                    && trimToNull(salesOrder.getOrderNo()) != null
+                    && newCustomerOrderNo != null) {
+                deliveryNoticeMapper.syncCustomerOrderNoByOrderNo(salesOrder.getOrderNo(), newCustomerOrderNo);
+            }
             
             // 获取原有明细列表（只查未删除的）
             LambdaQueryWrapper<SalesOrderItem> itemWrapper = new LambdaQueryWrapper<>();
@@ -569,6 +597,19 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
                     }
                 }
             }
+
+            // 前端显式删除的明细ID（兜底：避免前端行删除后因ID丢失/重建导致漏删）
+            Set<Long> explicitRemovedIds = new HashSet<>();
+            if (salesOrder.getRemovedItemIds() != null) {
+                for (Long removedId : salesOrder.getRemovedItemIds()) {
+                    if (removedId != null && removedId > 0) {
+                        explicitRemovedIds.add(removedId);
+                    }
+                }
+            }
+            if (!explicitRemovedIds.isEmpty()) {
+                newItemIds.removeAll(explicitRemovedIds);
+            }
             
             log.debug("前端传来的明细ID集合={}", newItemIds);
 
@@ -576,7 +617,7 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
             
             // 逻辑删除前端没有传来的旧明细（说明被删除了）
             for (SalesOrderItem oldItem : oldItems) {
-                if (!newItemIds.contains(oldItem.getId())) {
+                if (explicitRemovedIds.contains(oldItem.getId()) || !newItemIds.contains(oldItem.getId())) {
                     removedItemIds.add(oldItem.getId());
                     log.debug("删除旧明细 id={}", oldItem.getId());
                     oldItem.setIsDeleted(1);
@@ -599,6 +640,10 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
             // 处理明细：有ID就更新，无ID就插入
             if (salesOrder.getItems() != null && !salesOrder.getItems().isEmpty()) {
                 for (SalesOrderItem item : salesOrder.getItems()) {
+                    if (item.getId() != null && explicitRemovedIds.contains(item.getId())) {
+                        // 显式删除项不再参与后续更新
+                        continue;
+                    }
                     item.setOrderId(salesOrder.getId());
                     item.setUpdatedBy(username);
                     item.setUpdatedAt(new Date());
@@ -694,7 +739,35 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
     }
 
     private boolean hasRole(LoginUser loginUser, String role) {
-        return loginUser != null && loginUser.getPermissions() != null && loginUser.getPermissions().contains(role);
+        if (loginUser == null || role == null || role.trim().isEmpty()) {
+            return false;
+        }
+        String expected = role.trim().toLowerCase(Locale.ROOT);
+        if (loginUser.getPermissions() != null) {
+            for (String permission : loginUser.getPermissions()) {
+                if (permission != null && expected.equals(permission.trim().toLowerCase(Locale.ROOT))) {
+                    return true;
+                }
+            }
+        }
+        Collection<?> authorities = loginUser.getAuthorities();
+        if (authorities != null) {
+            for (Object authority : authorities) {
+                if (authority != null && expected.equals(authority.toString().trim().toLowerCase(Locale.ROOT))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean hasGlobalOrderScope(LoginUser loginUser) {
+        return hasRole(loginUser, "admin")
+                || hasRole(loginUser, "finance")
+                || hasRole(loginUser, "purchase")
+                || hasRole(loginUser, "production")
+                || hasRole(loginUser, "packaging")
+                || hasRole(loginUser, "packing");
     }
 
     private Long getCurrentUserId(LoginUser loginUser) {
@@ -704,8 +777,7 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
     private boolean canAccessOrder(LoginUser loginUser, SalesOrder order) {
         if (order == null) return true;
         if (loginUser == null) return false;
-        if (hasRole(loginUser, "admin")) return true;
-        if (hasRole(loginUser, "production") || hasRole(loginUser, "packaging") || hasRole(loginUser, "packing")) {
+        if (hasGlobalOrderScope(loginUser)) {
             return true;
         }
         Long uid = getCurrentUserId(loginUser);
@@ -803,7 +875,7 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
             }
 
             LoginUser loginUser = getLoginUser();
-            if (!hasRole(loginUser, "admin")) {
+            if (!hasGlobalOrderScope(loginUser)) {
                 Long uid = getCurrentUserId(loginUser);
                 if (uid == null) {
                     return new ResponseResult<>(403, "无权限访问该客户数据");
@@ -975,6 +1047,67 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    public ResponseResult<?> deleteOrderItem(String orderNo, Long itemId) {
+        try {
+            String normalizedOrderNo = trimToNull(orderNo);
+            if (normalizedOrderNo == null) {
+                return new ResponseResult<>(400, "订单编号不能为空");
+            }
+            if (itemId == null || itemId <= 0) {
+                return new ResponseResult<>(400, "明细ID不能为空");
+            }
+
+            LoginUser loginUser = getLoginUser();
+            LambdaQueryWrapper<SalesOrder> orderWrapper = new LambdaQueryWrapper<>();
+            orderWrapper.eq(SalesOrder::getOrderNo, normalizedOrderNo)
+                    .eq(SalesOrder::getIsDeleted, 0);
+            SalesOrder order = salesOrderMapper.selectOne(orderWrapper);
+            if (order == null) {
+                return new ResponseResult<>(404, "订单不存在或已被删除");
+            }
+            if (!canAccessOrder(loginUser, order)) {
+                return new ResponseResult<>(403, "无权限操作该订单");
+            }
+
+            LambdaQueryWrapper<SalesOrderItem> itemWrapper = new LambdaQueryWrapper<>();
+            itemWrapper.eq(SalesOrderItem::getId, itemId)
+                    .eq(SalesOrderItem::getOrderId, order.getId())
+                    .eq(SalesOrderItem::getIsDeleted, 0);
+            SalesOrderItem item = salesOrderItemMapper.selectOne(itemWrapper);
+            if (item == null) {
+                return new ResponseResult<>(404, "订单明细不存在或已被删除");
+            }
+
+            String operator = getCurrentUsername();
+            cancelManualSchedulesForOrderDetails(Collections.singletonList(itemId), operator, "订单明细删除联动撤销排程");
+
+            int affected = salesOrderItemMapper.logicDeleteByIdAndOrderId(itemId, order.getId(), operator);
+            if (affected <= 0) {
+                Integer stillActive = salesOrderItemMapper.countActiveByIdAndOrderId(itemId, order.getId());
+                if (stillActive != null && stillActive > 0) {
+                    log.warn("删除订单明细未生效, orderNo={}, orderId={}, itemId={}, affected={}", normalizedOrderNo, order.getId(), itemId, affected);
+                    return new ResponseResult<>(500, "删除失败：明细状态未更新，请重试");
+                }
+            }
+
+            LambdaQueryWrapper<SalesOrderItem> activeWrapper = new LambdaQueryWrapper<>();
+            activeWrapper.eq(SalesOrderItem::getOrderId, order.getId())
+                    .eq(SalesOrderItem::getIsDeleted, 0);
+            List<SalesOrderItem> activeItems = salesOrderItemMapper.selectList(activeWrapper);
+            refreshOrderTotalsFromItems(order, activeItems, operator);
+            refreshOrderStatusFromDb(order.getId(), operator);
+
+            log.info("删除订单明细成功, orderNo={}, orderId={}, itemId={}, affected={}", normalizedOrderNo, order.getId(), itemId, affected);
+
+            return new ResponseResult<>(200, "删除成功");
+        } catch (Exception e) {
+            log.error("删除订单明细失败, orderNo={}, itemId={}", orderNo, itemId, e);
+            return new ResponseResult<>(500, "删除失败: " + e.getMessage());
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
     public ResponseResult<?> cancelOrder(String orderNo, String cancelReason) {
         try {
             String normalizedOrderNo = trimToNull(orderNo);
@@ -1093,22 +1226,6 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
                 || "unshipped".equals(statusFilterLower);
 
             LoginUser loginUser = getLoginUser();
-            if (loginUser != null && !hasRole(loginUser, "admin") && !hasRole(loginUser, "warehouse")) {
-                Long uid = getCurrentUserId(loginUser);
-                if (uid == null) {
-                    return new ResponseResult<>(200, "success", Collections.emptyList());
-                }
-                List<String> allowedNames = customerMapper.selectCustomerNamesByOwner(uid);
-                List<String> allowedCodes = customerMapper.selectCustomerCodesByOwner(uid);
-                List<String> allowed = new ArrayList<>();
-                if (allowedNames != null) allowed.addAll(allowedNames);
-                if (allowedCodes != null) allowed.addAll(allowedCodes);
-                if (allowed.isEmpty()) {
-                    return new ResponseResult<>(200, "success", Collections.emptyList());
-                }
-                queryWrapper.in(SalesOrder::getCustomer, allowed);
-            }
-            
             // 根据关键词搜索订单号或客户名
             if (keyword != null && !keyword.isEmpty()) {
                 queryWrapper.and(wrapper -> 
@@ -1173,6 +1290,9 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
             List<SalesOrder> filtered = new ArrayList<>();
             for (SalesOrder order : orders) {
                 if (order == null || order.getId() == null) continue;
+                if (!canAccessOrder(loginUser, order)) {
+                    continue;
+                }
                 enrichOrderCustomerFields(order);
                 List<SalesOrderItem> items = salesOrderItemMapper.selectList(
                     new LambdaQueryWrapper<SalesOrderItem>()
@@ -1508,9 +1628,22 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
                             continue;
                         }
 
+                        Long existingId = existing == null ? null : existing.getId();
+                        if (existingId == null) {
+                            conflictOrderSkipCount++;
+                            errors.add("订单号存在但无法定位ID，跳过增量：" + order.getOrderNo());
+                            if (order.getOrderNo() != null) {
+                                missingOrderNos.add(order.getOrderNo());
+                            }
+                            for (SalesOrderItem item : order.getItems()) {
+                                addFailedDetail(failedDetails, order, item, "订单号存在但无法定位原单ID");
+                            }
+                            continue;
+                        }
+
                         List<SalesOrderItem> existingItems = salesOrderItemMapper.selectList(
                                 new LambdaQueryWrapper<SalesOrderItem>()
-                                        .eq(SalesOrderItem::getOrderId, existing.getId())
+                                        .eq(SalesOrderItem::getOrderId, existingId)
                                         .eq(SalesOrderItem::getIsDeleted, 0)
                         );
 
@@ -1524,7 +1657,7 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
                                 addFailedDetail(failedDetails, order, item, "明细重复（订单号+客户代码+下单日期+料号+厚度+长度+宽度）");
                                 continue;
                             }
-                            item.setOrderId(existing.getId());
+                            item.setOrderId(existingId);
                             prepareItemForPersistence(item);
                             salesOrderItemMapper.insert(item);
                             existingItems.add(item);
@@ -2164,7 +2297,10 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
             return;
         }
         try {
-            List<Map<String, Object>> list = objectMapper.readValue(stockAllocationsJson, List.class);
+            List<Map<String, Object>> list = objectMapper.readValue(
+                    stockAllocationsJson,
+                    new com.fasterxml.jackson.core.type.TypeReference<List<Map<String, Object>>>() {}
+            );
             for (Map<String, Object> item : list) {
                 if (item == null) continue;
                 Object stockIdObj = item.get("stockId");
@@ -2414,6 +2550,7 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
         return perRoll.multiply(new BigDecimal(completedRolls)).setScale(2, BigDecimal.ROUND_HALF_UP);
     }
 
+    @SuppressWarnings("unused")
     private int estimateCompletedRolls(SalesOrderItem item) {
         if (item == null || item.getRolls() == null || item.getRolls() <= 0 || item.getSqm() == null
                 || item.getSqm().compareTo(BigDecimal.ZERO) <= 0 || item.getDeliveredArea() == null
@@ -2436,6 +2573,11 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
 
         String status = trimToNull(order.getStatus());
         if (isTerminalOrderStatus(status) || isPaymentLockedStatus(status)) {
+            return;
+        }
+
+        // 早期初始化的历史“已完成”订单保持原状，不做自动状态回写
+        if (isHistoricalInitializedCompletedOrder(order, status)) {
             return;
         }
 
@@ -2570,6 +2712,12 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
         if (order == null) {
             return false;
         }
+
+        // 新订单（阈值日期后）强制走生命周期V2
+        if (isNewOrderAfterLifecycleV2Cutoff(order)) {
+            return true;
+        }
+
         String status = trimToNull(order.getStatus());
         if (isLifecycleV2Status(status)) {
             return true;
@@ -2581,6 +2729,58 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
             return false;
         }
         return !LEGACY_ORDER_STATUSES.contains(status.toLowerCase(Locale.ROOT));
+    }
+
+    private boolean isHistoricalInitializedCompletedOrder(SalesOrder order, String status) {
+        if (order == null) {
+            return false;
+        }
+        String normalized = trimToNull(status);
+        if (normalized == null || !"completed".equalsIgnoreCase(normalized)) {
+            return false;
+        }
+        LocalDate cutoff = resolveLifecycleV2EnforceDate();
+        LocalDate baseDate = resolveOrderBaseDate(order);
+        return baseDate != null && baseDate.isBefore(cutoff);
+    }
+
+    private boolean isNewOrderAfterLifecycleV2Cutoff(SalesOrder order) {
+        if (order == null) {
+            return false;
+        }
+        LocalDate cutoff = resolveLifecycleV2EnforceDate();
+        LocalDate baseDate = resolveOrderBaseDate(order);
+        if (baseDate != null) {
+            return !baseDate.isBefore(cutoff);
+        }
+        // 新建且无时间字段时，按新规则处理
+        return order.getId() == null;
+    }
+
+    private LocalDate resolveOrderBaseDate(SalesOrder order) {
+        if (order == null) {
+            return null;
+        }
+        if (order.getOrderDate() != null) {
+            return order.getOrderDate();
+        }
+        if (order.getCreatedAt() != null) {
+            return order.getCreatedAt().toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
+        }
+        return null;
+    }
+
+    private LocalDate resolveLifecycleV2EnforceDate() {
+        String raw = trimToNull(lifecycleV2EnforceDate);
+        if (raw == null) {
+            return DEFAULT_LIFECYCLE_V2_ENFORCE_DATE;
+        }
+        try {
+            return LocalDate.parse(raw, DateTimeFormatter.ISO_LOCAL_DATE);
+        } catch (Exception ex) {
+            log.warn("生命周期V2生效日期配置无效: {}，将使用默认值 {}", raw, DEFAULT_LIFECYCLE_V2_ENFORCE_DATE);
+            return DEFAULT_LIFECYCLE_V2_ENFORCE_DATE;
+        }
     }
 
     private boolean isLifecycleV2Status(String status) {

@@ -32,6 +32,17 @@ public class PurchaseOrderItem {
     private String materialName;
     private String colorCode;
 
+    private BigDecimal purchaseQty;
+    private String purchaseUomCode;
+
+    private BigDecimal priceQty;
+    private String priceUomCode;
+
+    private BigDecimal stockQty;
+    private String stockUomCode;
+
+    private BigDecimal conversionRate;
+
     private BigDecimal thickness;
     private BigDecimal width;
     private BigDecimal length;
@@ -41,6 +52,13 @@ public class PurchaseOrderItem {
     private BigDecimal sqm;
     private BigDecimal unitPrice;
     private BigDecimal amount;
+
+    /**
+     * 原材料规格（如 180Kg/桶）
+     */
+    private String rawSpec;
+
+    private String reconciliationStatus;
 
     private String remark;
 

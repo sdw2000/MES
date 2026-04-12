@@ -30,7 +30,7 @@ public interface SchedulePlanMapper extends BaseMapper<SchedulePlan> {
             @Select("SELECT sp.stage, " +
                     "sp.order_no, " +
                     "COALESCE(sp.material_code, soi.material_code) AS material_code, " +
-                    "COALESCE(sp.material_name, soi.material_name) AS material_name, " +
+                    "COALESCE(sp.material_name, ts.product_name, '') AS material_name, " +
                     "COALESCE(sp.thickness, soi.thickness) AS thickness, " +
                     "COALESCE(sp.width, soi.width) AS width, " +
                     "COALESCE(sp.length, soi.length) AS length, " +
@@ -40,6 +40,7 @@ public interface SchedulePlanMapper extends BaseMapper<SchedulePlan> {
                     "sp.status " +
                     "FROM schedule_plan sp " +
                     "LEFT JOIN sales_order_items soi ON sp.order_detail_id = soi.id " +
+                    "LEFT JOIN tape_spec ts ON ts.material_code = soi.material_code " +
                     "WHERE sp.plan_date >= #{start} AND sp.plan_date < #{end} " +
                     "ORDER BY sp.stage, sp.plan_date ASC")
     List<Map<String, Object>> selectDailyPlan(@Param("start") String start,
@@ -51,7 +52,7 @@ public interface SchedulePlanMapper extends BaseMapper<SchedulePlan> {
     @Select("SELECT sp.stage, " +
             "sp.order_no, " +
             "COALESCE(sp.material_code, soi.material_code) AS material_code, " +
-            "COALESCE(sp.material_name, soi.material_name) AS material_name, " +
+            "COALESCE(sp.material_name, ts.product_name, '') AS material_name, " +
             "COALESCE(sp.thickness, soi.thickness) AS thickness, " +
             "COALESCE(sp.width, soi.width) AS width, " +
             "COALESCE(sp.length, soi.length) AS length, " +
@@ -61,6 +62,7 @@ public interface SchedulePlanMapper extends BaseMapper<SchedulePlan> {
             "sp.status " +
             "FROM schedule_plan sp " +
             "LEFT JOIN sales_order_items soi ON sp.order_detail_id = soi.id " +
+            "LEFT JOIN tape_spec ts ON ts.material_code = soi.material_code " +
             "ORDER BY sp.stage, sp.plan_date ASC")
     List<Map<String, Object>> selectAllPlan();
 }

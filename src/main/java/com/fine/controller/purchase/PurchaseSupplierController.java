@@ -6,10 +6,13 @@ import com.fine.service.purchase.PurchaseSupplierService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+
+import javax.servlet.http.HttpServletResponse;
 
 @RestController
 @RequestMapping("/purchase/suppliers")
-@PreAuthorize("hasAuthority('admin')")
+@PreAuthorize("hasAnyAuthority('admin','purchase')")
 public class PurchaseSupplierController {
 
     @Autowired
@@ -40,5 +43,22 @@ public class PurchaseSupplierController {
     @DeleteMapping("/{id}")
     public ResponseResult<?> delete(@PathVariable Long id) {
         return supplierService.deleteSupplier(id);
+    }
+
+    @GetMapping("/export")
+    public void export(HttpServletResponse response,
+                       @RequestParam(required = false) String keyword) {
+        supplierService.exportSuppliers(response, keyword);
+    }
+
+    @GetMapping("/template")
+    public void downloadTemplate(HttpServletResponse response) {
+        supplierService.downloadTemplate(response);
+    }
+
+    @PostMapping("/import")
+    @PreAuthorize("hasAnyAuthority('admin','purchase')")
+    public ResponseResult<?> importSuppliers(@RequestParam("file") MultipartFile file) {
+        return supplierService.importSuppliers(file);
     }
 }

@@ -1,0 +1,26 @@
+﻿{
+  "customer": "AHYC5001",
+  "contactPerson": "测试联系人",
+  "contactPhone": "13800000000",
+  "quotationDate": "2026-03-31",
+  "validUntil": "2026-06-30",
+  "status": "draft",
+  "remark": "E2E测试报价",
+  "priceStatus": "PENDING",
+  "needsPricing": true,
+  "items": [
+    {
+      "materialCode": "TEST-MAT-001",
+      "materialName": "测试物料",
+      "colorCode": "红",
+      "thickness": 100,
+      "width": 50,
+      "length": 1000,
+      "unit": "㎡",
+      "unitPrice": null,
+      "appliedRuleId": 12345,
+      "matchPath": "strict-spec",
+      "remark": "E2E测试明细"
+    }
+  ]
+}

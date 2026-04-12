@@ -15,9 +15,11 @@ public interface PurchaseReceiptMapper extends BaseMapper<PurchaseReceipt> {
             + "SELECT * FROM purchase_receipts WHERE is_deleted = 0 "
             + "<if test='supplier != null and supplier != &quot;&quot;'>AND supplier LIKE CONCAT('%', #{supplier}, '%')</if> "
             + "<if test='status != null and status != &quot;&quot;'>AND status = #{status}</if> "
+            + "<if test='reconciliationStatus != null and reconciliationStatus != &quot;&quot;'>AND reconciliation_status = #{reconciliationStatus}</if> "
             + "ORDER BY created_at DESC"
             + "</script>")
     IPage<PurchaseReceipt> selectPaged(Page<PurchaseReceipt> page,
                                        @Param("supplier") String supplier,
-                                       @Param("status") String status);
+                                       @Param("status") String status,
+                                       @Param("reconciliationStatus") String reconciliationStatus);
 }

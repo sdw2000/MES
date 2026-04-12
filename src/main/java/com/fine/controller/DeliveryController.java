@@ -6,6 +6,7 @@ import java.util.Comparator;
 import java.util.Map;
 import java.util.HashMap;
 import java.util.Collections;
+import org.springframework.transaction.annotation.Transactional;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -24,9 +25,13 @@ import com.fine.modle.DeliveryNotice;
 import com.fine.service.DeliveryNoticeService;
 import com.fine.Dao.CustomerMapper;
 import com.fine.Dao.DeliveryNoticeItemMapper;
+import com.fine.Dao.production.SalesOrderMapper;
+import com.fine.Dao.SalesOrderItemMapper;
 import com.fine.Utils.ResponseResult;
 import com.fine.modle.Customer;
 import com.fine.modle.LoginUser;
+import com.fine.modle.SalesOrder;
+import com.fine.modle.SalesOrderItem;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 
@@ -46,12 +51,18 @@ public class DeliveryController {
 
     @Autowired
     private DeliveryNoticeItemMapper deliveryNoticeItemMapper;
+
+    @Autowired
+    private SalesOrderItemMapper salesOrderItemMapper;
+
+    @Autowired
+    private SalesOrderMapper salesOrderMapper;
     
     /**
      * 分页查询发货通知
      */
     @GetMapping("/list")
-    public ResponseResult list(
+    public ResponseResult<?> list(
         @RequestParam(defaultValue = "1") Integer pageNum,
         @RequestParam(defaultValue = "10") Integer pageSize,
         @RequestParam(required = false) String noticeNo,
@@ -141,9 +152,7 @@ public class DeliveryController {
 
         Map<Long, List<DeliveryNoticeItem>> itemMap = new HashMap<>();
         if (!noticeIds.isEmpty()) {
-            List<DeliveryNoticeItem> allItems = deliveryNoticeItemMapper.selectList(
-                    new QueryWrapper<DeliveryNoticeItem>().in("notice_id", noticeIds)
-            );
+            List<DeliveryNoticeItem> allItems = deliveryNoticeItemMapper.selectByNoticeIds(noticeIds);
             for (DeliveryNoticeItem item : allItems) {
                 if (item == null || item.getNoticeId() == null) {
                     continue;
@@ -178,18 +187,32 @@ public class DeliveryController {
     private Comparator<DeliveryNotice> buildComparator(String sortProp, String sortOrder) {
         boolean asc = "ascending".equalsIgnoreCase(sortOrder);
         Comparator<DeliveryNotice> comparator = (a, b) -> {
-            Comparable av = sortValue(a, sortProp);
-            Comparable bv = sortValue(b, sortProp);
-            if (av == bv) return 0;
-            if (av == null) return -1;
-            if (bv == null) return 1;
-            return av.compareTo(bv);
+            Object av = sortValue(a, sortProp);
+            Object bv = sortValue(b, sortProp);
+            return compareSortValues(av, bv);
         };
         return asc ? comparator : comparator.reversed();
     }
 
-    @SuppressWarnings({"rawtypes", "unchecked"})
-    private Comparable sortValue(DeliveryNotice notice, String sortProp) {
+    private int compareSortValues(Object av, Object bv) {
+        if (av == bv) return 0;
+        if (av == null) return -1;
+        if (bv == null) return 1;
+
+        if (av instanceof Number && bv instanceof Number) {
+            return Double.compare(((Number) av).doubleValue(), ((Number) bv).doubleValue());
+        }
+
+        if (av.getClass().isAssignableFrom(bv.getClass()) && av instanceof Comparable<?>) {
+            @SuppressWarnings("unchecked")
+            Comparable<Object> c = (Comparable<Object>) av;
+            return c.compareTo(bv);
+        }
+
+        return String.valueOf(av).compareTo(String.valueOf(bv));
+    }
+
+    private Object sortValue(DeliveryNotice notice, String sortProp) {
         if (notice == null) return "";
         String key = sortProp == null ? "" : sortProp.trim();
         if ("customer".equals(key)) {
@@ -240,7 +263,7 @@ public class DeliveryController {
      * 创建发货通知
      */
     @PostMapping("/create")
-    public ResponseResult create(@RequestBody DeliveryNotice deliveryNotice) {
+    public ResponseResult<?> create(@RequestBody DeliveryNotice deliveryNotice) {
         try {
             DeliveryNotice created = deliveryNoticeService.createDeliveryNotice(deliveryNotice);
             return ResponseResult.success(created);
@@ -253,7 +276,7 @@ public class DeliveryController {
      * 获取发货通知单详情
      */
     @GetMapping("/{id}")
-    public ResponseResult getDetail(@PathVariable Long id) {
+    public ResponseResult<?> getDetail(@PathVariable Long id) {
         DeliveryNotice notice = deliveryNoticeService.getDeliveryNoticeDetail(id);
         if (notice != null) {
             if (!canAccessNotice(getLoginUser(), notice)) {
@@ -290,6 +313,13 @@ public class DeliveryController {
                 result.put("traces", result.getOrDefault("traces", java.util.Collections.emptyList()));
                 return ResponseResult.success(result);
             }
+            if (msg.contains("线下查询") || msg.contains("线下承运")) {
+                result.put("success", false);
+                result.put("status", result.getOrDefault("status", "线下承运"));
+                result.put("lastUpdate", result.getOrDefault("lastUpdate", "-"));
+                result.put("traces", result.getOrDefault("traces", java.util.Collections.emptyList()));
+                return ResponseResult.success(result);
+            }
             return ResponseResult.error(500, msg);
         } catch (Exception e) {
             return ResponseResult.error(500, "物流查询失败: " + e.getMessage());
@@ -300,7 +330,8 @@ public class DeliveryController {
      * 确认发货 - 更新状态为已发货
      */
     @PostMapping("/confirm/{id}")
-    public ResponseResult confirmShip(@PathVariable Long id) {
+    @Transactional(rollbackFor = Exception.class)
+    public ResponseResult<?> confirmShip(@PathVariable Long id) {
         try {
             LoginUser loginUser = getLoginUser();
             DeliveryNotice notice = deliveryNoticeService.getById(id);
@@ -326,6 +357,7 @@ public class DeliveryController {
             boolean updated = deliveryNoticeService.updateById(notice);
             
             if (updated) {
+                syncSalesOrderItemsDeliveryProgress(notice.getOrderId());
                 return ResponseResult.success("确认发货成功");
             } else {
                 return ResponseResult.error(500, "确认发货失败");
@@ -335,11 +367,49 @@ public class DeliveryController {
         }
     }
 
+    private void syncSalesOrderItemsDeliveryProgress(Long orderId) {
+        if (orderId == null) {
+            return;
+        }
+
+        List<SalesOrderItem> orderItems = salesOrderItemMapper.selectList(
+                new QueryWrapper<SalesOrderItem>()
+                        .eq("order_id", orderId)
+                        .eq("is_deleted", 0)
+        );
+        if (orderItems == null || orderItems.isEmpty()) {
+            return;
+        }
+
+        for (SalesOrderItem item : orderItems) {
+            if (item == null || item.getId() == null) {
+                continue;
+            }
+
+            int totalRolls = item.getRolls() == null ? 0 : item.getRolls();
+            Integer confirmedShipped = deliveryNoticeItemMapper.getConfirmedShippedQuantityByOrderItemId(item.getId());
+            int shippedRolls = confirmedShipped == null ? 0 : Math.max(confirmedShipped, 0);
+            int deliveredRolls = Math.min(totalRolls, shippedRolls);
+            int remainingRolls = Math.max(totalRolls - deliveredRolls, 0);
+
+            item.setDeliveredQty(deliveredRolls);
+            item.setRemainingQty(remainingRolls);
+            if (deliveredRolls <= 0) {
+                item.setProductionStatus("not_started");
+            } else if (remainingRolls <= 0) {
+                item.setProductionStatus("completed");
+            } else {
+                item.setProductionStatus("partial");
+            }
+            salesOrderItemMapper.updateById(item);
+        }
+    }
+
     /**
      * 确认收货 - 更新状态为已收货
      */
     @PostMapping("/receive/{id}")
-    public ResponseResult confirmReceive(@PathVariable Long id) {
+    public ResponseResult<?> confirmReceive(@PathVariable Long id) {
         try {
             LoginUser loginUser = getLoginUser();
             DeliveryNotice notice = deliveryNoticeService.getById(id);
@@ -351,12 +421,31 @@ public class DeliveryController {
             }
 
             String status = notice.getStatus();
+            if ("已收货".equals(status) || "received".equalsIgnoreCase(status)) {
+                return ResponseResult.success("该发货单已是已收货状态");
+            }
+
             boolean shipped = "已发货".equals(status) || "shipped".equalsIgnoreCase(status);
             if (!shipped) {
+                // 兼容需求：物流显示已送达/已签收时，可直接转已收货
+                Map<String, Object> logistics = deliveryNoticeService.queryLogistics(id);
+                DeliveryNotice latest = deliveryNoticeService.getById(id);
+                String latestStatus = latest == null ? "" : latest.getStatus();
+                if ("已收货".equals(latestStatus) || "received".equalsIgnoreCase(latestStatus)) {
+                    return ResponseResult.success("物流已送达，系统已自动确认收货");
+                }
+
+                String logisticsStatus = logistics == null ? "" : String.valueOf(logistics.getOrDefault("status", ""));
+                boolean delivered = logisticsStatus.contains("已送达") || logisticsStatus.contains("已签收");
+                if (delivered && latest != null) {
+                    latest.setStatus("已收货");
+                    latest.setUpdatedBy(getCurrentUsername(loginUser));
+                    latest.setUpdatedAt(new Date());
+                    if (deliveryNoticeService.updateById(latest)) {
+                        return ResponseResult.success("物流已送达，系统已自动确认收货");
+                    }
+                }
                 return ResponseResult.error(400, "请先确认发货，再确认收货");
-            }
-            if ("已收货".equals(status) || "received".equalsIgnoreCase(status)) {
-                return ResponseResult.error(400, "该发货单已确认收货");
             }
 
             if (notice.getCarrierName() == null || notice.getCarrierName().trim().isEmpty()) {
@@ -381,10 +470,77 @@ public class DeliveryController {
     }
 
     /**
+     * 批量检查“已发货”发货单：若物流显示已送达/已签收，自动改为已收货
+     */
+    @PostMapping("/receive/auto-sync-delivered")
+    public ResponseResult<Map<String, Object>> autoSyncDeliveredReceipts() {
+        try {
+            LoginUser loginUser = getLoginUser();
+            QueryWrapper<DeliveryNotice> wrapper = new QueryWrapper<>();
+            wrapper.eq("is_deleted", 0)
+                    .and(w -> w.eq("status", "已发货").or().eq("status", "shipped"))
+                    .isNotNull("carrier_no");
+            List<DeliveryNotice> notices = deliveryNoticeService.list(wrapper);
+
+            int scanned = 0;
+            int changed = 0;
+            int skipped = 0;
+
+            for (DeliveryNotice notice : notices) {
+                if (notice == null || notice.getId() == null) {
+                    skipped++;
+                    continue;
+                }
+                if (!canAccessNotice(loginUser, notice)) {
+                    skipped++;
+                    continue;
+                }
+                String carrierNo = notice.getCarrierNo();
+                if (carrierNo == null || carrierNo.trim().isEmpty()) {
+                    skipped++;
+                    continue;
+                }
+                scanned++;
+
+                try {
+                    Map<String, Object> logistics = deliveryNoticeService.queryLogistics(notice.getId());
+                    String logisticsStatus = logistics == null ? "" : String.valueOf(logistics.getOrDefault("status", ""));
+                    boolean delivered = logisticsStatus.contains("已送达") || logisticsStatus.contains("已签收");
+                    DeliveryNotice latest = deliveryNoticeService.getById(notice.getId());
+                    String latestStatus = latest == null ? "" : latest.getStatus();
+
+                    if ((delivered || "已收货".equals(latestStatus) || "received".equalsIgnoreCase(latestStatus)) && latest != null) {
+                        if (!("已收货".equals(latestStatus) || "received".equalsIgnoreCase(latestStatus))) {
+                            latest.setStatus("已收货");
+                            latest.setUpdatedBy(getCurrentUsername(loginUser));
+                            latest.setUpdatedAt(new Date());
+                            if (deliveryNoticeService.updateById(latest)) {
+                                changed++;
+                            }
+                        } else {
+                            changed++;
+                        }
+                    }
+                } catch (Exception ignore) {
+                    // 单条异常不中断整体同步
+                }
+            }
+
+            Map<String, Object> data = new HashMap<>();
+            data.put("scanned", scanned);
+            data.put("changed", changed);
+            data.put("skipped", skipped);
+            return ResponseResult.success(data);
+        } catch (Exception e) {
+            return ResponseResult.error(500, "批量同步已收货状态失败: " + e.getMessage());
+        }
+    }
+
+    /**
      * 更新发货通知（包含明细）
      */
     @PostMapping("/update")
-    public ResponseResult update(@RequestBody DeliveryNotice deliveryNotice) {
+    public ResponseResult<?> update(@RequestBody DeliveryNotice deliveryNotice) {
         try {
             if (deliveryNotice.getId() == null) {
                 return ResponseResult.error(400, "缺少发货单ID");
@@ -407,7 +563,7 @@ public class DeliveryController {
      * 删除发货通知（仅待发货状态可删除）
      */
     @DeleteMapping("/{id}")
-    public ResponseResult delete(@PathVariable Long id) {
+    public ResponseResult<?> delete(@PathVariable Long id) {
         try {
             DeliveryNotice existing = deliveryNoticeService.getById(id);
             if (existing == null) {
@@ -450,6 +606,24 @@ public class DeliveryController {
         if (hasRole(loginUser, "admin")) return true;
         Long uid = getCurrentUserId(loginUser);
         if (uid == null) return false;
+
+        if (notice.getOrderId() != null) {
+            SalesOrder order = salesOrderMapper.selectById(notice.getOrderId());
+            if (order != null) {
+                if (uid.equals(order.getSalesUserId()) || uid.equals(order.getDocumentationPersonUserId())) {
+                    return true;
+                }
+                List<String> orderAllowedNames = customerMapper.selectCustomerNamesByOwner(uid);
+                List<String> orderAllowedCodes = customerMapper.selectCustomerCodesByOwner(uid);
+                java.util.Set<String> orderAllowed = new java.util.HashSet<>();
+                if (orderAllowedNames != null) orderAllowed.addAll(orderAllowedNames);
+                if (orderAllowedCodes != null) orderAllowed.addAll(orderAllowedCodes);
+                if (orderAllowed.contains(order.getCustomer())) {
+                    return true;
+                }
+            }
+        }
+
         List<String> allowedNames = customerMapper.selectCustomerNamesByOwner(uid);
         List<String> allowedCodes = customerMapper.selectCustomerCodesByOwner(uid);
         List<String> allowed = new java.util.ArrayList<>();

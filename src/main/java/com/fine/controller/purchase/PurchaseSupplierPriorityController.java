@@ -9,7 +9,7 @@ import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/purchase/supplier-priority")
-@PreAuthorize("hasAuthority('admin')")
+@PreAuthorize("hasAnyAuthority('admin','purchase')")
 public class PurchaseSupplierPriorityController {
 
     @Autowired

@@ -36,15 +36,15 @@ public class SalesOrderController {
             @RequestParam(value = "pageSize", defaultValue = "10") Integer pageSize,
             @RequestParam(value = "orderNo", required = false) String orderNo,
             @RequestParam(value = "customer", required = false) String customer,
-            @RequestParam(value = "completionStatus", required = false) String completionStatus,
+            @RequestParam(value = "status", required = false) String lifecycleStatus,
             @RequestParam(value = "showCompleted", required = false, defaultValue = "false") Boolean showCompleted,
             @RequestParam(value = "startDate", required = false) String startDate,
             @RequestParam(value = "endDate", required = false) String endDate,
             @RequestParam(value = "sortProp", required = false) String sortProp,
             @RequestParam(value = "sortOrder", required = false) String sortOrder) {
-        log.debug("获取订单列表, pageNum={}, pageSize={}, orderNo={}, customer={}, completionStatus={}, showCompleted={}, sortProp={}, sortOrder={}",
-                pageNum, pageSize, orderNo, customer, completionStatus, showCompleted, sortProp, sortOrder);
-        return salesOrderService.getAllOrders(pageNum, pageSize, orderNo, customer, completionStatus, showCompleted, startDate, endDate, sortProp, sortOrder);
+        log.debug("获取订单列表, pageNum={}, pageSize={}, orderNo={}, customer={}, status={}, showCompleted={}, sortProp={}, sortOrder={}",
+            pageNum, pageSize, orderNo, customer, lifecycleStatus, showCompleted, sortProp, sortOrder);
+        return salesOrderService.getAllOrders(pageNum, pageSize, orderNo, customer, lifecycleStatus, showCompleted, startDate, endDate, sortProp, sortOrder);
     }
 
     /**
@@ -110,6 +110,17 @@ public class SalesOrderController {
     public ResponseResult<?> deleteOrder(@RequestParam("orderNo") String orderNo) {
         log.info("删除订单, orderNo={}", orderNo);
         return salesOrderService.deleteOrder(orderNo);
+    }
+
+    /**
+     * 删除订单明细（逻辑删除）
+     * DELETE /sales/orders/item?orderNo=xxx&itemId=1
+     */
+    @DeleteMapping("/item")
+    public ResponseResult<?> deleteOrderItem(@RequestParam("orderNo") String orderNo,
+                                             @RequestParam("itemId") Long itemId) {
+        log.info("删除订单明细, orderNo={}, itemId={}", orderNo, itemId);
+        return salesOrderService.deleteOrderItem(orderNo, itemId);
     }
 
     /**

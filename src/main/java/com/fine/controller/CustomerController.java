@@ -18,6 +18,9 @@ import com.fine.modle.LoginUser;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+import java.util.Collection;
+import java.util.Locale;
+
 /**
  * 客户管理Controller
  * author Fine
@@ -56,7 +59,9 @@ public class CustomerController {
         query.setSalesUserId(salesUserId);
 
         LoginUser loginUser = getLoginUser();
-        if (!hasRole(loginUser, "admin")) {
+        boolean isAdmin = hasRole(loginUser, "admin");
+        boolean isFinance = hasRole(loginUser, "finance");
+        if (!isAdmin && !isFinance) {
             Long currentUserId = getCurrentUserId(loginUser);
             if (currentUserId == null) {
                 return new ResponseResult<>(20000, "查询成功", new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(current, size));
@@ -100,6 +105,23 @@ public class CustomerController {
         if (customerDTO.getContacts() == null || customerDTO.getContacts().isEmpty()) {
             return new ResponseResult<>(40000, "每个客户至少需要一个联系人", null);
         }
+        if (customerDTO.getSalesUserId() == null) {
+            return new ResponseResult<>(40000, "业务人员不能为空", null);
+        }
+        if (customerDTO.getDocumentationPersonUserId() == null) {
+            return new ResponseResult<>(40000, "跟单员不能为空", null);
+        }
+        if (customerDTO.getDefaultReconciliationDay() != null) {
+            int day = customerDTO.getDefaultReconciliationDay();
+            if (day < 1 || day > 31) {
+                return new ResponseResult<>(40000, "默认对账日期必须在1-31之间", null);
+            }
+        }
+        String addBasis = normalizeReconciliationBasis(customerDTO.getReconciliationBasis());
+        if (addBasis == null) {
+            return new ResponseResult<>(40000, "对账依据只能是SHIPPED或RECEIVED", null);
+        }
+        customerDTO.setReconciliationBasis(addBasis);
         
         // 检查客户名称是否重复
         if (customerService.checkCustomerNameExists(customerDTO.getCustomerName(), null)) {
@@ -128,6 +150,23 @@ public class CustomerController {
         if (customerDTO.getContacts() == null || customerDTO.getContacts().isEmpty()) {
             return new ResponseResult<>(40000, "每个客户至少需要一个联系人", null);
         }
+        if (customerDTO.getSalesUserId() == null) {
+            return new ResponseResult<>(40000, "业务人员不能为空", null);
+        }
+        if (customerDTO.getDocumentationPersonUserId() == null) {
+            return new ResponseResult<>(40000, "跟单员不能为空", null);
+        }
+        if (customerDTO.getDefaultReconciliationDay() != null) {
+            int day = customerDTO.getDefaultReconciliationDay();
+            if (day < 1 || day > 31) {
+                return new ResponseResult<>(40000, "默认对账日期必须在1-31之间", null);
+            }
+        }
+        String updateBasis = normalizeReconciliationBasis(customerDTO.getReconciliationBasis());
+        if (updateBasis == null) {
+            return new ResponseResult<>(40000, "对账依据只能是SHIPPED或RECEIVED", null);
+        }
+        customerDTO.setReconciliationBasis(updateBasis);
         
         // 检查客户名称是否重复
         if (customerService.checkCustomerNameExists(customerDTO.getCustomerName(), id)) {
@@ -290,7 +329,26 @@ public class CustomerController {
     }
 
     private boolean hasRole(LoginUser loginUser, String role) {
-        return loginUser != null && loginUser.getPermissions() != null && loginUser.getPermissions().contains(role);
+        if (loginUser == null || role == null || role.trim().isEmpty()) {
+            return false;
+        }
+        String expected = role.trim().toLowerCase(Locale.ROOT);
+        if (loginUser.getPermissions() != null) {
+            for (String permission : loginUser.getPermissions()) {
+                if (permission != null && expected.equals(permission.trim().toLowerCase(Locale.ROOT))) {
+                    return true;
+                }
+            }
+        }
+        Collection<?> authorities = loginUser.getAuthorities();
+        if (authorities != null) {
+            for (Object authority : authorities) {
+                if (authority != null && expected.equals(authority.toString().trim().toLowerCase(Locale.ROOT))) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private Long getCurrentUserId(LoginUser loginUser) {
@@ -299,9 +357,20 @@ public class CustomerController {
 
     private boolean canAccessCustomer(LoginUser loginUser, CustomerDTO customer) {
         if (loginUser == null) return false;
-        if (hasRole(loginUser, "admin")) return true;
+        if (hasRole(loginUser, "admin") || hasRole(loginUser, "finance")) return true;
         Long userId = getCurrentUserId(loginUser);
         if (userId == null) return false;
         return userId.equals(customer.getSalesUserId()) || userId.equals(customer.getDocumentationPersonUserId());
+    }
+
+    private String normalizeReconciliationBasis(String basis) {
+        if (basis == null || basis.trim().isEmpty()) {
+            return "SHIPPED";
+        }
+        String normalized = basis.trim().toUpperCase(Locale.ROOT);
+        if ("SHIPPED".equals(normalized) || "RECEIVED".equals(normalized)) {
+            return normalized;
+        }
+        return null;
     }
 }

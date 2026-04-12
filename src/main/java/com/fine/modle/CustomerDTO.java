@@ -48,6 +48,8 @@ public class CustomerDTO {
     private BigDecimal creditLimit;
     private String paymentTerms;
     private BigDecimal taxRate;
+    private Integer defaultReconciliationDay;
+    private String reconciliationBasis;
     private String bankName;
     private String bankAccount;
     

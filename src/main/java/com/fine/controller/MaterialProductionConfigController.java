@@ -27,7 +27,7 @@ public class MaterialProductionConfigController {
      * 分页查询物料配置列表
      */
     @GetMapping("/list")
-    public ResponseResult getList(
+    public ResponseResult<?> getList(
             @RequestParam(defaultValue = "1") Integer pageNum,
             @RequestParam(defaultValue = "10") Integer pageSize,
             @RequestParam(required = false) String materialCode,
@@ -62,7 +62,7 @@ public class MaterialProductionConfigController {
      * 根据ID查询物料配置
      */
     @GetMapping("/{id}")
-    public ResponseResult getById(@PathVariable Long id) {
+    public ResponseResult<?> getById(@PathVariable Long id) {
         try {
             MaterialProductionConfig config = configMapper.selectById(id);
             if (config == null) {
@@ -79,7 +79,7 @@ public class MaterialProductionConfigController {
      * 根据物料编号查询配置
      */
     @GetMapping("/by-code/{materialCode}")
-    public ResponseResult getByMaterialCode(@PathVariable String materialCode) {
+    public ResponseResult<?> getByMaterialCode(@PathVariable String materialCode) {
         try {
             QueryWrapper<MaterialProductionConfig> wrapper = new QueryWrapper<>();
             wrapper.eq("material_code", materialCode)
@@ -100,7 +100,7 @@ public class MaterialProductionConfigController {
      * 创建物料配置
      */
     @PostMapping("/create")
-    public ResponseResult create(@RequestBody MaterialProductionConfig config) {
+    public ResponseResult<?> create(@RequestBody MaterialProductionConfig config) {
         try {
             // 检查物料编号是否已存在
             QueryWrapper<MaterialProductionConfig> wrapper = new QueryWrapper<>();
@@ -127,7 +127,7 @@ public class MaterialProductionConfigController {
      * 更新物料配置
      */
     @PutMapping("/update")
-    public ResponseResult update(@RequestBody MaterialProductionConfig config) {
+    public ResponseResult<?> update(@RequestBody MaterialProductionConfig config) {
         try {
             if (config.getId() == null) {
                 return ResponseResult.error("ID不能为空");
@@ -149,7 +149,7 @@ public class MaterialProductionConfigController {
      * 删除物料配置（逻辑删除，设置为不启用）
      */
     @DeleteMapping("/delete/{id}")
-    public ResponseResult delete(@PathVariable Long id) {
+    public ResponseResult<?> delete(@PathVariable Long id) {
         try {
             MaterialProductionConfig config = new MaterialProductionConfig();
             config.setId(id);
@@ -171,7 +171,7 @@ public class MaterialProductionConfigController {
      * 批量导入物料配置
      */
     @PostMapping("/batch-import")
-    public ResponseResult batchImport(@RequestBody List<MaterialProductionConfig> configs) {
+    public ResponseResult<?> batchImport(@RequestBody List<MaterialProductionConfig> configs) {
         try {
             int successCount = 0;
             int failCount = 0;

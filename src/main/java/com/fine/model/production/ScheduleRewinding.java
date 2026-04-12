@@ -18,7 +18,7 @@ public class ScheduleRewinding {
     /** 排程ID */
     private Long scheduleId;
     
-    /** 任务单号（RW-YYYYMMDD-XXX） */
+    /** 任务单号（RW-YYYYMMDD-NNN） */
     private String taskNo;
     
     /** 设备ID */

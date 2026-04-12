@@ -284,6 +284,7 @@ public class MaterialReadinessServiceImpl implements MaterialReadinessService {
         return t.isEmpty() ? null : t;
     }
 
+    @SuppressWarnings("unused")
     private BigDecimal toDecimal(Object value) {
         if (value == null) return BigDecimal.ZERO;
         try {

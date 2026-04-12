@@ -2,6 +2,10 @@ package com.fine.serviceIMPL;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.Locale;
+import java.util.Set;
 
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -50,8 +54,29 @@ public class UserDetailsServiceImpl implements UserDetailsService {
         System.out.println(">>> User found: " + user.getUsername());
         System.out.println(">>> Database Password (Hash): " + user.getPassword());
         
-        // 调用接口获取权限信息
-        List<String> permissionKeyList =  menuMapper.selectPermsByUserId(user.getId());
+        // 调用接口获取权限信息（并做角色别名扩展：涂布/coating -> production）
+        List<String> permissionKeyList = normalizeAuthorities(menuMapper.selectPermsByUserId(user.getId()));
         return new LoginUser(user,permissionKeyList);
+    }
+
+    private List<String> normalizeAuthorities(List<String> rawPermissions) {
+        Set<String> normalized = new LinkedHashSet<>();
+        if (rawPermissions != null) {
+            for (String raw : rawPermissions) {
+                String role = raw == null ? "" : raw.trim();
+                if (role.isEmpty()) {
+                    continue;
+                }
+                String lower = role.toLowerCase(Locale.ROOT);
+                normalized.add(lower);
+
+                // 兼容“涂布”岗位：具备 coating 与 production 双权限
+                if ("涂布".equals(role) || "coating".equals(lower)) {
+                    normalized.add("coating");
+                    normalized.add("production");
+                }
+            }
+        }
+        return new ArrayList<>(normalized);
     }
 }

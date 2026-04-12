@@ -5,14 +5,14 @@
     <!-- 按化工库存ID查询明细 -->
     <select id="selectByChemicalStockId" resultType="com.fine.model.stock.ChemicalStockDetail">
         SELECT * FROM chemical_stock_detail
-        WHERE chemical_stock_id = #{chemicalStockId}
+        WHERE stock_id = #{chemicalStockId}
         ORDER BY create_time DESC
     </select>
     
     <!-- 按状态查询可用明细 -->
     <select id="selectByStatus" resultType="com.fine.model.stock.ChemicalStockDetail">
         SELECT * FROM chemical_stock_detail
-        WHERE chemical_stock_id = #{chemicalStockId}
+                WHERE stock_id = #{chemicalStockId}
           AND status = #{status}
         ORDER BY create_time ASC
     </select>

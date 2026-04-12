@@ -25,7 +25,7 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
      * 按计划日期查询涂布计划（用于配方分解 -> 化工锁定/请购）
      */
     @Select("<script>" +
-            "SELECT ms.id AS schedule_id, ms.order_no, soi.material_code, soi.material_name, " +
+            "SELECT ms.id AS schedule_id, ms.order_no, soi.material_code, COALESCE((SELECT tss.product_name FROM tape_spec tss WHERE tss.material_code = soi.material_code LIMIT 1), '') AS material_name, " +
             "ms.coating_area AS coating_area " +
             "FROM manual_schedule ms " +
             "LEFT JOIN sales_order_items soi ON soi.id = ms.order_detail_id " +
@@ -49,11 +49,11 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "o.order_no, " +
             "soi.id AS order_detail_id, " +
             "soi.material_code, " +
-            "soi.material_name, " +
+            "COALESCE((SELECT tss.product_name FROM tape_spec tss WHERE tss.material_code = soi.material_code LIMIT 1), '') AS material_name, " +
             "soi.color_code, " +
             "soi.width, " +
             "soi.length, " +
-            "soi.thickness, " +
+            "COALESCE(soi.thickness, ts.total_thickness) AS thickness, " +
             "soi.rolls AS order_qty, " +
             "IFNULL(soi.delivered_qty, 0) AS completed_qty, " +
             "IFNULL(soi.scheduled_qty, 0) AS scheduled_qty, " +
@@ -110,6 +110,8 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             ") ms ON ms.order_detail_id = soi.id " +
             "WHERE (o.status IS NULL OR LOWER(o.status) NOT IN ('completed','cancelled','canceled','closed')) " +
             "AND o.is_deleted = 0 AND soi.is_deleted = 0 " +
+            "AND LOWER(IFNULL(soi.production_status, 'not_started')) <> 'completed' " +
+            "AND IFNULL(soi.delivered_qty, 0) < IFNULL(soi.rolls, 0) " +
             "AND IFNULL(soi.remaining_qty, (soi.rolls - IFNULL(soi.scheduled_qty, 0))) > 0 " +
             "AND (ms.packaging_date IS NULL AND ms.slitting_schedule_date IS NULL) " +
             "ORDER BY " +
@@ -126,7 +128,7 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "o.order_no, " +
             "soi.id AS order_detail_id, " +
             "soi.material_code, " +
-            "soi.material_name, " +
+            "COALESCE((SELECT tss.product_name FROM tape_spec tss WHERE tss.material_code = soi.material_code LIMIT 1), '') AS material_name, " +
             "soi.color_code, " +
             "soi.width, " +
             "soi.length, " +
@@ -187,13 +189,19 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             ") ms ON ms.order_detail_id = soi.id " +
             "WHERE (o.status IS NULL OR LOWER(o.status) NOT IN ('completed','cancelled','canceled','closed')) " +
             "AND o.is_deleted = 0 AND soi.is_deleted = 0 " +
+            "AND LOWER(IFNULL(soi.production_status, 'not_started')) <> 'completed' " +
+            "AND IFNULL(soi.delivered_qty, 0) < IFNULL(soi.rolls, 0) " +
             "AND IFNULL(soi.remaining_qty, (soi.rolls - IFNULL(soi.scheduled_qty, 0))) > 0 " +
             "AND (ms.packaging_date IS NULL AND ms.slitting_schedule_date IS NULL) " +
+            "AND (#{orderNo} IS NULL OR #{orderNo} = '' OR REPLACE(UPPER(o.order_no), ' ', '') LIKE CONCAT('%', REPLACE(UPPER(#{orderNo}), ' ', ''), '%')) " +
+            "AND (#{materialCode} IS NULL OR #{materialCode} = '' OR REPLACE(UPPER(soi.material_code), ' ', '') LIKE CONCAT('%', REPLACE(UPPER(#{materialCode}), ' ', ''), '%')) " +
             "ORDER BY " +
             "  CASE WHEN IFNULL(soi.remaining_qty, (soi.rolls - IFNULL(soi.scheduled_qty, 0))) > 0 THEN 0 ELSE 1 END, " +
             "  priority_score DESC, " +
             "  o.delivery_date ASC")
-    List<Map<String, Object>> selectPendingOrdersPage(Page<Map<String, Object>> page);
+    List<Map<String, Object>> selectPendingOrdersPage(Page<Map<String, Object>> page,
+                                                       @Param("orderNo") String orderNo,
+                                                       @Param("materialCode") String materialCode);
 
     /**
      * 统计待排程订单总数
@@ -212,9 +220,40 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             ") ms ON ms.order_detail_id = soi.id " +
             "WHERE (o.status IS NULL OR LOWER(o.status) NOT IN ('completed','cancelled','canceled','closed')) " +
             "AND o.is_deleted = 0 AND soi.is_deleted = 0 " +
+            "AND LOWER(IFNULL(soi.production_status, 'not_started')) <> 'completed' " +
+            "AND IFNULL(soi.delivered_qty, 0) < IFNULL(soi.rolls, 0) " +
             "AND IFNULL(soi.remaining_qty, (soi.rolls - IFNULL(soi.scheduled_qty, 0))) > 0 " +
-            "AND (ms.packaging_date IS NULL AND ms.slitting_schedule_date IS NULL)")
-    Long selectPendingOrdersCount();
+            "AND (ms.packaging_date IS NULL AND ms.slitting_schedule_date IS NULL) " +
+            "AND (#{orderNo} IS NULL OR #{orderNo} = '' OR REPLACE(UPPER(o.order_no), ' ', '') LIKE CONCAT('%', REPLACE(UPPER(#{orderNo}), ' ', ''), '%')) " +
+            "AND (#{materialCode} IS NULL OR #{materialCode} = '' OR REPLACE(UPPER(soi.material_code), ' ', '') LIKE CONCAT('%', REPLACE(UPPER(#{materialCode}), ' ', ''), '%'))")
+    Long selectPendingOrdersCount(@Param("orderNo") String orderNo,
+                                  @Param("materialCode") String materialCode);
+
+    /**
+     * 统计待排程欠料总平米数
+     */
+    @Select("SELECT IFNULL(SUM((soi.width / 1000.0) * soi.length * IFNULL(soi.remaining_qty, (soi.rolls - IFNULL(soi.scheduled_qty, 0)))), 0) " +
+            "FROM sales_order_items soi " +
+            "JOIN sales_orders o ON soi.order_id = o.id " +
+            "LEFT JOIN (" +
+            "  SELECT m1.* " +
+            "  FROM manual_schedule m1 " +
+            "  INNER JOIN (" +
+            "    SELECT order_detail_id, MAX(id) AS max_id " +
+            "    FROM manual_schedule " +
+            "    GROUP BY order_detail_id" +
+            "  ) m2 ON m1.order_detail_id = m2.order_detail_id AND m1.id = m2.max_id" +
+            ") ms ON ms.order_detail_id = soi.id " +
+            "WHERE (o.status IS NULL OR LOWER(o.status) NOT IN ('completed','cancelled','canceled','closed')) " +
+            "AND o.is_deleted = 0 AND soi.is_deleted = 0 " +
+            "AND LOWER(IFNULL(soi.production_status, 'not_started')) <> 'completed' " +
+            "AND IFNULL(soi.delivered_qty, 0) < IFNULL(soi.rolls, 0) " +
+            "AND IFNULL(soi.remaining_qty, (soi.rolls - IFNULL(soi.scheduled_qty, 0))) > 0 " +
+            "AND (ms.packaging_date IS NULL AND ms.slitting_schedule_date IS NULL) " +
+            "AND (#{orderNo} IS NULL OR #{orderNo} = '' OR REPLACE(UPPER(o.order_no), ' ', '') LIKE CONCAT('%', REPLACE(UPPER(#{orderNo}), ' ', ''), '%')) " +
+            "AND (#{materialCode} IS NULL OR #{materialCode} = '' OR REPLACE(UPPER(soi.material_code), ' ', '') LIKE CONCAT('%', REPLACE(UPPER(#{materialCode}), ' ', ''), '%'))")
+    BigDecimal selectPendingOrdersOweAreaSum(@Param("orderNo") String orderNo,
+                                              @Param("materialCode") String materialCode);
 
     /**
      * 查询待排程订单明细（包含已拍完）
@@ -224,7 +263,7 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "o.order_no, " +
             "soi.id AS order_detail_id, " +
             "soi.material_code, " +
-            "soi.material_name, " +
+            "COALESCE((SELECT tss.product_name FROM tape_spec tss WHERE tss.material_code = soi.material_code LIMIT 1), '') AS material_name, " +
             "soi.color_code, " +
             "soi.width, " +
             "soi.length, " +
@@ -299,7 +338,7 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "o.order_no, " +
             "soi.id AS order_detail_id, " +
             "soi.material_code, " +
-            "soi.material_name, " +
+            "COALESCE((SELECT tss.product_name FROM tape_spec tss WHERE tss.material_code = soi.material_code LIMIT 1), '') AS material_name, " +
             "soi.color_code, " +
             "soi.width, " +
             "soi.length, " +
@@ -361,11 +400,14 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "WHERE (o.status IS NULL OR LOWER(o.status) NOT IN ('cancelled','canceled','closed')) " +
             "AND o.is_deleted = 0 AND soi.is_deleted = 0 " +
             "AND (#{orderNo} IS NULL OR #{orderNo} = '' OR REPLACE(UPPER(o.order_no), ' ', '') LIKE CONCAT('%', REPLACE(UPPER(#{orderNo}), ' ', ''), '%')) " +
+            "AND (#{materialCode} IS NULL OR #{materialCode} = '' OR REPLACE(UPPER(soi.material_code), ' ', '') LIKE CONCAT('%', REPLACE(UPPER(#{materialCode}), ' ', ''), '%')) " +
             "ORDER BY " +
             "  CASE WHEN IFNULL(soi.remaining_qty, (soi.rolls - IFNULL(soi.scheduled_qty, 0))) > 0 THEN 0 ELSE 1 END, " +
             "  priority_score DESC, " +
             "  o.delivery_date ASC")
-    List<Map<String, Object>> selectPendingOrdersPageIncludeCompleted(Page<Map<String, Object>> page, @Param("orderNo") String orderNo);
+    List<Map<String, Object>> selectPendingOrdersPageIncludeCompleted(Page<Map<String, Object>> page,
+                                                                       @Param("orderNo") String orderNo,
+                                                                       @Param("materialCode") String materialCode);
 
     /**
      * 统计待排程订单总数（包含已拍完）
@@ -375,8 +417,10 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "JOIN sales_orders o ON soi.order_id = o.id " +
             "WHERE (o.status IS NULL OR LOWER(o.status) NOT IN ('cancelled','canceled','closed')) " +
             "AND o.is_deleted = 0 AND soi.is_deleted = 0 " +
-            "AND (#{orderNo} IS NULL OR #{orderNo} = '' OR REPLACE(UPPER(o.order_no), ' ', '') LIKE CONCAT('%', REPLACE(UPPER(#{orderNo}), ' ', ''), '%'))")
-    Long selectPendingOrdersCountIncludeCompleted(@Param("orderNo") String orderNo);
+            "AND (#{orderNo} IS NULL OR #{orderNo} = '' OR REPLACE(UPPER(o.order_no), ' ', '') LIKE CONCAT('%', REPLACE(UPPER(#{orderNo}), ' ', ''), '%')) " +
+            "AND (#{materialCode} IS NULL OR #{materialCode} = '' OR REPLACE(UPPER(soi.material_code), ' ', '') LIKE CONCAT('%', REPLACE(UPPER(#{materialCode}), ' ', ''), '%'))")
+    Long selectPendingOrdersCountIncludeCompleted(@Param("orderNo") String orderNo,
+                                                   @Param("materialCode") String materialCode);
     
     /**
      * 查询已完成涂布待复卷的订单（按涂布日期排序）
@@ -405,7 +449,7 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "(COALESCE(ms.coating_area, (soi.width / 1000.0) * soi.length * ms.schedule_qty) - IFNULL(ms.rewinding_scheduled_area, 0)) AS remaining_coating_area, " +
             "ms.stock_allocations, " +
             "soi.material_code, " +
-            "soi.material_name, " +
+            "COALESCE((SELECT tss.product_name FROM tape_spec tss WHERE tss.material_code = soi.material_code LIMIT 1), '') AS material_name, " +
             "soi.width, " +
             "soi.length, " +
             "soi.thickness, " +
@@ -466,7 +510,7 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "(COALESCE(ms.coating_area, (soi.width / 1000.0) * soi.length * ms.schedule_qty) - IFNULL(ms.rewinding_scheduled_area, 0)) AS remaining_coating_area, " +
             "ms.stock_allocations, " +
             "soi.material_code, " +
-            "soi.material_name, " +
+            "COALESCE((SELECT tss.product_name FROM tape_spec tss WHERE tss.material_code = soi.material_code LIMIT 1), '') AS material_name, " +
             "soi.width, " +
             "soi.length, " +
             "soi.thickness, " +
@@ -531,7 +575,7 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "ms.rewinding_date, " +
             "ms.created_at, " +
             "soi.material_code, " +
-            "soi.material_name, " +
+            "COALESCE((SELECT tss.product_name FROM tape_spec tss WHERE tss.material_code = soi.material_code LIMIT 1), '') AS material_name, " +
             "soi.thickness, " +
             "soi.width, " +
             "soi.length, " +
@@ -561,7 +605,7 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "COALESCE(ms.coating_area, (soi.width / 1000.0) * soi.length * ms.schedule_qty) AS coating_area, " +
             "ms.stock_allocations, " +
             "soi.material_code, " +
-            "soi.material_name, " +
+            "COALESCE((SELECT tss.product_name FROM tape_spec tss WHERE tss.material_code = soi.material_code LIMIT 1), '') AS material_name, " +
             "soi.width, " +
             "soi.length, " +
             "soi.thickness, " +
@@ -597,7 +641,7 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "COALESCE(ms.coating_area, (soi.width / 1000.0) * soi.length * ms.schedule_qty) AS coating_area, " +
             "ms.stock_allocations, " +
             "soi.material_code, " +
-            "soi.material_name, " +
+            "COALESCE((SELECT tss.product_name FROM tape_spec tss WHERE tss.material_code = soi.material_code LIMIT 1), '') AS material_name, " +
             "soi.width, " +
             "soi.length, " +
             "soi.thickness, " +
@@ -662,6 +706,7 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "ms.rewinding_equipment, " +
             "eo_sl.equipment_code AS slitting_equipment, " +
             "ms.packaging_date, " +
+            "ms.packaging_team, " +
             "ms.slitting_schedule_date, " +
             "(SELECT COALESCE(sp.production_speed, sp.slitting_speed) " +
             "   FROM slitting_process_params sp " +
@@ -677,7 +722,7 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "eo_sl.end_time AS slitting_end_time, " +
             "eo_sl.duration_minutes AS slitting_duration_minutes, " +
             "soi.material_code, " +
-            "soi.material_name, " +
+            "COALESCE((SELECT tss.product_name FROM tape_spec tss WHERE tss.material_code = soi.material_code LIMIT 1), '') AS material_name, " +
             "soi.width, " +
             "soi.length, " +
             "soi.thickness, " +
@@ -712,6 +757,7 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "ms.rewinding_equipment, " +
             "eo_sl.equipment_code AS slitting_equipment, " +
             "ms.packaging_date, " +
+            "ms.packaging_team, " +
             "ms.slitting_schedule_date, " +
             "(SELECT COALESCE(sp.production_speed, sp.slitting_speed) " +
             "   FROM slitting_process_params sp " +
@@ -727,7 +773,7 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "eo_sl.end_time AS slitting_end_time, " +
             "eo_sl.duration_minutes AS slitting_duration_minutes, " +
             "soi.material_code, " +
-            "soi.material_name, " +
+            "COALESCE((SELECT tss.product_name FROM tape_spec tss WHERE tss.material_code = soi.material_code LIMIT 1), '') AS material_name, " +
             "soi.width, " +
             "soi.length, " +
             "soi.thickness, " +
@@ -916,12 +962,12 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "ms.id, " +
             "ms.id AS schedule_id, " +
             "ms.order_no, " +
-            "soi.material_code, " +
-            "soi.material_name, " +
+            "COALESCE(NULLIF(ms.material_code, ''), soi.material_code, MAX(ca.material_code), '') AS material_code, " +
+            "COALESCE(NULLIF(ms.material_name, ''), (SELECT tss.product_name FROM tape_spec tss WHERE tss.material_code = soi.material_code LIMIT 1), '') AS material_name, " +
             "ts.color_name AS color_name, " +
             "ts.color_code AS color_code, " +
-            "soi.width, " +
-            "soi.length, " +
+            "COALESCE(soi.width, ms.coating_width) AS width, " +
+            "COALESCE(soi.length, ms.coating_length) AS length, " +
             "COALESCE(ms.coating_width, soi.width) AS coating_width, " +
             "COALESCE(ms.coating_length, soi.length) AS coating_length, " +
             "soi.thickness, " +
@@ -941,23 +987,24 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "GROUP_CONCAT(DISTINCT so.order_no ORDER BY so.order_no SEPARATOR ',') AS order_nos, " +
             "COALESCE(" +
             "  GROUP_CONCAT(DISTINCT ca.order_no ORDER BY ca.sort_no SEPARATOR ','), " +
-            "  GROUP_CONCAT(DISTINCT so.order_no ORDER BY so.order_no SEPARATOR ',')" +
+            "  GROUP_CONCAT(DISTINCT so.order_no ORDER BY so.order_no SEPARATOR ','), " +
+            "  ms.order_no" +
             ") AS related_order_nos " +
             "FROM manual_schedule ms " +
             "JOIN (" +
             "  SELECT MAX(id) AS id " +
             "  FROM manual_schedule " +
             "  WHERE schedule_type = 'COATING' " +
-            "  GROUP BY order_detail_id" +
+            "  GROUP BY COALESCE(order_detail_id, id)" +
             ") latest ON latest.id = ms.id " +
             "LEFT JOIN sales_order_items soi ON ms.order_detail_id = soi.id " +
-            "LEFT JOIN tape_spec ts ON soi.material_code = ts.material_code " +
+            "LEFT JOIN manual_schedule_coating_allocation ca ON ca.schedule_id = ms.id AND ca.included_flag = 1 " +
+            "LEFT JOIN tape_spec ts ON ts.material_code = COALESCE(NULLIF(ms.material_code, ''), soi.material_code, ca.material_code) " +
             "LEFT JOIN sales_orders so ON soi.order_id = so.id " +
             "LEFT JOIN equipment_occupation eo ON eo.schedule_id = ms.id AND eo.process_type = 'COATING' AND eo.status IN ('PLANNED','RUNNING','FINISHED') " +
-            "LEFT JOIN manual_schedule_coating_allocation ca ON ca.schedule_id = ms.id AND ca.included_flag = 1 " +
             "WHERE ms.schedule_type = 'COATING' " +
             "AND ms.status IN ('PENDING','COATING_SCHEDULED','REWINDING_SCHEDULED','CONFIRMED') " +
-            "AND (COALESCE(ms.coating_area, 0) > 0 OR (ms.coating_area IS NULL AND (soi.width / 1000.0) * soi.length * IFNULL(ms.schedule_qty, 0) > 0)) " +
+            "AND COALESCE(NULLIF(ms.coating_area, 0), (COALESCE(soi.width, ms.coating_width) / 1000.0) * COALESCE(soi.length, ms.coating_length) * IFNULL(ms.schedule_qty, 0)) > 0 " +
             "GROUP BY ms.id " +
             "ORDER BY ms.created_at DESC")
     List<Map<String, Object>> selectCoatingSchedules();
@@ -969,20 +1016,20 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "ms.id, " +
             "ms.id AS schedule_id, " +
             "ms.order_no, " +
-            "soi.material_code, " +
-            "soi.material_name, " +
+            "COALESCE(NULLIF(ms.material_code, ''), soi.material_code, MAX(ca.material_code), '') AS material_code, " +
+            "COALESCE(NULLIF(ms.material_name, ''), (SELECT tss.product_name FROM tape_spec tss WHERE tss.material_code = soi.material_code LIMIT 1), '') AS material_name, " +
             "ts.color_name AS color_name, " +
             "ts.color_code AS color_code, " +
-            "soi.width, " +
-            "soi.length, " +
+            "COALESCE(soi.width, ms.coating_width) AS width, " +
+            "COALESCE(soi.length, ms.coating_length) AS length, " +
             "COALESCE(ms.coating_width, soi.width) AS coating_width, " +
             "COALESCE(ms.coating_length, soi.length) AS coating_length, " +
-            "soi.thickness, " +
+            "COALESCE(soi.thickness, ts.total_thickness) AS thickness, " +
             "ms.schedule_qty, " +
-            "COALESCE(NULLIF(ms.coating_area, 0), (soi.width / 1000.0) * soi.length * IFNULL(ms.schedule_qty, 0)) AS coating_area, " +
+            "COALESCE(NULLIF(ms.coating_area, 0), (COALESCE(soi.width, ms.coating_width) / 1000.0) * COALESCE(soi.length, ms.coating_length) * IFNULL(ms.schedule_qty, 0)) AS coating_area, " +
             "IFNULL((SELECT SUM(r.produced_qty) FROM manual_schedule_process_report r WHERE r.schedule_id = ms.id AND r.process_type = 'COATING' AND r.is_deleted = 0), 0) AS coating_report_qty, " +
             "IFNULL((SELECT SUM(IFNULL(l.locked_area, 0)) FROM schedule_material_lock l WHERE l.schedule_id = ms.id AND l.lock_status IN ('锁定中','已领料','已消耗','已补锁')), 0) AS locked_area, " +
-            "GREATEST(COALESCE(NULLIF(ms.coating_area, 0), (soi.width / 1000.0) * soi.length * IFNULL(ms.schedule_qty, 0)) - IFNULL((SELECT SUM(IFNULL(l.locked_area, 0)) FROM schedule_material_lock l WHERE l.schedule_id = ms.id AND l.lock_status IN ('锁定中','已领料','已消耗','已补锁')), 0), 0) AS unlocked_area, " +
+            "GREATEST(COALESCE(NULLIF(ms.coating_area, 0), (COALESCE(soi.width, ms.coating_width) / 1000.0) * COALESCE(soi.length, ms.coating_length) * IFNULL(ms.schedule_qty, 0)) - IFNULL((SELECT SUM(IFNULL(l.locked_area, 0)) FROM schedule_material_lock l WHERE l.schedule_id = ms.id AND l.lock_status IN ('锁定中','已领料','已消耗','已补锁')), 0), 0) AS unlocked_area, " +
             "COALESCE(DATE_FORMAT(eo.start_time, '%Y-%m-%d %H:%i:%s'), CONCAT(ms.coating_schedule_date, ' 08:00:00')) AS coating_schedule_date, " +
             "DATE_FORMAT(eo.end_time, '%Y-%m-%d %H:%i:%s') AS coating_end_time, " +
             "eo.duration_minutes AS coating_duration_minutes, " +
@@ -994,23 +1041,24 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "GROUP_CONCAT(DISTINCT so.order_no ORDER BY so.order_no SEPARATOR ',') AS order_nos, " +
             "COALESCE(" +
             "  GROUP_CONCAT(DISTINCT ca.order_no ORDER BY ca.sort_no SEPARATOR ','), " +
-            "  GROUP_CONCAT(DISTINCT so.order_no ORDER BY so.order_no SEPARATOR ',')" +
+            "  GROUP_CONCAT(DISTINCT so.order_no ORDER BY so.order_no SEPARATOR ','), " +
+            "  ms.order_no" +
             ") AS related_order_nos " +
             "FROM manual_schedule ms " +
             "JOIN (" +
             "  SELECT MAX(id) AS id " +
             "  FROM manual_schedule " +
             "  WHERE schedule_type = 'COATING' " +
-            "  GROUP BY order_detail_id" +
+            "  GROUP BY COALESCE(order_detail_id, id)" +
             ") latest ON latest.id = ms.id " +
             "LEFT JOIN sales_order_items soi ON ms.order_detail_id = soi.id " +
-            "LEFT JOIN tape_spec ts ON soi.material_code = ts.material_code " +
+            "LEFT JOIN manual_schedule_coating_allocation ca ON ca.schedule_id = ms.id AND ca.included_flag = 1 " +
+            "LEFT JOIN tape_spec ts ON ts.material_code = COALESCE(NULLIF(ms.material_code, ''), soi.material_code, ca.material_code) " +
             "LEFT JOIN sales_orders so ON soi.order_id = so.id " +
             "LEFT JOIN equipment_occupation eo ON eo.schedule_id = ms.id AND eo.process_type = 'COATING' AND eo.status IN ('PLANNED','RUNNING','FINISHED') " +
-            "LEFT JOIN manual_schedule_coating_allocation ca ON ca.schedule_id = ms.id AND ca.included_flag = 1 " +
             "WHERE ms.schedule_type = 'COATING' " +
             "AND ms.status IN ('PENDING','COATING_SCHEDULED','REWINDING_SCHEDULED','CONFIRMED') " +
-            "AND (COALESCE(ms.coating_area, 0) > 0 OR (ms.coating_area IS NULL AND (soi.width / 1000.0) * soi.length * IFNULL(ms.schedule_qty, 0) > 0)) " +
+            "AND COALESCE(NULLIF(ms.coating_area, 0), (COALESCE(soi.width, ms.coating_width) / 1000.0) * COALESCE(soi.length, ms.coating_length) * IFNULL(ms.schedule_qty, 0)) > 0 " +
             "GROUP BY ms.id " +
             "ORDER BY ms.created_at DESC")
     List<Map<String, Object>> selectCoatingSchedulesPage(Page<Map<String, Object>> page);
@@ -1025,10 +1073,10 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "  SELECT MAX(id) AS id " +
             "  FROM manual_schedule " +
             "  WHERE schedule_type = 'COATING' " +
-            "  GROUP BY order_detail_id" +
+            "  GROUP BY COALESCE(order_detail_id, id)" +
             ") latest ON latest.id = ms.id " +
             "WHERE ms.schedule_type = 'COATING' AND ms.status IN ('PENDING','COATING_SCHEDULED','REWINDING_SCHEDULED','CONFIRMED') " +
-            "AND (COALESCE(ms.coating_area, 0) > 0 OR (ms.coating_area IS NULL AND (soi.width / 1000.0) * soi.length * IFNULL(ms.schedule_qty, 0) > 0))")
+            "AND COALESCE(NULLIF(ms.coating_area, 0), (COALESCE(soi.width, ms.coating_width) / 1000.0) * COALESCE(soi.length, ms.coating_length) * IFNULL(ms.schedule_qty, 0)) > 0")
     Long selectCoatingSchedulesCount();
 
     /**

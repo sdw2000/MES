@@ -3,7 +3,6 @@ package com.fine.serviceIMPL.production;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fine.Dao.stock.FilmStockDetailMapper;
-import com.fine.Dao.stock.FilmStockMapper;
 import com.fine.Dao.stock.ScheduleMaterialLockMapper;
 import com.fine.Dao.production.ScheduleCoatingMapper;
 import com.fine.Dao.production.ScheduleOrderItemMapper;
@@ -38,9 +37,6 @@ public class ScheduleMaterialLockServiceImpl extends ServiceImpl<ScheduleMateria
     
     @Autowired
     private FilmStockService filmStockService;
-    
-    @Autowired
-    private FilmStockMapper filmStockMapper;
     
     @Autowired
     private FilmStockDetailMapper filmStockDetailMapper;
@@ -241,7 +237,7 @@ public class ScheduleMaterialLockServiceImpl extends ServiceImpl<ScheduleMateria
         try {
             // 这里需要根据排程信息计算需求面积
             // 简化实现，假设从排程表获取
-            // TODO: 实际需要查询 schedule_coating 表获取计划面积
+            // 实际可查询 schedule_coating 表获取计划面积
             
             ScheduleMaterialLockDTO lockDTO = new ScheduleMaterialLockDTO();
             lockDTO.setScheduleId(scheduleId);

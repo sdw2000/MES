@@ -31,8 +31,9 @@ public class SalesOrderItem {
     
     // 物料代码
     private String materialCode;
-      // 物料名称
-    private String materialName;
+      // 物料名称（展示字段，通过料号动态查询，不入库）
+      @TableField(exist = false)
+      private String materialName;
     
     // 颜色代码
     private String colorCode;

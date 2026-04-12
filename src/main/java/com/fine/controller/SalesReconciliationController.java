@@ -1,6 +1,7 @@
 package com.fine.controller;
 
 import com.fine.Utils.ResponseResult;
+import com.fine.modle.SalesReconciliationConfirmRequest;
 import com.fine.modle.SalesStatementHistory;
 import com.fine.service.SalesReconciliationService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -40,5 +41,16 @@ public class SalesReconciliationController {
     @DeleteMapping("/history/{id}")
     public ResponseResult<?> deleteHistory(@PathVariable Long id) {
         return salesReconciliationService.deleteHistory(id);
+    }
+
+    @PostMapping("/confirm-details")
+    public ResponseResult<?> confirmDetails(@RequestBody SalesReconciliationConfirmRequest request) {
+        return salesReconciliationService.confirmStatementDetails(request);
+    }
+
+    @PostMapping("/migrate-legacy-receipt-status")
+    @PreAuthorize("hasAnyAuthority('admin', 'finance')")
+    public ResponseResult<?> migrateLegacyReceiptStatus(@RequestParam(value = "cutoffDate", required = false) String cutoffDate) {
+        return salesReconciliationService.migrateLegacyReceiptStatus(cutoffDate);
     }
 }

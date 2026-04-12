@@ -8,9 +8,11 @@ public class TapeRawMaterial {
     private Long id;
     private String materialCode;    // 物料代码
     private String materialName;    // 物料名称
+    private String materialCategory; // 物料类别: film/chemical
     private String materialType;    // 物料类型: resin/solvent/additive/curing
     private String unit;            // 单位
     private String spec;            // 规格说明
+    private String performanceParams; // 性能参数(JSON)
     private Integer sortOrder;
     private Integer status;
 
@@ -23,6 +25,9 @@ public class TapeRawMaterial {
     
     public String getMaterialName() { return materialName; }
     public void setMaterialName(String materialName) { this.materialName = materialName; }
+
+    public String getMaterialCategory() { return materialCategory; }
+    public void setMaterialCategory(String materialCategory) { this.materialCategory = materialCategory; }
     
     public String getMaterialType() { return materialType; }
     public void setMaterialType(String materialType) { this.materialType = materialType; }
@@ -32,6 +37,9 @@ public class TapeRawMaterial {
     
     public String getSpec() { return spec; }
     public void setSpec(String spec) { this.spec = spec; }
+
+    public String getPerformanceParams() { return performanceParams; }
+    public void setPerformanceParams(String performanceParams) { this.performanceParams = performanceParams; }
     
     public Integer getSortOrder() { return sortOrder; }
     public void setSortOrder(Integer sortOrder) { this.sortOrder = sortOrder; }
@@ -50,6 +58,15 @@ public class TapeRawMaterial {
             case "additive": return "助剂";
             case "curing": return "固化剂";
             default: return materialType;
+        }
+    }
+
+    public String getMaterialCategoryDisplay() {
+        if (materialCategory == null) return "";
+        switch (materialCategory) {
+            case "film": return "薄膜";
+            case "chemical": return "化工物料";
+            default: return materialCategory;
         }
     }
 }

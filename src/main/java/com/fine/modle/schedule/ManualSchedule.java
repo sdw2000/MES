@@ -1,6 +1,7 @@
 package com.fine.modle.schedule;
 
 import com.baomidou.mybatisplus.annotation.*;
+import com.fasterxml.jackson.annotation.JsonFormat;
 import lombok.Data;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -18,6 +19,12 @@ public class ManualSchedule {
     
     /** 订单号 */
     private String orderNo;
+
+    /** 产品编码/料号（手工排程时直接录入并落库） */
+    private String materialCode;
+
+    /** 产品名称（手工排程时直接录入并落库） */
+    private String materialName;
     
     /** 订单详情ID */
     private Long orderDetailId;
@@ -54,13 +61,17 @@ public class ManualSchedule {
 
     /** 涂布日期 */
     @TableField("coating_date")
-    private LocalDate coatingDate;
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    private LocalDateTime coatingDate;
     
     /** 涂布机台 */
     private String coatingEquipment;
 
     /** 复卷机台号 */
     private String rewindingEquipment;
+
+    /** 包装班组 */
+    private String packagingTeam;
     
     /** 复卷排程日期 */
     private LocalDate rewindingScheduleDate;

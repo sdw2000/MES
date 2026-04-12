@@ -53,9 +53,17 @@ public interface SalesOrderMapper extends BaseMapper<SalesOrder> {
             "LEFT JOIN customers c ON so.customer COLLATE utf8mb4_unicode_ci = c.customer_code COLLATE utf8mb4_unicode_ci " +
             "LEFT JOIN (" +
             "  SELECT soi.order_id, " +
-            "         IFNULL(SUM(IFNULL(soi.delivered_qty, 0)), 0) AS completed_rolls, " +
-            "         IFNULL(SUM(IFNULL(soi.remaining_qty, GREATEST(IFNULL(soi.rolls, 0) - IFNULL(soi.delivered_qty, 0), 0))), 0) AS remaining_rolls " +
+            "         IFNULL(SUM(LEAST(IFNULL(soi.rolls, 0), IFNULL(shipped.confirmed_qty, 0))), 0) AS completed_rolls, " +
+            "         IFNULL(SUM(GREATEST(IFNULL(soi.rolls, 0) - IFNULL(shipped.confirmed_qty, 0), 0)), 0) AS remaining_rolls " +
             "  FROM sales_order_items soi " +
+            "  LEFT JOIN (" +
+            "    SELECT dni.order_item_id, SUM(IFNULL(dni.quantity, 0)) AS confirmed_qty " +
+            "    FROM delivery_notice_items dni " +
+            "    INNER JOIN delivery_notices dn ON dn.id = dni.notice_id " +
+            "    WHERE dn.is_deleted = 0 " +
+            "      AND dn.status IN ('已发货', 'shipped', '已收货', 'received') " +
+            "    GROUP BY dni.order_item_id " +
+            "  ) shipped ON shipped.order_item_id = soi.id " +
             "  WHERE soi.is_deleted = 0 " +
             "  GROUP BY soi.order_id" +
             ") rp ON rp.order_id = so.id " +
@@ -96,23 +104,27 @@ public interface SalesOrderMapper extends BaseMapper<SalesOrder> {
             "    OR ((so.sales IS NULL AND so.documentation_person IS NULL) AND c.documentation_person = #{documentationPersonUserId})" +
             "  ) " +
             "</if>" +
-            "<if test='completionStatus != null and completionStatus != \"\"'> " +
-            "  AND (" +
-            "    (#{completionStatus} = 'completed' AND " +
-            "      IFNULL(rp.remaining_rolls, 0) &lt;= 0" +
-            "    ) OR " +
-            "    (#{completionStatus} = 'not_started' AND " +
-            "      IFNULL(rp.remaining_rolls, 0) &gt; 0 " +
-            "      AND IFNULL(rp.completed_rolls, 0) &lt;= 0" +
-            "    ) OR " +
-            "    (#{completionStatus} = 'partial' AND " +
-            "      IFNULL(rp.remaining_rolls, 0) &gt; 0 " +
-            "      AND IFNULL(rp.completed_rolls, 0) &gt; 0" +
-            "    )" +
-            "  ) " +
+            "<if test='lifecycleStatus != null and lifecycleStatus != \"\"'> " +
+            "  <choose> " +
+            "    <when test='lifecycleStatus == \"SHIPPED_FULL\"'> " +
+            "      AND UPPER(IFNULL(so.status, '')) IN ('SHIPPED_FULL','RECEIVED') " +
+            "    </when> " +
+            "    <when test='lifecycleStatus == \"SHIPPED_PARTIAL\"'> " +
+            "      AND UPPER(IFNULL(so.status, '')) IN ('SHIPPED_PARTIAL','PARTIAL_RECEIVED') " +
+            "    </when> " +
+            "    <when test='lifecycleStatus == \"RECEIVED\"'> " +
+            "      AND UPPER(IFNULL(so.status, '')) = 'RECEIVED' " +
+            "    </when> " +
+            "    <when test='lifecycleStatus == \"PARTIAL_RECEIVED\"'> " +
+            "      AND UPPER(IFNULL(so.status, '')) = 'PARTIAL_RECEIVED' " +
+            "    </when> " +
+            "    <otherwise> " +
+            "      AND UPPER(IFNULL(so.status, '')) = UPPER(#{lifecycleStatus}) " +
+            "    </otherwise> " +
+            "  </choose> " +
             "</if>" +
-            "<if test='(completionStatus == null or completionStatus == \"\") and (showCompleted == null or showCompleted == false)'> " +
-            "  AND IFNULL(rp.remaining_rolls, 0) &gt; 0 " +
+            "<if test='(lifecycleStatus == null or lifecycleStatus == \"\") and (showCompleted == null or showCompleted == false)'> " +
+            "  AND UPPER(IFNULL(so.status, '')) NOT IN ('SHIPPED_FULL','PAID','CLOSED','CANCELLED','CANCELED','COMPLETED','CLOSED','CANCELLED','CANCELED') " +
             "</if>" +
             "<choose>" +
             "  <when test='sortField == \"customerDisplay\"'> ORDER BY so.customer </when>" +
@@ -138,7 +150,7 @@ public interface SalesOrderMapper extends BaseMapper<SalesOrder> {
             Page<SalesOrder> page,
             @Param("orderNo") String orderNo,
             @Param("customerKeyword") String customerKeyword,
-            @Param("completionStatus") String completionStatus,
+            @Param("lifecycleStatus") String lifecycleStatus,
             @Param("showCompleted") Boolean showCompleted,
             @Param("startDate") String startDate,
             @Param("endDate") String endDate,

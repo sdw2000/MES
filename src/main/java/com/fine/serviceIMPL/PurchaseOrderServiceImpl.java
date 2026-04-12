@@ -2,6 +2,7 @@ package com.fine.serviceIMPL;
 
 import java.math.BigDecimal;
 import java.text.SimpleDateFormat;
+import java.util.Calendar;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -22,11 +23,15 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fine.Dao.purchase.PurchaseOrderItemMapper;
 import com.fine.Dao.purchase.PurchaseOrderMapper;
+import com.fine.Dao.purchase.PurchaseReceiptItemMapper;
+import com.fine.Dao.purchase.PurchaseReceiptMapper;
 import com.fine.Dao.rd.TapeSpecMapper;
 import com.fine.Utils.ResponseResult;
 import com.fine.modle.LoginUser;
 import com.fine.modle.PurchaseOrder;
 import com.fine.modle.PurchaseOrderItem;
+import com.fine.modle.purchase.PurchaseReceipt;
+import com.fine.modle.purchase.PurchaseReceiptItem;
 import com.fine.modle.rd.TapeSpec;
 import com.fine.service.PurchaseOrderService;
 
@@ -44,11 +49,17 @@ public class PurchaseOrderServiceImpl extends ServiceImpl<PurchaseOrderMapper, P
     @Autowired
     private TapeSpecMapper tapeSpecMapper;
 
+    @Autowired
+    private PurchaseReceiptMapper purchaseReceiptMapper;
+
+    @Autowired
+    private PurchaseReceiptItemMapper purchaseReceiptItemMapper;
+
     @Override
-    public ResponseResult<?> getAllOrders(Integer pageNum, Integer pageSize, String orderNo, String supplier, String startDate, String endDate) {
+    public ResponseResult<?> getAllOrders(Integer pageNum, Integer pageSize, String orderNo, String supplier, String startDate, String endDate, String reconciliationStatus) {
         try {
             Page<PurchaseOrder> page = new Page<>(pageNum != null ? pageNum : 1, pageSize != null ? pageSize : 10);
-            IPage<PurchaseOrder> pageResult = purchaseOrderMapper.selectOrdersWithSupplierSearch(page, orderNo, supplier, startDate, endDate);
+            IPage<PurchaseOrder> pageResult = purchaseOrderMapper.selectOrdersWithSupplierSearch(page, orderNo, supplier, startDate, endDate, reconciliationStatus);
             return new ResponseResult<>(200, "success", pageResult);
         } catch (Exception e) {
             e.printStackTrace();
@@ -74,9 +85,13 @@ public class PurchaseOrderServiceImpl extends ServiceImpl<PurchaseOrderMapper, P
             purchaseOrder.setCreatedAt(new Date());
             purchaseOrder.setUpdatedAt(new Date());
             purchaseOrder.setIsDeleted(0);
+            purchaseOrder.setOrderDate(toDateOnly(purchaseOrder.getOrderDate()));
+            purchaseOrder.setDeliveryDate(toDateOnly(purchaseOrder.getDeliveryDate()));
 
             calculateOrderTotals(purchaseOrder);
             enrichItemsWithSpecInfo(purchaseOrder.getItems());
+            normalizeItems(purchaseOrder.getItems());
+            initializeReconciliationStatus(purchaseOrder);
 
             purchaseOrderMapper.insert(purchaseOrder);
 
@@ -121,16 +136,15 @@ public class PurchaseOrderServiceImpl extends ServiceImpl<PurchaseOrderMapper, P
             purchaseOrder.setUpdatedBy(username);
             purchaseOrder.setUpdatedAt(new Date());
             purchaseOrder.setIsDeleted(0);
+            purchaseOrder.setOrderDate(toDateOnly(purchaseOrder.getOrderDate()));
+            purchaseOrder.setDeliveryDate(toDateOnly(purchaseOrder.getDeliveryDate()));
 
             calculateOrderTotals(purchaseOrder);
             enrichItemsWithSpecInfo(purchaseOrder.getItems());
+            normalizeItems(purchaseOrder.getItems());
+            initializeReconciliationStatus(purchaseOrder);
 
             purchaseOrderMapper.updateById(purchaseOrder);
-
-            LambdaQueryWrapper<PurchaseOrderItem> itemWrapper = new LambdaQueryWrapper<>();
-            itemWrapper.eq(PurchaseOrderItem::getOrderId, existing.getId())
-                       .eq(PurchaseOrderItem::getIsDeleted, 0);
-            List<PurchaseOrderItem> oldItems = purchaseOrderItemMapper.selectList(itemWrapper);
 
             Set<Long> newItemIds = new HashSet<>();
             if (purchaseOrder.getItems() != null) {
@@ -141,12 +155,9 @@ public class PurchaseOrderServiceImpl extends ServiceImpl<PurchaseOrderMapper, P
                 }
             }
 
-            for (PurchaseOrderItem oldItem : oldItems) {
-                if (!newItemIds.contains(oldItem.getId())) {
-                    oldItem.setIsDeleted(1);
-                    purchaseOrderItemMapper.updateById(oldItem);
-                }
-            }
+            purchaseOrderItemMapper.logicDeleteMissingItems(existing.getId(),
+                    newItemIds.isEmpty() ? null : new java.util.ArrayList<>(newItemIds),
+                    username);
 
             if (purchaseOrder.getItems() != null && !purchaseOrder.getItems().isEmpty()) {
                 for (PurchaseOrderItem item : purchaseOrder.getItems()) {
@@ -193,29 +204,41 @@ public class PurchaseOrderServiceImpl extends ServiceImpl<PurchaseOrderMapper, P
 
     private void calculateOrderTotals(PurchaseOrder purchaseOrder) {
         BigDecimal totalAmount = BigDecimal.ZERO;
-        BigDecimal totalArea = BigDecimal.ZERO;
+        BigDecimal totalQty = BigDecimal.ZERO;
         if (purchaseOrder.getItems() != null) {
             for (PurchaseOrderItem item : purchaseOrder.getItems()) {
                 calculateItemAmounts(item);
                 if (item.getAmount() != null) {
                     totalAmount = totalAmount.add(item.getAmount());
                 }
-                // 仅薄膜类（有宽度+长度）计入总面积；其他原材料的sqm用于承载总重，不计入面积
-                if (item.getSqm() != null && item.getWidth() != null && item.getLength() != null) {
-                    totalArea = totalArea.add(item.getSqm());
+                if (item.getStockQty() != null) {
+                    totalQty = totalQty.add(item.getStockQty());
+                } else if (item.getSqm() != null) {
+                    totalQty = totalQty.add(item.getSqm());
                 }
             }
         }
         purchaseOrder.setTotalAmount(totalAmount);
-        purchaseOrder.setTotalArea(totalArea);
+        // 兼容现有前端字段：totalArea字段承载“总数量”
+        purchaseOrder.setTotalArea(totalQty);
     }
 
     private void calculateItemAmounts(PurchaseOrderItem item) {
+        if (item == null) {
+            return;
+        }
+        normalizeSingleItem(item);
+        if (item.getPriceQty() != null && item.getUnitPrice() != null) {
+            item.setAmount(item.getPriceQty().multiply(item.getUnitPrice()).setScale(2, BigDecimal.ROUND_HALF_UP));
+            return;
+        }
         if (item.getWidth() != null && item.getLength() != null && item.getRolls() != null) {
             BigDecimal widthM = item.getWidth().divide(new BigDecimal(1000), 6, BigDecimal.ROUND_HALF_UP);
             BigDecimal lengthM = item.getLength();
             BigDecimal area = widthM.multiply(lengthM).multiply(new BigDecimal(item.getRolls()));
-            item.setSqm(area.setScale(2, BigDecimal.ROUND_HALF_UP));
+            if (item.getSqm() == null) {
+                item.setSqm(area.setScale(2, BigDecimal.ROUND_HALF_UP));
+            }
             if (item.getUnitPrice() != null) {
                 item.setAmount(area.multiply(item.getUnitPrice()).setScale(2, BigDecimal.ROUND_HALF_UP));
             }
@@ -225,6 +248,105 @@ public class PurchaseOrderServiceImpl extends ServiceImpl<PurchaseOrderMapper, P
         // 其他原材料：前端将总重传入sqm，后端按 总重 * 单价 计算金额
         if (item.getSqm() != null && item.getUnitPrice() != null) {
             item.setAmount(item.getSqm().multiply(item.getUnitPrice()).setScale(2, BigDecimal.ROUND_HALF_UP));
+        }
+    }
+
+    private void normalizeItems(List<PurchaseOrderItem> items) {
+        if (items == null || items.isEmpty()) {
+            return;
+        }
+        for (PurchaseOrderItem item : items) {
+            normalizeSingleItem(item);
+        }
+    }
+
+    private void normalizeSingleItem(PurchaseOrderItem item) {
+        if (item == null) {
+            return;
+        }
+        boolean looksLikeFilm = item.getWidth() != null && item.getLength() != null;
+        if (looksLikeFilm) {
+            if (item.getPurchaseQty() == null && item.getRolls() != null) {
+                item.setPurchaseQty(BigDecimal.valueOf(item.getRolls()));
+            }
+            if (item.getPurchaseUomCode() == null || item.getPurchaseUomCode().isEmpty()) {
+                item.setPurchaseUomCode("ROLL");
+            }
+            if (item.getStockQty() == null && item.getSqm() != null) {
+                item.setStockQty(item.getSqm());
+            }
+            if (item.getStockUomCode() == null || item.getStockUomCode().isEmpty()) {
+                item.setStockUomCode("M2");
+            }
+            if (item.getPriceQty() == null) {
+                item.setPriceQty(item.getStockQty());
+            }
+            if (item.getPriceUomCode() == null || item.getPriceUomCode().isEmpty()) {
+                item.setPriceUomCode(item.getStockUomCode());
+            }
+            if (item.getConversionRate() == null && item.getPurchaseQty() != null && item.getStockQty() != null && item.getPurchaseQty().compareTo(BigDecimal.ZERO) > 0) {
+                item.setConversionRate(item.getStockQty().divide(item.getPurchaseQty(), 8, BigDecimal.ROUND_HALF_UP));
+            }
+            if (item.getSqm() == null && item.getStockQty() != null) {
+                item.setSqm(item.getStockQty());
+            }
+            if (item.getRolls() == null && item.getPurchaseQty() != null) {
+                item.setRolls(item.getPurchaseQty().intValue());
+            }
+            return;
+        }
+
+        if (item.getPurchaseQty() == null && item.getRolls() != null) {
+            item.setPurchaseQty(BigDecimal.valueOf(item.getRolls()));
+        }
+        if (item.getPurchaseUomCode() == null || item.getPurchaseUomCode().isEmpty()) {
+            item.setPurchaseUomCode("DRUM");
+        }
+        if (item.getStockQty() == null && item.getSqm() != null) {
+            item.setStockQty(item.getSqm());
+        }
+        if (item.getStockUomCode() == null || item.getStockUomCode().isEmpty()) {
+            item.setStockUomCode("KG");
+        }
+        if (item.getPriceQty() == null) {
+            item.setPriceQty(item.getStockQty());
+        }
+        if (item.getPriceUomCode() == null || item.getPriceUomCode().isEmpty()) {
+            item.setPriceUomCode(item.getStockUomCode());
+        }
+        if (item.getConversionRate() == null && item.getPurchaseQty() != null && item.getStockQty() != null && item.getPurchaseQty().compareTo(BigDecimal.ZERO) > 0) {
+            item.setConversionRate(item.getStockQty().divide(item.getPurchaseQty(), 8, BigDecimal.ROUND_HALF_UP));
+        }
+        if (item.getSqm() == null && item.getStockQty() != null) {
+            item.setSqm(item.getStockQty());
+        }
+        if (item.getRolls() == null && item.getPurchaseQty() != null) {
+            item.setRolls(item.getPurchaseQty().intValue());
+        }
+    }
+
+    private Date toDateOnly(Date date) {
+        if (date == null) {
+            return null;
+        }
+        Calendar calendar = Calendar.getInstance();
+        calendar.setTime(date);
+        calendar.set(Calendar.HOUR_OF_DAY, 0);
+        calendar.set(Calendar.MINUTE, 0);
+        calendar.set(Calendar.SECOND, 0);
+        calendar.set(Calendar.MILLISECOND, 0);
+        return calendar.getTime();
+    }
+
+    private void initializeReconciliationStatus(PurchaseOrder purchaseOrder) {
+        if (purchaseOrder == null) {
+            return;
+        }
+        purchaseOrder.setReconciliationStatus("UNRECONCILED");
+        if (purchaseOrder.getItems() != null) {
+            for (PurchaseOrderItem item : purchaseOrder.getItems()) {
+                item.setReconciliationStatus("UNRECONCILED");
+            }
         }
     }
 
@@ -261,17 +383,24 @@ public class PurchaseOrderServiceImpl extends ServiceImpl<PurchaseOrderMapper, P
     public ResponseResult<?> deleteOrder(String orderNo) {
         try {
             LambdaQueryWrapper<PurchaseOrder> queryWrapper = new LambdaQueryWrapper<>();
-            queryWrapper.eq(PurchaseOrder::getOrderNo, orderNo);
+            queryWrapper.eq(PurchaseOrder::getOrderNo, orderNo)
+                    .eq(PurchaseOrder::getIsDeleted, 0);
             PurchaseOrder order = purchaseOrderMapper.selectOne(queryWrapper);
             if (order == null) {
                 return new ResponseResult<>(404, "采购订单不存在或已删除: " + orderNo);
             }
 
             LambdaQueryWrapper<PurchaseOrderItem> itemWrapper = new LambdaQueryWrapper<>();
-            itemWrapper.eq(PurchaseOrderItem::getOrderId, order.getId());
-            purchaseOrderItemMapper.delete(itemWrapper);
+            itemWrapper.eq(PurchaseOrderItem::getOrderId, order.getId())
+                       .eq(PurchaseOrderItem::getIsDeleted, 0);
+            List<PurchaseOrderItem> items = purchaseOrderItemMapper.selectList(itemWrapper);
+            for (PurchaseOrderItem item : items) {
+                item.setIsDeleted(1);
+                purchaseOrderItemMapper.updateById(item);
+            }
 
-            purchaseOrderMapper.deleteById(order.getId());
+            order.setIsDeleted(1);
+            purchaseOrderMapper.updateById(order);
             return new ResponseResult<>(200, "删除成功");
         } catch (Exception e) {
             e.printStackTrace();
@@ -318,8 +447,102 @@ public class PurchaseOrderServiceImpl extends ServiceImpl<PurchaseOrderMapper, P
     }
 
     @Override
+    public ResponseResult<?> getReconciliationSummary(String orderNo) {
+        try {
+            PurchaseOrder order = purchaseOrderMapper.selectByOrderNo(orderNo);
+            if (order == null) {
+                return new ResponseResult<>(404, "采购订单不存在");
+            }
+            LambdaQueryWrapper<PurchaseOrderItem> orderItemQuery = new LambdaQueryWrapper<>();
+            orderItemQuery.eq(PurchaseOrderItem::getOrderId, order.getId())
+                    .eq(PurchaseOrderItem::getIsDeleted, 0);
+            List<PurchaseOrderItem> orderItems = purchaseOrderItemMapper.selectList(orderItemQuery);
+            normalizeItems(orderItems);
+
+            LambdaQueryWrapper<PurchaseReceipt> receiptQuery = new LambdaQueryWrapper<>();
+            receiptQuery.eq(PurchaseReceipt::getPurchaseOrderNo, orderNo)
+                    .eq(PurchaseReceipt::getIsDeleted, 0);
+            List<PurchaseReceipt> receipts = purchaseReceiptMapper.selectList(receiptQuery);
+
+            BigDecimal orderAmount = BigDecimal.ZERO;
+            BigDecimal receiptAmount = BigDecimal.ZERO;
+            BigDecimal orderQty = BigDecimal.ZERO;
+            BigDecimal receiptQty = BigDecimal.ZERO;
+
+            Map<String, Map<String, Object>> lineMap = new HashMap<>();
+
+            if (orderItems != null) {
+                for (PurchaseOrderItem item : orderItems) {
+                    BigDecimal qty = item.getPriceQty() != null ? item.getPriceQty() : item.getStockQty();
+                    BigDecimal amount = item.getAmount() != null ? item.getAmount() : BigDecimal.ZERO;
+                    orderAmount = orderAmount.add(amount);
+                    if (qty != null) {
+                        orderQty = orderQty.add(qty);
+                    }
+                    String key = String.valueOf(item.getMaterialCode() == null ? item.getId() : item.getMaterialCode());
+                    Map<String, Object> line = lineMap.computeIfAbsent(key, k -> new HashMap<>());
+                    line.put("materialCode", item.getMaterialCode());
+                    line.put("materialName", item.getMaterialName());
+                    line.put("purchaseUomCode", item.getPurchaseUomCode());
+                    line.put("priceUomCode", item.getPriceUomCode());
+                    line.put("orderQty", ((BigDecimal) line.getOrDefault("orderQty", BigDecimal.ZERO)).add(qty == null ? BigDecimal.ZERO : qty));
+                    line.put("orderAmount", ((BigDecimal) line.getOrDefault("orderAmount", BigDecimal.ZERO)).add(amount));
+                }
+            }
+
+            if (receipts != null) {
+                for (PurchaseReceipt receipt : receipts) {
+                    List<PurchaseReceiptItem> receiptItems = purchaseReceiptItemMapper.selectByReceiptId(receipt.getId());
+                    for (PurchaseReceiptItem item : receiptItems) {
+                        BigDecimal qty = item.getPriceQty() != null ? item.getPriceQty() : item.getStockQty();
+                        BigDecimal amount = item.getAmount() != null ? item.getAmount() : BigDecimal.ZERO;
+                        receiptAmount = receiptAmount.add(amount);
+                        if (qty != null) {
+                            receiptQty = receiptQty.add(qty);
+                        }
+                        String key = String.valueOf(item.getMaterialCode() == null ? item.getId() : item.getMaterialCode());
+                        Map<String, Object> line = lineMap.computeIfAbsent(key, k -> new HashMap<>());
+                        line.put("materialCode", item.getMaterialCode());
+                        line.put("materialName", item.getMaterialName());
+                        line.put("purchaseUomCode", item.getPurchaseUomCode());
+                        line.put("priceUomCode", item.getPriceUomCode());
+                        line.put("receiptQty", ((BigDecimal) line.getOrDefault("receiptQty", BigDecimal.ZERO)).add(qty == null ? BigDecimal.ZERO : qty));
+                        line.put("receiptAmount", ((BigDecimal) line.getOrDefault("receiptAmount", BigDecimal.ZERO)).add(amount));
+                    }
+                }
+            }
+
+            List<Map<String, Object>> lines = new java.util.ArrayList<>(lineMap.values());
+            for (Map<String, Object> line : lines) {
+                BigDecimal oq = (BigDecimal) line.getOrDefault("orderQty", BigDecimal.ZERO);
+                BigDecimal rq = (BigDecimal) line.getOrDefault("receiptQty", BigDecimal.ZERO);
+                BigDecimal oa = (BigDecimal) line.getOrDefault("orderAmount", BigDecimal.ZERO);
+                BigDecimal ra = (BigDecimal) line.getOrDefault("receiptAmount", BigDecimal.ZERO);
+                line.put("qtyDiff", oq.subtract(rq));
+                line.put("amountDiff", oa.subtract(ra));
+                line.put("reconciliationStatus", oq.compareTo(rq) == 0 ? "MATCHED" : (rq.compareTo(BigDecimal.ZERO) > 0 ? "PARTIAL" : "UNRECONCILED"));
+            }
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("orderNo", orderNo);
+            result.put("orderAmount", orderAmount.setScale(2, BigDecimal.ROUND_HALF_UP));
+            result.put("receiptAmount", receiptAmount.setScale(2, BigDecimal.ROUND_HALF_UP));
+            result.put("amountDiff", orderAmount.subtract(receiptAmount).setScale(2, BigDecimal.ROUND_HALF_UP));
+            result.put("orderQty", orderQty.setScale(4, BigDecimal.ROUND_HALF_UP));
+            result.put("receiptQty", receiptQty.setScale(4, BigDecimal.ROUND_HALF_UP));
+            result.put("qtyDiff", orderQty.subtract(receiptQty).setScale(4, BigDecimal.ROUND_HALF_UP));
+            result.put("lineItems", lines);
+            result.put("reconciliationStatus", orderQty.compareTo(receiptQty) == 0 && orderAmount.compareTo(receiptAmount) == 0 ? "MATCHED" : "PARTIAL");
+            return ResponseResult.success(result);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return new ResponseResult<>(500, "获取对账汇总失败: " + e.getMessage());
+        }
+    }
+
+    @Override
     public void exportOrders(HttpServletResponse response) {
-        // TODO: implement export if needed
+        // 预留导出扩展点
     }
 
     @Override
@@ -329,6 +552,6 @@ public class PurchaseOrderServiceImpl extends ServiceImpl<PurchaseOrderMapper, P
 
     @Override
     public void downloadTemplate(HttpServletResponse response) {
-        // TODO: implement template download if needed
+        // 预留模板下载扩展点
     }
 }

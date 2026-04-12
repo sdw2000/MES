@@ -1,6 +1,5 @@
 package com.fine.serviceIMPL.production;
 
-import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fine.Dao.SalesOrderItemMapper;
 import com.fine.Dao.production.EquipmentMapper;
@@ -267,6 +266,18 @@ public class ScheduleTaskServiceImpl extends ServiceImpl<ScheduleTaskMapper, Sch
                 continue;
             }
 
+            if (selected == null) {
+                task.setStatus("SCHEDULED");
+                task.setCanShipBy48h(0);
+                task.setPlanStartTime(null);
+                task.setPlanEndTime(null);
+                task.setPlanDurationMin(durationMin);
+                scheduleTaskMapper.insert(task);
+                updateBatchStatusIfNeeded(task, task.getStatus());
+                unscheduled++;
+                continue;
+            }
+
             task.setEquipmentId(selected.getId());
             task.setPlanStartTime(start);
             task.setPlanEndTime(end);
@@ -514,6 +525,17 @@ public class ScheduleTaskServiceImpl extends ServiceImpl<ScheduleTaskMapper, Sch
             return;
         }
 
+        if (selected == null) {
+            task.setStatus("SCHEDULED");
+            task.setCanShipBy48h(0);
+            task.setPlanStartTime(null);
+            task.setPlanEndTime(null);
+            task.setPlanDurationMin(durationMin);
+            scheduleTaskMapper.insert(task);
+            updateBatchStatusIfNeeded(task, task.getStatus());
+            return;
+        }
+
         task.setEquipmentId(selected.getId());
         task.setPlanStartTime(start);
         task.setPlanEndTime(end);
@@ -523,7 +545,6 @@ public class ScheduleTaskServiceImpl extends ServiceImpl<ScheduleTaskMapper, Sch
         scheduleTaskMapper.insert(task);
         updateBatchStatusIfNeeded(task, task.getStatus());
 
-        Date next = new Date(end.getTime() + gapMin * 60L * 1000L);
         if (selected != null) {
             // No persistent cache for single task; next available time is determined by DB on next call.
         }

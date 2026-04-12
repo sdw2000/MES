@@ -39,9 +39,11 @@ import com.fine.Dao.SalesOrderItemMapper;
 import com.fine.Dao.production.SalesOrderMapper;
 import com.fine.modle.DeliveryNotice;
 import com.fine.modle.DeliveryNoticeItem;
+import com.fine.modle.LogisticsCompany;
 import com.fine.modle.SalesOrder;
 import com.fine.modle.SalesOrderItem;
 import com.fine.service.DeliveryNoticeService;
+import com.fine.service.LogisticsCompanyService;
 
 @Service
 public class DeliveryNoticeServiceImpl extends ServiceImpl<DeliveryNoticeMapper, DeliveryNotice> implements DeliveryNoticeService {
@@ -57,6 +59,9 @@ public class DeliveryNoticeServiceImpl extends ServiceImpl<DeliveryNoticeMapper,
     
     @Autowired
     private SalesOrderItemMapper salesOrderItemMapper;
+
+    @Autowired
+    private LogisticsCompanyService logisticsCompanyService;
 
     @Value("${mes.logistics.enabled:false}")
     private boolean logisticsEnabled;
@@ -273,6 +278,22 @@ public class DeliveryNoticeServiceImpl extends ServiceImpl<DeliveryNoticeMapper,
             result.put("message", "未找到快递单号");
             return result;
         }
+        String normalizedCarrierNo = normalizeTrackingNumber(notice.getCarrierNo());
+        if (!StringUtils.hasText(normalizedCarrierNo)) {
+            result.put("success", false);
+            result.put("message", "物流单号格式无效");
+            return result;
+        }
+
+        if (shouldOfflineQuery(notice.getCarrierName())) {
+            result.put("success", false);
+            result.put("message", "当前承运方式不支持在线轨迹，请线下查询");
+            result.put("status", "线下承运");
+            result.put("lastUpdate", "-");
+            result.put("traces", java.util.Collections.emptyList());
+            result.put("carrierNo", normalizedCarrierNo);
+            return result;
+        }
         if (!logisticsEnabled) {
             result.put("success", false);
             result.put("message", "物流查询未启用，请在配置文件中设置 mes.logistics.enabled=true");
@@ -286,17 +307,19 @@ public class DeliveryNoticeServiceImpl extends ServiceImpl<DeliveryNoticeMapper,
         }
 
         try {
-            List<String> companyCodes = resolveExpressCodeCandidates(notice.getCarrierName());
+            List<String> companyCodes = resolveExpressCodeCandidates(notice.getCarrierName(), normalizedCarrierNo);
             if (companyCodes.isEmpty()) {
                 result.put("success", false);
                 result.put("message", "未识别快递公司，请先填写标准承运公司名称");
                 return result;
             }
 
+            String phoneTail4 = resolvePhoneTail4(notice);
+
             Map<String, Object> apiResp = null;
             String failMsg = "物流接口查询失败";
             for (String companyCode : companyCodes) {
-                apiResp = queryKuaidi100(companyCode, notice.getCarrierNo());
+                apiResp = queryKuaidi100(companyCode, normalizedCarrierNo, phoneTail4);
                 if (isKuaidi100Success(apiResp)) {
                     break;
                 }
@@ -326,6 +349,7 @@ public class DeliveryNoticeServiceImpl extends ServiceImpl<DeliveryNoticeMapper,
             result.put("status", statusText);
             result.put("lastUpdate", lastUpdate);
             result.put("traces", traces);
+            result.put("carrierNo", normalizedCarrierNo);
 
             notice.setUpdatedAt(new Date());
             if ("已送达".equals(statusText) || "已签收".equals(statusText)) {
@@ -427,10 +451,13 @@ public class DeliveryNoticeServiceImpl extends ServiceImpl<DeliveryNoticeMapper,
         return s;
     }
 
-    private Map<String, Object> queryKuaidi100(String companyCode, String trackingNumber) throws Exception {
+    private Map<String, Object> queryKuaidi100(String companyCode, String trackingNumber, String phoneTail4) throws Exception {
         Map<String, Object> param = new LinkedHashMap<>();
         param.put("com", companyCode);
         param.put("num", trackingNumber);
+        if (StringUtils.hasText(phoneTail4) && isPhoneRequiredCarrier(companyCode)) {
+            param.put("phone", phoneTail4);
+        }
 
         ObjectMapper mapper = new ObjectMapper();
         String paramJson = mapper.writeValueAsString(param);
@@ -463,16 +490,25 @@ public class DeliveryNoticeServiceImpl extends ServiceImpl<DeliveryNoticeMapper,
         return new RestTemplate(factory);
     }
 
-    private List<String> resolveExpressCodeCandidates(String expressCompany) {
+    private List<String> resolveExpressCodeCandidates(String expressCompany, String trackingNo) {
         String v = expressCompany == null ? "" : expressCompany.trim();
-        if (!StringUtils.hasText(v)) return java.util.Collections.emptyList();
         Map<String, String> map = new HashMap<>();
         map.put("顺丰速运", "shunfeng");
         map.put("顺丰", "shunfeng");
+        map.put("顺丰快递", "shunfeng");
+        map.put("SF", "shunfeng");
+        map.put("SF EXPRESS", "shunfeng");
+        map.put("邮政", "youzhengguonei");
+        map.put("中国邮政", "youzhengguonei");
+        map.put("EMS快递", "ems");
         map.put("圆通速递", "yuantong");
         map.put("圆通", "yuantong");
         map.put("中通快递", "zhongtong");
         map.put("中通", "zhongtong");
+        map.put("中通快运", "zhongtongkuaiyun");
+        map.put("中通快运物流", "zhongtongkuaiyun");
+        map.put("ZTO快运", "zhongtongkuaiyun");
+        map.put("ZTO快递", "zhongtong");
         map.put("申通快递", "shentong");
         map.put("申通", "shentong");
         map.put("韵达快递", "yunda");
@@ -483,22 +519,156 @@ public class DeliveryNoticeServiceImpl extends ServiceImpl<DeliveryNoticeMapper,
         map.put("京东", "jd");
         map.put("德邦快递", "debangwuliu");
         map.put("德邦", "debangwuliu");
+        map.put("安能物流", "annengwuliu");
+        map.put("安能", "annengwuliu");
+        map.put("极兔速递", "jtexpress");
+        map.put("极兔", "jtexpress");
+        map.put("百世快递", "huitongkuaidi");
+        map.put("百世", "huitongkuaidi");
+        map.put("天天快递", "tiantian");
+        map.put("宅急送", "zhaijisong");
+        map.put("丰网速运", "fengwang");
+        map.put("丰网", "fengwang");
+        map.put("顺心捷达", "shunxinjieda");
+        map.put("中铁快运", "ztky");
+        map.put("中铁", "ztky");
         map.put("跨越速运", "kuayue");
         map.put("跨越快递", "kuayue");
         map.put("跨越", "kuayue");
 
         java.util.LinkedHashSet<String> codes = new java.util.LinkedHashSet<>();
+
+        // 优先使用物流公司主数据维护的 company_code（建议维护为快递100编码）
+        String codeFromMaster = resolveCompanyCodeFromMaster(v);
+        if (StringUtils.hasText(codeFromMaster)) {
+            codes.add(codeFromMaster);
+        }
+
         String code = map.get(v);
+        if (!StringUtils.hasText(code) && StringUtils.hasText(v)) {
+            code = map.get(v.toUpperCase());
+        }
         if (StringUtils.hasText(code)) {
             codes.add(code);
+        }
+
+        // 标准化后再做一次模糊匹配，增强各种别名容错
+        String normalized = normalizeCarrierNameForMatch(v);
+        if (StringUtils.hasText(normalized)) {
+            for (Map.Entry<String, String> entry : map.entrySet()) {
+                String keyNorm = normalizeCarrierNameForMatch(entry.getKey());
+                if (StringUtils.hasText(keyNorm) && normalized.contains(keyNorm)) {
+                    codes.add(entry.getValue());
+                }
+            }
+        }
+
+        if (isSfTrackingNumber(trackingNo)) {
+            codes.add("shunfeng");
         }
         if (v.contains("跨越")) {
             codes.add("kuayue");
             codes.add("kuayuekuaiyun");
             codes.add("kyexp");
         }
-        codes.add(v);
+        if (v.contains("中通") && v.contains("快运")) {
+            codes.add("zhongtongkuaiyun");
+            // 兼容个别渠道仍按快递编码返回
+            codes.add("zhongtong");
+        }
+        if (StringUtils.hasText(v)) {
+            codes.add(v);
+        }
         return new java.util.ArrayList<>(codes);
+    }
+
+    private String resolveCompanyCodeFromMaster(String carrierName) {
+        if (!StringUtils.hasText(carrierName)) return "";
+        try {
+            QueryWrapper<LogisticsCompany> exactQw = new QueryWrapper<>();
+            exactQw.eq("company_name", carrierName.trim()).eq("is_deleted", 0).last("LIMIT 1");
+            LogisticsCompany exact = logisticsCompanyService.getOne(exactQw, false);
+            if (exact != null && StringUtils.hasText(exact.getCompanyCode())) {
+                return exact.getCompanyCode().trim();
+            }
+
+            QueryWrapper<LogisticsCompany> likeQw = new QueryWrapper<>();
+            likeQw.like("company_name", carrierName.trim()).eq("is_deleted", 0).orderByDesc("updated_at").last("LIMIT 1");
+            LogisticsCompany fuzzy = logisticsCompanyService.getOne(likeQw, false);
+            if (fuzzy != null && StringUtils.hasText(fuzzy.getCompanyCode())) {
+                return fuzzy.getCompanyCode().trim();
+            }
+        } catch (Exception ignored) {
+        }
+        return "";
+    }
+
+    private String normalizeCarrierNameForMatch(String name) {
+        if (!StringUtils.hasText(name)) return "";
+        return name.trim()
+                .toUpperCase()
+                .replaceAll("[\\s\\-_/（）()·,.，。]", "")
+                .replace("速运", "")
+                .replace("快递", "")
+                .replace("快运", "")
+                .replace("物流", "");
+    }
+
+    private String normalizeTrackingNumber(String carrierNo) {
+        if (!StringUtils.hasText(carrierNo)) {
+            return "";
+        }
+        String text = carrierNo.trim().toUpperCase();
+        // 去掉空格、短横线等分隔符
+        text = text.replaceAll("[^A-Z0-9]", "");
+        return text;
+    }
+
+    private boolean isSfTrackingNumber(String trackingNo) {
+        if (!StringUtils.hasText(trackingNo)) return false;
+        String no = trackingNo.trim().toUpperCase();
+        return no.startsWith("SF") || no.matches("^\\d{12,15}$");
+    }
+
+    private String resolvePhoneTail4(DeliveryNotice notice) {
+        if (notice == null) return "";
+        String[] candidates = new String[] {
+                notice.getContactPhone(),
+                notice.getCarrierPhone()
+        };
+        for (String one : candidates) {
+            String tail4 = extractPhoneTail4(one);
+            if (StringUtils.hasText(tail4)) {
+                return tail4;
+            }
+        }
+        return "";
+    }
+
+    private String extractPhoneTail4(String phone) {
+        if (!StringUtils.hasText(phone)) return "";
+        String digits = phone.replaceAll("\\D", "");
+        if (digits.length() < 4) return "";
+        return digits.substring(digits.length() - 4);
+    }
+
+    private boolean isPhoneRequiredCarrier(String companyCode) {
+        if (!StringUtils.hasText(companyCode)) return false;
+        String code = companyCode.trim().toLowerCase();
+        return "shunfeng".equals(code) || "sf".equals(code);
+    }
+
+    private boolean shouldOfflineQuery(String carrierName) {
+        String name = carrierName == null ? "" : carrierName.trim();
+        if (!StringUtils.hasText(name)) {
+            return true;
+        }
+        String upper = name.toUpperCase();
+        if (name.contains("方恩") || name.contains("自提") || name.contains("送货") || upper.contains("PICKUP")) {
+            return true;
+        }
+        List<String> candidates = resolveExpressCodeCandidates(name, "");
+        return candidates == null || candidates.isEmpty();
     }
 
     private String mapKuaidi100StateToStatus(String state) {
@@ -578,6 +748,9 @@ public class DeliveryNoticeServiceImpl extends ServiceImpl<DeliveryNoticeMapper,
         if (!StringUtils.hasText(failMsg)) return false;
         return failMsg.contains("不支持此快递公司")
                 || failMsg.contains("公司编码")
-                || failMsg.contains("查询无结果");
+            || failMsg.contains("查询无结果")
+            || failMsg.contains("暂无轨迹")
+            || failMsg.contains("暂无结果")
+            || failMsg.contains("查无信息");
     }
 }

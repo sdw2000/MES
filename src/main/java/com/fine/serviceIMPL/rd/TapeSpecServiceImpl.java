@@ -33,6 +33,7 @@ public class TapeSpecServiceImpl implements TapeSpecService {
                                      String colorCode, String baseMaterial, Integer status) {
         int offset = (page - 1) * size;
         List<TapeSpec> list = tapeSpecMapper.selectList(materialCode, productName, colorCode, baseMaterial, status, offset, size);
+        fillMissingColorNameForList(list);
         int total = tapeSpecMapper.selectCount(materialCode, productName, colorCode, baseMaterial, status);
 
         Map<String, Object> result = new HashMap<>();
@@ -69,6 +70,7 @@ public class TapeSpecServiceImpl implements TapeSpecService {
             return new ResponseResult<>(50000, "料号已存在");
         }
 
+        normalizeColorFields(spec, buildColorDictMap());
         spec.setStatus(spec.getStatus() == null ? 1 : spec.getStatus());
         spec.setCreateBy(operator);
         tapeSpecMapper.insert(spec);
@@ -87,6 +89,7 @@ public class TapeSpecServiceImpl implements TapeSpecService {
             return new ResponseResult<>(50000, "料号已存在");
         }
 
+        normalizeColorFields(spec, buildColorDictMap());
         spec.setUpdateBy(operator);
         tapeSpecMapper.update(spec);
 
@@ -115,6 +118,71 @@ public class TapeSpecServiceImpl implements TapeSpecService {
     }
 
     @Override
+    public ResponseResult<?> getColorDictList(String keyword, Integer status) {
+        List<DictItem> list = tapeSpecMapper.selectColorDictAll(keyword, status);
+        return new ResponseResult<>(20000, "查询成功", list);
+    }
+
+    @Override
+    public ResponseResult<?> createColorDict(DictItem item, String operator) {
+        if (item == null || item.getCode() == null || item.getCode().trim().isEmpty()) {
+            return new ResponseResult<>(50000, "颜色代码不能为空");
+        }
+        if (item.getName() == null || item.getName().trim().isEmpty()) {
+            return new ResponseResult<>(50000, "颜色名称不能为空");
+        }
+
+        String code = item.getCode().trim().toUpperCase(Locale.ROOT);
+        item.setCode(code);
+        item.setName(item.getName().trim());
+        if (item.getStatus() == null) {
+            item.setStatus(1);
+        }
+        if (tapeSpecMapper.checkColorCodeExistsInDict(code, 0L) > 0) {
+            return new ResponseResult<>(50000, "颜色代码已存在");
+        }
+        tapeSpecMapper.insertColorDict(item);
+        return new ResponseResult<>(20000, "创建成功", item);
+    }
+
+    @Override
+    public ResponseResult<?> updateColorDict(DictItem item, String operator) {
+        if (item == null || item.getId() == null) {
+            return new ResponseResult<>(50000, "ID不能为空");
+        }
+        if (item.getCode() == null || item.getCode().trim().isEmpty()) {
+            return new ResponseResult<>(50000, "颜色代码不能为空");
+        }
+        if (item.getName() == null || item.getName().trim().isEmpty()) {
+            return new ResponseResult<>(50000, "颜色名称不能为空");
+        }
+
+        String code = item.getCode().trim().toUpperCase(Locale.ROOT);
+        item.setCode(code);
+        item.setName(item.getName().trim());
+        if (tapeSpecMapper.checkColorCodeExistsInDict(code, item.getId()) > 0) {
+            return new ResponseResult<>(50000, "颜色代码已存在");
+        }
+        int rows = tapeSpecMapper.updateColorDict(item);
+        if (rows <= 0) {
+            return new ResponseResult<>(50000, "更新失败，记录不存在");
+        }
+        return new ResponseResult<>(20000, "更新成功");
+    }
+
+    @Override
+    public ResponseResult<?> deleteColorDict(Long id) {
+        if (id == null) {
+            return new ResponseResult<>(50000, "ID不能为空");
+        }
+        int rows = tapeSpecMapper.deleteColorDictById(id);
+        if (rows <= 0) {
+            return new ResponseResult<>(50000, "删除失败，记录不存在");
+        }
+        return new ResponseResult<>(20000, "删除成功");
+    }
+
+    @Override
     public ResponseResult<?> getBaseMaterialDict() {
         List<DictItem> list = tapeSpecMapper.selectMaterialDict("base");
         return new ResponseResult<>(20000, "查询成功", list);
@@ -131,6 +199,7 @@ public class TapeSpecServiceImpl implements TapeSpecService {
                             String colorCode, String baseMaterial) {
         try {
             List<TapeSpec> list = tapeSpecMapper.selectList(materialCode, productName, colorCode, baseMaterial, null, 0, 10000);
+            fillMissingColorNameForList(list);
 
             Workbook workbook = new XSSFWorkbook();
             Sheet sheet = workbook.createSheet("胶带规格");
@@ -202,6 +271,7 @@ public class TapeSpecServiceImpl implements TapeSpecService {
         try {
             Workbook workbook = WorkbookFactory.create(file.getInputStream());
             Sheet sheet = workbook.getSheetAt(0);
+            Map<String, String> colorDictMap = buildColorDictMap();
 
             for (int i = 1; i <= sheet.getLastRowNum(); i++) {
                 Row row = sheet.getRow(i);
@@ -213,6 +283,7 @@ public class TapeSpecServiceImpl implements TapeSpecService {
                     spec.setMaterialCode(getCellStringValue(row.getCell(2)));
                     spec.setColorCode(getCellStringValue(row.getCell(3)));
                     spec.setColorName(getCellStringValue(row.getCell(4)));
+                    normalizeColorFields(spec, colorDictMap);
                     spec.setBaseThickness(getCellDecimalValue(row.getCell(5)));
                     spec.setBaseMaterial(getCellStringValue(row.getCell(6)));
                     spec.setGlueMaterial(getCellStringValue(row.getCell(7)));
@@ -427,6 +498,60 @@ public class TapeSpecServiceImpl implements TapeSpecService {
                 boolean minOk = min == null || value.compareTo(min) >= 0;
                 boolean maxOk = max == null || value.compareTo(max) <= 0;
                 return minOk && maxOk;
+        }
+    }
+
+    private Map<String, String> buildColorDictMap() {
+        List<DictItem> dictItems = tapeSpecMapper.selectColorDictAll(null, 1);
+        Map<String, String> map = new HashMap<>();
+        if (dictItems == null || dictItems.isEmpty()) {
+            return map;
+        }
+        for (DictItem item : dictItems) {
+            if (item == null || item.getCode() == null) {
+                continue;
+            }
+            String code = item.getCode().trim().toUpperCase(Locale.ROOT);
+            if (code.isEmpty()) {
+                continue;
+            }
+            String name = item.getName() == null ? null : item.getName().trim();
+            if (name != null && !name.isEmpty()) {
+                map.put(code, name);
+            }
+        }
+        return map;
+    }
+
+    private void normalizeColorFields(TapeSpec spec, Map<String, String> colorDictMap) {
+        if (spec == null) {
+            return;
+        }
+        String colorCode = spec.getColorCode() == null ? null : spec.getColorCode().trim();
+        if (colorCode == null || colorCode.isEmpty()) {
+            return;
+        }
+        colorCode = colorCode.toUpperCase(Locale.ROOT);
+        spec.setColorCode(colorCode);
+
+        String currentName = spec.getColorName() == null ? null : spec.getColorName().trim();
+        if (currentName == null || currentName.isEmpty() || currentName.equalsIgnoreCase(colorCode)) {
+            String mapped = colorDictMap == null ? null : colorDictMap.get(colorCode);
+            if (mapped != null && !mapped.trim().isEmpty()) {
+                spec.setColorName(mapped.trim());
+            }
+        } else {
+            spec.setColorName(currentName);
+        }
+    }
+
+    private void fillMissingColorNameForList(List<TapeSpec> list) {
+        if (list == null || list.isEmpty()) {
+            return;
+        }
+        Map<String, String> colorDictMap = buildColorDictMap();
+        for (TapeSpec spec : list) {
+            normalizeColorFields(spec, colorDictMap);
         }
     }
 

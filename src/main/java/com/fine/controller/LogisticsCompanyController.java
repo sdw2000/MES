@@ -38,7 +38,8 @@ public class LogisticsCompanyController {
                               .or()
                               .like("contact_phone", keyword));
         }
-        wrapper.orderByDesc("created_at");
+        // 分页排序必须稳定：created_at 相同时再按 id 倒序，避免翻页出现重复/漏数据
+        wrapper.orderByDesc("created_at", "id");
         return ResponseResult.success(logisticsCompanyService.page(p, wrapper));
     }
 

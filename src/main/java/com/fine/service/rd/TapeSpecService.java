@@ -1,6 +1,7 @@
 package com.fine.service.rd;
 
 import com.fine.Utils.ResponseResult;
+import com.fine.modle.rd.DictItem;
 import com.fine.modle.rd.TapeSpec;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -52,6 +53,26 @@ public interface TapeSpecService {
      * 获取颜色字典
      */
     ResponseResult<?> getColorDict();
+
+    /**
+     * 颜色字典管理列表
+     */
+    ResponseResult<?> getColorDictList(String keyword, Integer status);
+
+    /**
+     * 新增颜色字典
+     */
+    ResponseResult<?> createColorDict(DictItem item, String operator);
+
+    /**
+     * 更新颜色字典
+     */
+    ResponseResult<?> updateColorDict(DictItem item, String operator);
+
+    /**
+     * 删除颜色字典
+     */
+    ResponseResult<?> deleteColorDict(Long id);
 
     /**
      * 获取基材材质字典

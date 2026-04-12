@@ -69,7 +69,7 @@ public interface ScheduleOrderItemMapper extends BaseMapper<ScheduleOrderItem> {
      * 注意：从tape_spec表关联查询颜色代码
      */    @Select("<script>" +
             "SELECT soi.id as order_item_id, soi.order_id, so.order_no, " +
-            "so.customer, c.id as customer_id, c.customer_code, c.customer_level, soi.material_code, soi.material_name, " +
+            "so.customer, c.id as customer_id, c.customer_code, c.customer_level, soi.material_code, COALESCE(ts.product_name, '') AS material_name, " +
             "COALESCE(ts.color_code, soi.color_code) as color_code, " +
             "COALESCE(ts.color_name, '') as color_name, " +
             "soi.thickness, soi.width, soi.length, " +
@@ -101,7 +101,7 @@ public interface ScheduleOrderItemMapper extends BaseMapper<ScheduleOrderItem> {
      */
     @Select("<script>" +
             "SELECT soi.id as order_item_id, soi.order_id, so.order_no, " +
-            "so.customer, c.id as customer_id, c.customer_code, c.customer_level, soi.material_code, soi.material_name, " +
+            "so.customer, c.id as customer_id, c.customer_code, c.customer_level, soi.material_code, COALESCE(ts.product_name, '') AS material_name, " +
             "COALESCE(ts.color_code, soi.color_code) as color_code, " +
             "COALESCE(ts.color_name, '') as color_name, " +
             "soi.thickness, soi.width, soi.length, " +

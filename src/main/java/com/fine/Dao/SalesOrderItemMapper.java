@@ -43,9 +43,10 @@ public interface SalesOrderItemMapper extends BaseMapper<SalesOrderItem> {
     /**
      * 查询订单明细完整信息（含订单和客户信息）
      */
-    @Select("SELECT soi.*, so.order_no, so.customer, so.delivery_date, " +
+        @Select("SELECT soi.*, COALESCE(ts.product_name, '') AS material_name, so.order_no, so.customer, so.delivery_date, " +
             "c.customer_level, c.short_name as customer_name " +
             "FROM sales_order_items soi " +
+            "LEFT JOIN tape_spec ts ON ts.material_code = soi.material_code " +
             "LEFT JOIN sales_orders so ON soi.order_id = so.id " +
             "LEFT JOIN customers c ON so.customer COLLATE utf8mb4_unicode_ci = c.customer_code COLLATE utf8mb4_unicode_ci " +
             "WHERE soi.id = #{id}")
@@ -62,7 +63,7 @@ public interface SalesOrderItemMapper extends BaseMapper<SalesOrderItem> {
         @Select("<script>\n"
             + "SELECT * FROM (\n"
             + "  SELECT "
-            + "    soi.id, soi.order_id, soi.material_code, soi.material_name, soi.color_code, "
+            + "    soi.id, soi.order_id, soi.material_code, COALESCE(ts.product_name, '') AS material_name, soi.color_code, "
             + "    soi.thickness, soi.width, soi.length, soi.rolls, soi.scheduled_qty, "
             + "    CASE WHEN soi.rolls IS NULL OR soi.rolls = 0 THEN 0"
             + "         ELSE COALESCE((SELECT SUM(sch.schedule_qty)"
@@ -86,6 +87,7 @@ public interface SalesOrderItemMapper extends BaseMapper<SalesOrderItem> {
             + "                       WHERE od2.order_item_id = soi.id), 0), 0) AS pending_area "
             + "  FROM sales_order_items soi "
             + "  LEFT JOIN sales_orders so ON so.id = soi.order_id "
+            + "  LEFT JOIN tape_spec ts ON ts.material_code = soi.material_code "
             + "  WHERE soi.is_deleted = 0 "
             + "    <if test='orderNo != null and orderNo != \"\"'>AND so.order_no LIKE CONCAT('%', #{orderNo}, '%')</if> "
             + "    <if test='materialCode != null and materialCode != \"\"'>AND soi.material_code = #{materialCode}</if> "
@@ -166,4 +168,15 @@ public interface SalesOrderItemMapper extends BaseMapper<SalesOrderItem> {
             "IFNULL(SUM(IFNULL(remaining_qty, GREATEST(rolls - IFNULL(delivered_qty, 0), 0))), 0) AS remaining_rolls " +
             "FROM sales_order_items WHERE order_id = #{orderId} AND is_deleted = 0")
         Map<String, Object> selectOrderRollProgress(@Param("orderId") Long orderId);
+
+        @Update("UPDATE sales_order_items " +
+                "SET is_deleted = 1, updated_by = #{updatedBy}, updated_at = NOW() " +
+                "WHERE id = #{itemId} AND order_id = #{orderId} AND is_deleted = 0")
+        int logicDeleteByIdAndOrderId(@Param("itemId") Long itemId,
+                                      @Param("orderId") Long orderId,
+                                      @Param("updatedBy") String updatedBy);
+
+        @Select("SELECT COUNT(1) FROM sales_order_items WHERE id = #{itemId} AND order_id = #{orderId} AND is_deleted = 0")
+        Integer countActiveByIdAndOrderId(@Param("itemId") Long itemId,
+                                          @Param("orderId") Long orderId);
 }

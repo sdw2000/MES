@@ -952,8 +952,9 @@ public class TapeStockServiceImpl implements TapeStockService {
     
     private String getCellValue(Cell cell) {
         if (cell == null) return null;
-        cell.setCellType(CellType.STRING);
-        return cell.getStringCellValue().trim();
+        DataFormatter formatter = new DataFormatter();
+        String text = formatter.formatCellValue(cell);
+        return text == null ? null : text.trim();
     }
     
     private Integer getIntCellValue(Cell cell) {
@@ -962,8 +963,7 @@ public class TapeStockServiceImpl implements TapeStockService {
             if (cell.getCellType() == CellType.NUMERIC) {
                 return (int) cell.getNumericCellValue();
             }
-            cell.setCellType(CellType.STRING);
-            String value = cell.getStringCellValue().trim();
+            String value = new DataFormatter().formatCellValue(cell).trim();
             return StringUtils.hasText(value) ? Integer.parseInt(value) : null;
         } catch (Exception e) {
             return null;

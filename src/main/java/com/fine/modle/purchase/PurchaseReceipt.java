@@ -24,6 +24,7 @@ public class PurchaseReceipt {
     private Long id;
 
     private String receiptNo;
+    private String purchaseOrderNo;
     private String supplier;
     private String contactName;
     private String contactPhone;
@@ -33,6 +34,7 @@ public class PurchaseReceipt {
     private LocalDate receivedDate;
 
     private String status; // planned / receiving / received / partial / cancelled
+    private String reconciliationStatus;
     private String remark;
 
     private String createdBy;

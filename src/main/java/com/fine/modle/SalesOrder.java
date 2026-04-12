@@ -118,6 +118,10 @@ public class SalesOrder {
     @TableField(exist = false)
     private List<SalesOrderItem> items;
 
+    // 前端显式删除的明细ID列表（不映射到数据库）
+    @TableField(exist = false)
+    private List<Long> removedItemIds;
+
     // 未发货卷数（不映射到数据库）
     @TableField(exist = false)
     private Integer remainingRolls;

@@ -43,4 +43,5 @@ public interface EquipmentOccupationMapper extends BaseMapper<EquipmentOccupatio
             "ORDER BY id DESC LIMIT 1")
     Integer selectDurationMinutesByScheduleAndProcess(@Param("scheduleId") Long scheduleId,
                                                       @Param("processType") String processType);
+
 }

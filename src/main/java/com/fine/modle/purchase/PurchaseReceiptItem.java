@@ -22,9 +22,17 @@ public class PurchaseReceiptItem {
     private Long id;
 
     private Long receiptId;
+    private String purchaseOrderNo;
     private String materialCode;
     private String materialName;
     private String specification;
+    private BigDecimal purchaseQty;
+    private String purchaseUomCode;
+    private BigDecimal priceQty;
+    private String priceUomCode;
+    private BigDecimal stockQty;
+    private String stockUomCode;
+    private BigDecimal conversionRate;
     private Integer expectedQty;
     private Integer receivedQty;
     private String unit;

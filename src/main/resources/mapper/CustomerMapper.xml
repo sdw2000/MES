@@ -29,6 +29,8 @@
         <result property="creditLimit" column="credit_limit"/>
         <result property="paymentTerms" column="payment_terms"/>
         <result property="taxRate" column="tax_rate"/>
+        <result property="defaultReconciliationDay" column="default_reconciliation_day"/>
+        <result property="reconciliationBasis" column="reconciliation_basis"/>
         <result property="bankName" column="bank_name"/>
         <result property="bankAccount" column="bank_account"/>
         <result property="source" column="source"/>

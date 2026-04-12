@@ -1,5 +1,7 @@
 package com.fine.serviceIMPL.rd;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fine.Dao.rd.TapeFormulaMapper;
 import com.fine.Utils.ResponseResult;
 import com.fine.modle.rd.TapeFormula;
@@ -15,17 +17,26 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import javax.servlet.http.HttpServletResponse;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.math.BigDecimal;
 import java.net.URLEncoder;
 import java.text.SimpleDateFormat;
+import java.util.Base64;
 import java.util.*;
+import java.util.zip.GZIPInputStream;
+import java.util.zip.GZIPOutputStream;
 
 /**
  * 配胶标准单服务实现
  */
 @Service
 public class TapeFormulaServiceImpl implements TapeFormulaService {
+
+    private static final int SPEC_MAX_LENGTH = 255;
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     @Autowired
     private TapeFormulaMapper tapeFormulaMapper;
@@ -145,15 +156,17 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
     @Override
     public ResponseResult<?> getRawMaterialList() {
         List<TapeRawMaterial> list = tapeFormulaMapper.selectAllRawMaterials();
+        enrichRawMaterialMeta(list);
         return new ResponseResult<>(20000, "查询成功", list);
     }
 
     @Override
     public ResponseResult<?> getRawMaterialPage(int page, int size, String materialCode, String materialName,
-                                                String materialType, Integer status) {
+                                                String materialCategory, String materialType, Integer status) {
         int offset = (page - 1) * size;
-        List<TapeRawMaterial> list = tapeFormulaMapper.selectRawMaterialPage(materialCode, materialName, materialType, status, offset, size);
-        int total = tapeFormulaMapper.selectRawMaterialCount(materialCode, materialName, materialType, status);
+        List<TapeRawMaterial> list = tapeFormulaMapper.selectRawMaterialPage(materialCode, materialName, materialCategory, materialType, status, offset, size);
+        enrichRawMaterialMeta(list);
+        int total = tapeFormulaMapper.selectRawMaterialCount(materialCode, materialName, materialCategory, materialType, status);
 
         Map<String, Object> result = new HashMap<>();
         result.put("records", list);
@@ -170,6 +183,7 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
         if (material == null) {
             return new ResponseResult<>(50000, "原材料不存在");
         }
+        enrichRawMaterialMeta(material);
         return new ResponseResult<>(20000, "查询成功", material);
     }
 
@@ -187,8 +201,11 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
 
         material.setMaterialCode(material.getMaterialCode().trim());
         material.setMaterialName(material.getMaterialName().trim());
+        material.setMaterialCategory(normalizeMaterialCategory(material.getMaterialCategory(), material.getUnit()));
         material.setMaterialType(material.getMaterialType() == null || material.getMaterialType().trim().isEmpty() ? "resin" : material.getMaterialType().trim());
         material.setUnit(material.getUnit() == null || material.getUnit().trim().isEmpty() ? "kg" : material.getUnit().trim());
+        material.setSpec(mergeSpecWithMeta(material.getSpec(), material.getMaterialCategory(), material.getMaterialType(), material.getPerformanceParams()));
+        material.setPerformanceParams(normalizeText(material.getPerformanceParams()));
         material.setSortOrder(material.getSortOrder() == null ? 0 : material.getSortOrder());
         material.setStatus(1);
         tapeFormulaMapper.insertRawMaterial(material);
@@ -212,8 +229,11 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
 
         material.setMaterialCode(material.getMaterialCode().trim());
         material.setMaterialName(material.getMaterialName().trim());
+        material.setMaterialCategory(normalizeMaterialCategory(material.getMaterialCategory(), material.getUnit()));
         material.setMaterialType(material.getMaterialType() == null || material.getMaterialType().trim().isEmpty() ? "resin" : material.getMaterialType().trim());
         material.setUnit(material.getUnit() == null || material.getUnit().trim().isEmpty() ? "kg" : material.getUnit().trim());
+        material.setSpec(mergeSpecWithMeta(material.getSpec(), material.getMaterialCategory(), material.getMaterialType(), material.getPerformanceParams()));
+        material.setPerformanceParams(normalizeText(material.getPerformanceParams()));
         material.setSortOrder(material.getSortOrder() == null ? 0 : material.getSortOrder());
         material.setStatus(material.getStatus() == null ? 1 : material.getStatus());
 
@@ -229,14 +249,15 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
 
     @Override
     public void exportRawMaterials(HttpServletResponse response, String materialCode, String materialName,
-                                   String materialType, Integer status) {
+                                   String materialCategory, String materialType, Integer status) {
         try {
-            List<TapeRawMaterial> list = tapeFormulaMapper.selectRawMaterialPage(materialCode, materialName, materialType, status, 0, 100000);
+            List<TapeRawMaterial> list = tapeFormulaMapper.selectRawMaterialPage(materialCode, materialName, materialCategory, materialType, status, 0, 100000);
+            enrichRawMaterialMeta(list);
 
             Workbook workbook = new XSSFWorkbook();
             Sheet sheet = workbook.createSheet("原材料表");
 
-            String[] headers = {"序号", "物料编码", "物料名称", "物料类型", "单位", "规格说明", "排序", "状态"};
+            String[] headers = {"序号", "物料编码", "物料名称", "物料类别", "物料类型", "单位", "规格说明", "性能参数(JSON/范围)", "排序", "状态"};
             Row headerRow = sheet.createRow(0);
             CellStyle headerStyle = workbook.createCellStyle();
             headerStyle.setFillForegroundColor(IndexedColors.GREY_25_PERCENT.getIndex());
@@ -249,7 +270,7 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
                 Cell cell = headerRow.createCell(i);
                 cell.setCellValue(headers[i]);
                 cell.setCellStyle(headerStyle);
-                sheet.setColumnWidth(i, i == 5 ? 7000 : 4200);
+                sheet.setColumnWidth(i, i == 5 ? 7000 : (i == 7 ? 9000 : 4200));
             }
 
             int rowNum = 1;
@@ -258,11 +279,13 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
                 row.createCell(0).setCellValue(rowNum);
                 row.createCell(1).setCellValue(material.getMaterialCode() != null ? material.getMaterialCode() : "");
                 row.createCell(2).setCellValue(material.getMaterialName() != null ? material.getMaterialName() : "");
-                row.createCell(3).setCellValue(material.getMaterialTypeDisplay());
-                row.createCell(4).setCellValue(material.getUnit() != null ? material.getUnit() : "");
-                row.createCell(5).setCellValue(material.getSpec() != null ? material.getSpec() : "");
-                row.createCell(6).setCellValue(material.getSortOrder() != null ? material.getSortOrder() : 0);
-                row.createCell(7).setCellValue(material.getStatus() != null && material.getStatus() == 1 ? "启用" : "禁用");
+                row.createCell(3).setCellValue(material.getMaterialCategoryDisplay());
+                row.createCell(4).setCellValue(material.getMaterialTypeDisplay());
+                row.createCell(5).setCellValue(material.getUnit() != null ? material.getUnit() : "");
+                row.createCell(6).setCellValue(material.getSpec() != null ? material.getSpec() : "");
+                row.createCell(7).setCellValue(material.getPerformanceParams() != null ? material.getPerformanceParams() : "");
+                row.createCell(8).setCellValue(material.getSortOrder() != null ? material.getSortOrder() : 0);
+                row.createCell(9).setCellValue(material.getStatus() != null && material.getStatus() == 1 ? "启用" : "禁用");
                 rowNum++;
             }
 
@@ -290,6 +313,18 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
         try {
             Workbook workbook = WorkbookFactory.create(file.getInputStream());
             Sheet sheet = workbook.getSheetAt(0);
+            Row headerRow = sheet.getRow(0);
+            Map<String, Integer> headerIndexMap = buildHeaderIndexMap(headerRow);
+
+            int supplierCodeIdx = findColumnIndex(headerIndexMap, "供应商代码", "供应商编码");
+            int materialCodeIdxNew = findColumnIndex(headerIndexMap, "物料代码", "物料编码");
+            int materialMajorIdx = findColumnIndex(headerIndexMap, "物料大类");
+            int materialCategoryIdx = findColumnIndex(headerIndexMap, "物料类别");
+            int materialNameIdxNew = findColumnIndex(headerIndexMap, "物料名称");
+            int unitIdxNew = findColumnIndex(headerIndexMap, "单位");
+            int remarkIdxNew = findColumnIndex(headerIndexMap, "备注");
+
+            boolean isInitTemplate = supplierCodeIdx >= 0 && materialCodeIdxNew >= 0 && materialNameIdxNew >= 0;
 
             for (int i = 1; i <= sheet.getLastRowNum(); i++) {
                 Row row = sheet.getRow(i);
@@ -297,8 +332,16 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
                     continue;
                 }
 
-                String materialCode = normalizeText(getCellStringValue(row.getCell(1)));
-                String materialName = normalizeText(getCellStringValue(row.getCell(2)));
+                String materialCode;
+                String materialName;
+
+                if (isInitTemplate) {
+                    materialCode = normalizeText(getCellStringValue(row.getCell(materialCodeIdxNew)));
+                    materialName = normalizeText(getCellStringValue(row.getCell(materialNameIdxNew)));
+                } else {
+                    materialCode = normalizeText(getCellStringValue(row.getCell(1)));
+                    materialName = normalizeText(getCellStringValue(row.getCell(2)));
+                }
 
                 if (materialCode == null && materialName == null) {
                     continue;
@@ -315,16 +358,47 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
                     TapeRawMaterial material = new TapeRawMaterial();
                     material.setMaterialCode(materialCode);
                     material.setMaterialName(materialName);
-                    material.setMaterialType(parseMaterialType(getCellStringValue(row.getCell(3))));
 
-                    String unit = normalizeText(getCellStringValue(row.getCell(4)));
-                    material.setUnit(unit == null ? "kg" : unit);
+                    if (isInitTemplate) {
+                        String unit = normalizeText(getCellStringValue(row.getCell(unitIdxNew)));
+                        String supplierCode = normalizeText(getCellStringValue(row.getCell(supplierCodeIdx)));
+                        String materialMajor = normalizeText(getCellStringValue(row.getCell(materialMajorIdx)));
+                        String materialCategoryText = normalizeText(getCellStringValue(row.getCell(materialCategoryIdx)));
+                        String remarkText = normalizeText(getCellStringValue(row.getCell(remarkIdxNew)));
 
-                    material.setSpec(normalizeText(getCellStringValue(row.getCell(5))));
-                    material.setSortOrder(getCellIntValue(row.getCell(6)));
+                        String mergedSpec = joinText(
+                            joinText(supplierCode == null ? null : ("供应商代码:" + supplierCode),
+                                materialMajor == null ? null : ("物料大类:" + materialMajor), "；"),
+                            joinText(materialCategoryText == null ? null : ("物料类别:" + materialCategoryText), remarkText, "；"),
+                            "；"
+                        );
 
-                    String statusText = normalizeText(getCellStringValue(row.getCell(7)));
-                    material.setStatus((statusText == null || "启用".equals(statusText) || "1".equals(statusText)) ? 1 : 0);
+                        material.setMaterialCategory(parseMaterialCategory(materialMajor, materialCategoryText, unit));
+                        material.setMaterialType(parseMaterialType(materialCategoryText));
+                        material.setUnit(unit == null ? "kg" : unit);
+                        material.setSpec(mergedSpec);
+                        material.setPerformanceParams(null);
+                        material.setSortOrder(i * 10);
+                        material.setStatus(1);
+                    } else {
+                        material.setMaterialCategory(parseMaterialCategory(getCellStringValue(row.getCell(3)), getCellStringValue(row.getCell(4)), getCellStringValue(row.getCell(5))));
+                        material.setMaterialType(parseMaterialType(getCellStringValue(row.getCell(4))));
+
+                        String unit = normalizeText(getCellStringValue(row.getCell(5)));
+                        material.setUnit(unit == null ? "kg" : unit);
+
+                        material.setSpec(normalizeText(getCellStringValue(row.getCell(6))));
+                        material.setPerformanceParams(normalizeText(getCellStringValue(row.getCell(7))));
+                        material.setSortOrder(getCellIntValue(row.getCell(8)));
+
+                        String statusText = normalizeText(getCellStringValue(row.getCell(9)));
+                        material.setStatus((statusText == null || "启用".equals(statusText) || "1".equals(statusText)) ? 1 : 0);
+                    }
+
+                    material.setMaterialCategory(normalizeMaterialCategory(material.getMaterialCategory(), material.getUnit()));
+                    material.setMaterialType(normalizeMaterialTypeValue(material.getMaterialType()));
+                    material.setPerformanceParams(normalizeText(material.getPerformanceParams()));
+                    material.setSpec(mergeSpecWithMeta(material.getSpec(), material.getMaterialCategory(), material.getMaterialType(), material.getPerformanceParams()));
 
                     TapeRawMaterial existing = tapeFormulaMapper.selectRawMaterialByCode(materialCode);
                     if (existing == null) {
@@ -357,9 +431,9 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
     public void downloadRawMaterialTemplate(HttpServletResponse response) {
         try {
             Workbook workbook = new XSSFWorkbook();
-            Sheet sheet = workbook.createSheet("原材料导入模板");
+            Sheet sheet = workbook.createSheet("研发原材料初始化模板");
 
-            String[] headers = {"序号", "物料编码", "物料名称", "物料类型", "单位", "规格说明", "排序", "状态"};
+            String[] headers = {"供应商代码", "物料代码", "物料大类", "物料类别", "物料名称", "单位", "备注"};
             Row headerRow = sheet.createRow(0);
             CellStyle headerStyle = workbook.createCellStyle();
             headerStyle.setFillForegroundColor(IndexedColors.LIGHT_BLUE.getIndex());
@@ -373,21 +447,58 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
                 Cell cell = headerRow.createCell(i);
                 cell.setCellValue(headers[i]);
                 cell.setCellStyle(headerStyle);
-                sheet.setColumnWidth(i, i == 5 ? 7000 : 4200);
+                sheet.setColumnWidth(i, i == 6 ? 7000 : 4200);
             }
 
             Row sample = sheet.createRow(1);
-            sample.createCell(0).setCellValue(1);
-            sample.createCell(1).setCellValue("RM-RESIN-001");
-            sample.createCell(2).setCellValue("丙烯酸树脂A");
-            sample.createCell(3).setCellValue("树脂");
-            sample.createCell(4).setCellValue("kg");
-            sample.createCell(5).setCellValue("固含50% ± 2%");
-            sample.createCell(6).setCellValue(10);
-            sample.createCell(7).setCellValue("启用");
+            sample.createCell(0).setCellValue("BDJ001");
+            sample.createCell(1).setCellValue("7058");
+            sample.createCell(2).setCellValue("化工料");
+            sample.createCell(3).setCellValue("胶水");
+            sample.createCell(4).setCellValue("7058");
+            sample.createCell(5).setCellValue("kg");
+            sample.createCell(6).setCellValue("橡胶 180kg/桶");
 
-            Row note = sheet.createRow(3);
-            note.createCell(0).setCellValue("说明：物料类型支持 resin/solvent/additive/curing 或 树脂/溶剂/助剂/固化剂");
+            Row sample2 = sheet.createRow(2);
+            sample2.createCell(0).setCellValue("BDJ001");
+            sample2.createCell(1).setCellValue("708");
+            sample2.createCell(2).setCellValue("化工料");
+            sample2.createCell(3).setCellValue("固化剂");
+            sample2.createCell(4).setCellValue("708");
+            sample2.createCell(5).setCellValue("kg");
+            sample2.createCell(6).setCellValue("1%");
+
+            Row sample3 = sheet.createRow(3);
+            sample3.createCell(0).setCellValue("BH00");
+            sample3.createCell(1).setCellValue("PETM-T23");
+            sample3.createCell(2).setCellValue("原膜");
+            sample3.createCell(3).setCellValue("PET膜");
+            sample3.createCell(4).setCellValue("PETM-T23");
+            sample3.createCell(5).setCellValue("kg");
+            sample3.createCell(6).setCellValue("");
+
+            Row sample4 = sheet.createRow(4);
+            sample4.createCell(0).setCellValue("CP001");
+            sample4.createCell(1).setCellValue("YKLJ0101");
+            sample4.createCell(2).setCellValue("化工料");
+            sample4.createCell(3).setCellValue("胶水");
+            sample4.createCell(4).setCellValue("YKLJ0101");
+            sample4.createCell(5).setCellValue("kg");
+            sample4.createCell(6).setCellValue("6019");
+
+            Sheet mappingSheet = workbook.createSheet("字段映射说明");
+            mappingSheet.setColumnWidth(0, 24000);
+            String[] notes = {
+                    "【初始化模板字段说明】",
+                    "1) 模板顺序固定：供应商代码、物料代码、物料大类、物料类别、物料名称、单位、备注。",
+                    "2) 导入键为【物料代码】：存在则更新，不存在则新增。",
+                    "3) 物料大类/物料类别/备注会写入原材料【规格说明】用于留痕。",
+                    "4) 物料大类=原膜 或 单位含m² 时，系统归类为薄膜；其他归类化工物料。"
+            };
+            for (int i = 0; i < notes.length; i++) {
+                Row r = mappingSheet.createRow(i);
+                r.createCell(0).setCellValue(notes[i]);
+            }
 
             response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
             response.setHeader("Content-Disposition", "attachment;filename=" +
@@ -547,6 +658,16 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
         List<TapeFormulaItem> items = tapeFormulaMapper.selectItemsByFormulaId(id);
         formula.setItems(items);
         return new ResponseResult<>(20000, "查询成功", formula);
+    }
+
+    @Override
+    @Transactional
+    public ResponseResult<?> initializeRawMaterials() {
+        Map<String, Object> result = new HashMap<>();
+        result.put("insertCount", 0);
+        result.put("updateCount", 0);
+        result.put("totalCount", 0);
+        return new ResponseResult<>(20000, "请使用Excel导入进行初始化", result);
     }
 
     // ========== 私有辅助方法 ==========
@@ -906,9 +1027,21 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
     
     private String getCellStringValue(Cell cell) {
         if (cell == null) return null;
-        cell.setCellType(CellType.STRING);
-        String value = cell.getStringCellValue();
-        return value != null ? value.trim() : null;
+        try {
+            if (cell.getCellType() == CellType.STRING) {
+                String value = cell.getStringCellValue();
+                return value != null ? value.trim() : null;
+            }
+            if (cell.getCellType() == CellType.NUMERIC) {
+                return BigDecimal.valueOf(cell.getNumericCellValue()).stripTrailingZeros().toPlainString();
+            }
+            if (cell.getCellType() == CellType.BOOLEAN) {
+                return String.valueOf(cell.getBooleanCellValue());
+            }
+            return cell.toString().trim();
+        } catch (Exception e) {
+            return null;
+        }
     }
     
     private BigDecimal getCellBigDecimalValue(Cell cell) {
@@ -971,8 +1104,361 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
         return "resin";
     }
 
+    private String parseMaterialCategory(String rawCategory, String unitText, String specText) {
+        String category = normalizeText(rawCategory);
+        if (category != null) {
+            if (category.contains("薄膜") || category.contains("原膜") || category.contains("PET膜") || category.equalsIgnoreCase("film")) {
+                return "film";
+            }
+            if (category.contains("化工") || category.contains("原料") || category.equalsIgnoreCase("chemical")) {
+                return "chemical";
+            }
+        }
+        String unit = normalizeText(unitText);
+        String spec = normalizeText(specText);
+        if ((unit != null && unit.contains("m²")) || (spec != null && (spec.contains("卷") || spec.contains("PET膜") || spec.contains("原膜")))) {
+            return "film";
+        }
+        return "chemical";
+    }
+
+    private String normalizeMaterialCategory(String category, String unitText) {
+        String value = normalizeText(category);
+        if (value != null) {
+            if (value.contains("薄膜") || value.contains("原膜") || value.contains("PET膜") || value.equalsIgnoreCase("film")) {
+                return "film";
+            }
+            if (value.contains("化工") || value.equalsIgnoreCase("chemical")) {
+                return "chemical";
+            }
+        }
+        String unit = normalizeText(unitText);
+        if (unit != null && unit.contains("m²")) {
+            return "film";
+        }
+        return "chemical";
+    }
+
     private String safeText(String value) {
         return value == null ? "" : value;
+    }
+
+    private void enrichRawMaterialMeta(List<TapeRawMaterial> list) {
+        if (list == null || list.isEmpty()) {
+            return;
+        }
+        for (TapeRawMaterial material : list) {
+            enrichRawMaterialMeta(material);
+        }
+    }
+
+    private void enrichRawMaterialMeta(TapeRawMaterial material) {
+        if (material == null) {
+            return;
+        }
+        String spec = normalizeText(material.getSpec());
+        String major = extractSpecToken(spec, "物料大类");
+        String typeText = extractSpecToken(spec, "物料类别");
+        String perfB64 = extractSpecToken(spec, "性能参数B64");
+
+        String category = normalizeMaterialCategory(material.getMaterialCategory(), material.getUnit());
+        if (major != null || spec != null) {
+            category = parseMaterialCategory(major, material.getUnit(), spec);
+        }
+
+        String type = normalizeText(material.getMaterialType());
+        if (typeText != null) {
+            type = normalizeMaterialTypeValue(typeText);
+        } else if (type == null) {
+            type = normalizeMaterialTypeValue(null);
+        }
+
+        material.setMaterialCategory(category);
+        material.setMaterialType(type);
+
+        String perf = normalizeText(material.getPerformanceParams());
+        if (perf == null) {
+            perf = decodePerformanceParams(perfB64);
+        }
+        material.setPerformanceParams(perf);
+    }
+
+    private String normalizeMaterialTypeValue(String rawType) {
+        String type = normalizeText(rawType);
+        if (type == null) {
+            return "resin";
+        }
+        if ("resin".equalsIgnoreCase(type) || "树脂".equals(type)) return "resin";
+        if ("solvent".equalsIgnoreCase(type) || "溶剂".equals(type)) return "solvent";
+        if ("additive".equalsIgnoreCase(type) || "助剂".equals(type)) return "additive";
+        if ("curing".equalsIgnoreCase(type) || "固化剂".equals(type)) return "curing";
+
+        if (type.contains("固化")) return "curing";
+        if (type.contains("助剂")) return "additive";
+        if (type.contains("溶剂")) return "solvent";
+        if (type.contains("树脂") || type.contains("胶水")) return "resin";
+        return type;
+    }
+
+    private String mergeSpecWithMeta(String spec, String materialCategory, String materialType, String performanceParams) {
+        String merged = normalizeText(spec);
+        if (merged != null && merged.length() > SPEC_MAX_LENGTH) {
+            merged = merged.substring(0, SPEC_MAX_LENGTH);
+        }
+        return merged;
+    }
+
+    @SuppressWarnings("unused")
+    private String encodePerformanceParams(String performanceParams) {
+        String text = normalizeText(performanceParams);
+        if (text == null) {
+            return null;
+        }
+        try {
+            String compact = compactPerformanceParams(text);
+            String compactEncoded = compact == null ? null : ("Q1:" + compact);
+
+            String rawB64 = Base64.getEncoder().encodeToString(text.getBytes(StandardCharsets.UTF_8));
+
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            try (GZIPOutputStream gzip = new GZIPOutputStream(bos)) {
+                gzip.write(text.getBytes(StandardCharsets.UTF_8));
+            }
+            String gzipB64 = Base64.getEncoder().encodeToString(bos.toByteArray());
+            String gzipEncoded = "GZ:" + gzipB64;
+
+            String best = gzipEncoded.length() < rawB64.length() ? gzipEncoded : rawB64;
+            if (compactEncoded != null && compactEncoded.length() < best.length()) {
+                best = compactEncoded;
+            }
+            return best;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String decodePerformanceParams(String encoded) {
+        String text = normalizeText(encoded);
+        if (text == null) {
+            return null;
+        }
+        try {
+            if (text.startsWith("Q1:")) {
+                return normalizeText(expandCompactPerformanceParams(text.substring(3)));
+            }
+            if (text.startsWith("GZ:")) {
+                byte[] compressed = Base64.getDecoder().decode(text.substring(3));
+                ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                try (GZIPInputStream gzipIn = new GZIPInputStream(new ByteArrayInputStream(compressed))) {
+                    byte[] buffer = new byte[512];
+                    int n;
+                    while ((n = gzipIn.read(buffer)) >= 0) {
+                        bos.write(buffer, 0, n);
+                    }
+                }
+                return normalizeText(bos.toString(StandardCharsets.UTF_8.name()));
+            }
+
+            byte[] bytes = Base64.getDecoder().decode(text);
+            return normalizeText(new String(bytes, StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String compactPerformanceParams(String jsonText) {
+        try {
+            Map<String, Object> root = OBJECT_MAPPER.readValue(jsonText, new TypeReference<Map<String, Object>>() {});
+            if (root == null || root.isEmpty()) {
+                return null;
+            }
+
+            Map<String, String> keyMap = new LinkedHashMap<>();
+            keyMap.put("solidContent", "sc");
+            keyMap.put("peelStrength", "ps");
+            keyMap.put("widthInspection", "wi");
+            keyMap.put("thicknessTensile", "tt");
+            keyMap.put("transverseTensile", "vt");
+            keyMap.put("thicknessElongation", "te");
+            keyMap.put("transverseElongation", "ve");
+            keyMap.put("coronaBothSides", "cb");
+
+            List<String> segments = new ArrayList<>();
+            for (Map.Entry<String, String> e : keyMap.entrySet()) {
+                Object v = root.get(e.getKey());
+                if (!(v instanceof Map)) {
+                    continue;
+                }
+                Map<?, ?> item = (Map<?, ?>) v;
+                String standardValue = normalizeText(objectToString(item.get("standardValue")));
+                String min = normalizeText(objectToString(item.get("min")));
+                String max = normalizeText(objectToString(item.get("max")));
+                String unit = normalizeText(objectToString(item.get("unit")));
+                String judgeMode = normalizeText(objectToString(item.get("judgeMode")));
+                String remark = normalizeText(objectToString(item.get("remark")));
+
+                if (standardValue == null && min == null && max == null && unit == null && judgeMode == null && remark == null) {
+                    continue;
+                }
+
+                segments.add(String.join("~",
+                        e.getValue(),
+                        urlEncodePart(standardValue),
+                        urlEncodePart(min),
+                        urlEncodePart(max),
+                        urlEncodePart(unit),
+                        urlEncodePart(judgeMode),
+                        urlEncodePart(remark)));
+            }
+            return segments.isEmpty() ? null : String.join("|", segments);
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    private String expandCompactPerformanceParams(String compactText) {
+        String text = normalizeText(compactText);
+        if (text == null) {
+            return null;
+        }
+        Map<String, String> reverseMap = new HashMap<>();
+        reverseMap.put("sc", "solidContent");
+        reverseMap.put("ps", "peelStrength");
+        reverseMap.put("wi", "widthInspection");
+        reverseMap.put("tt", "thicknessTensile");
+        reverseMap.put("vt", "transverseTensile");
+        reverseMap.put("te", "thicknessElongation");
+        reverseMap.put("ve", "transverseElongation");
+        reverseMap.put("cb", "coronaBothSides");
+
+        Map<String, Object> root = new LinkedHashMap<>();
+        try {
+            String[] segments = text.split("\\|");
+            for (String seg : segments) {
+                String s = normalizeText(seg);
+                if (s == null) continue;
+                String[] p = s.split("~", -1);
+                if (p.length < 1) continue;
+                String fullKey = reverseMap.get(normalizeText(p[0]));
+                if (fullKey == null) continue;
+
+                Map<String, String> item = new LinkedHashMap<>();
+                putIfPresent(item, "standardValue", urlDecodePart(safePart(p, 1)));
+                putIfPresent(item, "min", urlDecodePart(safePart(p, 2)));
+                putIfPresent(item, "max", urlDecodePart(safePart(p, 3)));
+                putIfPresent(item, "unit", urlDecodePart(safePart(p, 4)));
+                putIfPresent(item, "judgeMode", urlDecodePart(safePart(p, 5)));
+                putIfPresent(item, "remark", urlDecodePart(safePart(p, 6)));
+                if (!item.isEmpty()) {
+                    root.put(fullKey, item);
+                }
+            }
+            return root.isEmpty() ? null : OBJECT_MAPPER.writeValueAsString(root);
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    private String objectToString(Object value) {
+        return value == null ? null : String.valueOf(value);
+    }
+
+    private String safePart(String[] parts, int index) {
+        if (parts == null || index < 0 || index >= parts.length) {
+            return null;
+        }
+        return parts[index];
+    }
+
+    private void putIfPresent(Map<String, String> target, String key, String value) {
+        String normalized = normalizeText(value);
+        if (normalized != null) {
+            target.put(key, normalized);
+        }
+    }
+
+    private String urlEncodePart(String value) {
+        String text = normalizeText(value);
+        if (text == null) {
+            return "";
+        }
+        try {
+            return URLEncoder.encode(text, StandardCharsets.UTF_8.name());
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private String urlDecodePart(String value) {
+        String text = normalizeText(value);
+        if (text == null) {
+            return null;
+        }
+        try {
+            return java.net.URLDecoder.decode(text, StandardCharsets.UTF_8.name());
+        } catch (Exception e) {
+            return text;
+        }
+    }
+
+    @SuppressWarnings("unused")
+    private String materialTypeDisplay(String materialType) {
+        if (materialType == null) {
+            return "树脂";
+        }
+        switch (materialType) {
+            case "resin":
+                return "树脂";
+            case "solvent":
+                return "溶剂";
+            case "additive":
+                return "助剂";
+            case "curing":
+                return "固化剂";
+            default:
+                return materialType;
+        }
+    }
+
+    private String extractSpecToken(String spec, String key) {
+        String text = normalizeText(spec);
+        String normalizedKey = normalizeText(key);
+        if (text == null || normalizedKey == null) {
+            return null;
+        }
+        String[] parts = text.split("；");
+        for (String part : parts) {
+            String p = normalizeText(part);
+            if (p != null && p.startsWith(normalizedKey + ":")) {
+                return normalizeText(p.substring((normalizedKey + ":").length()));
+            }
+        }
+        return null;
+    }
+
+    @SuppressWarnings("unused")
+    private String upsertSpecToken(String spec, String key, String value) {
+        String normalizedKey = normalizeText(key);
+        String normalizedValue = normalizeText(value);
+        if (normalizedKey == null) {
+            return normalizeText(spec);
+        }
+
+        List<String> parts = new ArrayList<>();
+        String text = normalizeText(spec);
+        if (text != null) {
+            for (String part : text.split("；")) {
+                String p = normalizeText(part);
+                if (p == null) continue;
+                if (!p.startsWith(normalizedKey + ":")) {
+                    parts.add(p);
+                }
+            }
+        }
+        if (normalizedValue != null) {
+            parts.add(normalizedKey + ":" + normalizedValue);
+        }
+        return String.join("；", parts);
     }
     
     private Date getCellDateValue(Cell cell) {
@@ -990,5 +1476,41 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
             // ignore
         }
         return null;
+    }
+
+    private Map<String, Integer> buildHeaderIndexMap(Row headerRow) {
+        Map<String, Integer> result = new HashMap<>();
+        if (headerRow == null) {
+            return result;
+        }
+        short lastCellNum = headerRow.getLastCellNum();
+        for (int i = 0; i < lastCellNum; i++) {
+            String header = normalizeText(getCellStringValue(headerRow.getCell(i)));
+            if (header != null) {
+                result.put(header, i);
+            }
+        }
+        return result;
+    }
+
+    private int findColumnIndex(Map<String, Integer> headerIndexMap, String... headerNames) {
+        if (headerNames == null) {
+            return -1;
+        }
+        for (String headerName : headerNames) {
+            Integer idx = headerIndexMap.get(headerName);
+            if (idx != null) {
+                return idx;
+            }
+        }
+        return -1;
+    }
+
+    private String joinText(String a, String b, String delimiter) {
+        String left = normalizeText(a);
+        String right = normalizeText(b);
+        if (left == null) return right;
+        if (right == null) return left;
+        return left + delimiter + right;
     }
 }

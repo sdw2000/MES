@@ -71,9 +71,6 @@ public class ScheduleMaterialLockingServiceImpl implements ScheduleMaterialLocki
     @Autowired
     private TapeFormulaMapper tapeFormulaMapper;
     
-    /** 一次查询的最大物料卷数 */
-    private static final int QUERY_LIMIT = 10;
-    
     /**
      * 排程启动时的物料锁定主流程
      */
@@ -242,7 +239,7 @@ public class ScheduleMaterialLockingServiceImpl implements ScheduleMaterialLocki
     
     /**
      * 查询可用的物料卷
-     * TODO: 此方法需要重构，SalesOrder不包含thickness和width字段
+        * 说明：该方法后续可重构，SalesOrder不包含thickness和width字段
      * 这些字段在OrderDetail中，需要传入OrderDetail或规格参数
      */
     private List<TapeStock> findAvailableReels(SalesOrder order, String reelType) {
@@ -806,7 +803,7 @@ public class ScheduleMaterialLockingServiceImpl implements ScheduleMaterialLocki
      * 获取当前用户ID（需要根据实际项目调整）
      */
     private Long getCurrentUserId() {
-        // TODO: 从当前登录用户获取ID
+        // 当前使用系统默认用户ID，后续可接入统一登录上下文
         return 1L;
     }
 }

@@ -52,7 +52,7 @@ public interface TapeFormulaService {
      * 分页查询原材料列表（支持筛选）
      */
     ResponseResult<?> getRawMaterialPage(int page, int size, String materialCode, String materialName,
-                                         String materialType, Integer status);
+                                         String materialCategory, String materialType, Integer status);
 
     /**
      * 查询原材料详情
@@ -101,7 +101,7 @@ public interface TapeFormulaService {
      * 导出原材料
      */
     void exportRawMaterials(HttpServletResponse response, String materialCode, String materialName,
-                            String materialType, Integer status);
+                            String materialCategory, String materialType, Integer status);
 
     /**
      * 导入原材料
@@ -112,4 +112,9 @@ public interface TapeFormulaService {
      * 下载原材料导入模板
      */
     void downloadRawMaterialTemplate(HttpServletResponse response);
+
+    /**
+     * 初始化原材料基础数据
+     */
+    ResponseResult<?> initializeRawMaterials();
 }

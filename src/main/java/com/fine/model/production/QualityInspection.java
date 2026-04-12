@@ -21,7 +21,7 @@ public class QualityInspection {
     private Long id;
     
     /**
-     * 质检单号（QC-YYYYMMDD-XXX）
+    * 质检单号（QC-YYYYMMDD-NNN）
      */
     private String inspectionNo;
     

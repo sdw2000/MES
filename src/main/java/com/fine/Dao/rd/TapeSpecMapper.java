@@ -199,6 +199,42 @@ public interface TapeSpecMapper {
     List<DictItem> selectColorDict();
 
     /**
+     * 查询颜色字典（管理端）
+     */
+    @Select("<script>" +
+            "SELECT id, color_code as code, color_name as name, remark, color_hex as extra, sort_order, status " +
+            "FROM tape_color_dict WHERE 1=1 " +
+            "<if test='keyword != null and keyword != \"\"'>" +
+            "  AND (color_code LIKE CONCAT('%', #{keyword}, '%') OR color_name LIKE CONCAT('%', #{keyword}, '%') OR IFNULL(remark,'') LIKE CONCAT('%', #{keyword}, '%')) " +
+            "</if>" +
+            "<if test='status != null'> AND status = #{status} </if>" +
+            "ORDER BY sort_order ASC, id ASC" +
+            "</script>")
+    List<DictItem> selectColorDictAll(@Param("keyword") String keyword,
+                                      @Param("status") Integer status);
+
+    @Select("SELECT COUNT(*) FROM tape_color_dict WHERE color_code = #{code} AND id != #{excludeId}")
+    int checkColorCodeExistsInDict(@Param("code") String code, @Param("excludeId") Long excludeId);
+
+    @Insert("INSERT INTO tape_color_dict(color_code, color_name, remark, color_hex, sort_order, status) " +
+            "VALUES(#{code}, #{name}, #{remark}, #{extra}, IFNULL(#{sortOrder}, (SELECT IFNULL(MAX(t.sort_order), 0) + 1 FROM tape_color_dict t)), IFNULL(#{status}, 1))")
+    @Options(useGeneratedKeys = true, keyProperty = "id")
+    int insertColorDict(DictItem item);
+
+    @Update("UPDATE tape_color_dict SET " +
+            "color_code = #{code}, " +
+            "color_name = #{name}, " +
+            "remark = #{remark}, " +
+            "color_hex = #{extra}, " +
+            "sort_order = IFNULL(#{sortOrder}, sort_order), " +
+            "status = IFNULL(#{status}, status) " +
+            "WHERE id = #{id}")
+    int updateColorDict(DictItem item);
+
+    @Delete("DELETE FROM tape_color_dict WHERE id = #{id}")
+    int deleteColorDictById(@Param("id") Long id);
+
+    /**
      * 查询材质字典
      */
     @Select("SELECT id, material_code as code, material_name as name FROM tape_material_dict WHERE material_type = #{type} AND status = 1 ORDER BY sort_order")

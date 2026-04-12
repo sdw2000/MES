@@ -1,10 +1,13 @@
 package com.fine.config;
 
+import com.fasterxml.jackson.databind.JsonSerializer;
 import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import org.springframework.boot.autoconfigure.jackson.Jackson2ObjectMapperBuilderCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+import java.util.Objects;
 
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
@@ -16,8 +19,9 @@ public class WebConfig implements WebMvcConfigurer {
     @Bean("jackson2ObjectMapperBuilderCustomizer")
     public Jackson2ObjectMapperBuilderCustomizer jackson2ObjectMapperBuilderCustomizer() {
         return builder -> {
-            builder.serializerByType(Long.class, ToStringSerializer.instance);
-            builder.serializerByType(Long.TYPE, ToStringSerializer.instance);
+            JsonSerializer<?> longSerializer = Objects.requireNonNull(ToStringSerializer.instance);
+            builder.serializerByType(Long.class, longSerializer);
+            builder.serializerByType((Class<?>) long.class, longSerializer);
         };
     }
 }

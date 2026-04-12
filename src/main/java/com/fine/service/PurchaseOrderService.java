@@ -9,7 +9,7 @@ import javax.servlet.http.HttpServletResponse;
 
 public interface PurchaseOrderService extends IService<PurchaseOrder> {
 
-    ResponseResult<?> getAllOrders(Integer pageNum, Integer pageSize, String orderNo, String supplier, String startDate, String endDate);
+    ResponseResult<?> getAllOrders(Integer pageNum, Integer pageSize, String orderNo, String supplier, String startDate, String endDate, String reconciliationStatus);
 
     ResponseResult<?> createOrder(PurchaseOrder purchaseOrder);
 
@@ -20,6 +20,8 @@ public interface PurchaseOrderService extends IService<PurchaseOrder> {
     ResponseResult<?> getOrderByOrderNo(String orderNo);
 
     ResponseResult<?> searchOrders(String keyword, String status);
+
+    ResponseResult<?> getReconciliationSummary(String orderNo);
 
     void exportOrders(HttpServletResponse response);
 

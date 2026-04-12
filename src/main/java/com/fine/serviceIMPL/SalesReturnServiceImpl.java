@@ -355,7 +355,7 @@ public class SalesReturnServiceImpl extends ServiceImpl<SalesReturnMapper, Sales
                     "SELECT soi.id AS id, " +
                         "so.order_no AS orderNo, " +
                         "soi.material_code AS materialCode, " +
-                        "soi.material_name AS materialName, " +
+                        "COALESCE(ts.product_name, '') AS materialName, " +
                         "soi.color_code AS colorCode, " +
                         "soi.thickness AS thickness, " +
                         "soi.width AS width, " +
@@ -367,6 +367,7 @@ public class SalesReturnServiceImpl extends ServiceImpl<SalesReturnMapper, Sales
                         "soi.remark AS remark " +
                             "FROM sales_order_items soi " +
                             "INNER JOIN sales_orders so ON so.id = soi.order_id " +
+                            "LEFT JOIN tape_spec ts ON ts.material_code = soi.material_code " +
                             "WHERE soi.is_deleted = 0 AND so.is_deleted = 0 AND so.order_no = ?",
                     orderNo.trim()
             );

@@ -10,6 +10,7 @@ public class DictItem {
     private String name;
     private String type;        // 字典类型
     private String extra;       // 额外信息（如颜色的hex值）
+    private String remark;      // 备注
     private Integer sortOrder;
     private Integer status;
     
@@ -34,6 +35,9 @@ public class DictItem {
     
     public String getExtra() { return extra; }
     public void setExtra(String extra) { this.extra = extra; }
+
+    public String getRemark() { return remark; }
+    public void setRemark(String remark) { this.remark = remark; }
     
     public Integer getSortOrder() { return sortOrder; }
     public void setSortOrder(Integer sortOrder) { this.sortOrder = sortOrder; }

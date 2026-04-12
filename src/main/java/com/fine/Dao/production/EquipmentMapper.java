@@ -2,7 +2,6 @@ package com.fine.Dao.production;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fine.model.production.Equipment;
 import org.apache.ibatis.annotations.*;
 

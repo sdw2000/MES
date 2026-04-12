@@ -21,7 +21,7 @@ import javax.servlet.http.HttpServletResponse;
 
 @RestController
 @RequestMapping("/purchase/orders")
-@PreAuthorize("hasAuthority('admin')")
+@PreAuthorize("hasAnyAuthority('admin','purchase')")
 public class PurchaseOrderController {
 
     @Autowired
@@ -34,8 +34,9 @@ public class PurchaseOrderController {
             @RequestParam(value = "orderNo", required = false) String orderNo,
             @RequestParam(value = "supplier", required = false) String supplier,
             @RequestParam(value = "startDate", required = false) String startDate,
-            @RequestParam(value = "endDate", required = false) String endDate) {
-        return purchaseOrderService.getAllOrders(pageNum, pageSize, orderNo, supplier, startDate, endDate);
+            @RequestParam(value = "endDate", required = false) String endDate,
+            @RequestParam(value = "reconciliationStatus", required = false) String reconciliationStatus) {
+        return purchaseOrderService.getAllOrders(pageNum, pageSize, orderNo, supplier, startDate, endDate, reconciliationStatus);
     }
 
     @PostMapping
@@ -56,6 +57,11 @@ public class PurchaseOrderController {
     @GetMapping("/{orderNo}")
     public ResponseResult<?> getOrderDetail(@PathVariable String orderNo) {
         return purchaseOrderService.getOrderByOrderNo(orderNo);
+    }
+
+    @GetMapping("/{orderNo}/reconciliation")
+    public ResponseResult<?> getReconciliationSummary(@PathVariable String orderNo) {
+        return purchaseOrderService.getReconciliationSummary(orderNo);
     }
 
     @GetMapping("/search")

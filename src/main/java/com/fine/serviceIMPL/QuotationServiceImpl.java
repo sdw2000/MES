@@ -137,19 +137,19 @@ public class QuotationServiceImpl extends ServiceImpl<QuotationMapper, Quotation
             }
 
             if (keyword != null) {
-                List<Customer> keywordMatchedCustomers = customerMapper.selectList(
-                        new LambdaQueryWrapper<Customer>()
-                                .eq(Customer::getIsDeleted, 0)
-                                .and(w -> w.like(Customer::getCustomerCode, keyword)
-                                        .or()
-                                        .like(Customer::getCustomerName, keyword)
-                                        .or()
-                                        .like(Customer::getShortName, keyword)));
-
                 List<String> keywordMatchedCodes = new ArrayList<>();
-                for (Customer customer : keywordMatchedCustomers) {
-                    if (customer != null && hasText(customer.getCustomerCode())) {
-                        keywordMatchedCodes.add(customer.getCustomerCode().trim());
+                QueryWrapper<Customer> customerKeywordWrapper = new QueryWrapper<>();
+                customerKeywordWrapper.select("customer_code")
+                        .eq("is_deleted", 0)
+                        .and(w -> w.like("customer_code", keyword)
+                                .or()
+                                .like("customer_name", keyword)
+                                .or()
+                                .like("short_name", keyword));
+                List<Object> customerCodeObjs = customerMapper.selectObjs(customerKeywordWrapper);
+                for (Object codeObj : customerCodeObjs) {
+                    if (codeObj != null && hasText(String.valueOf(codeObj))) {
+                        keywordMatchedCodes.add(String.valueOf(codeObj).trim());
                     }
                 }
 
@@ -795,8 +795,8 @@ public class QuotationServiceImpl extends ServiceImpl<QuotationMapper, Quotation
             }
 
             // 2) 抽取每个“客户+料号+厚度+宽度+长度”的最新订单单价
-            String sql = "SELECT customer, material_code, material_name, color_code, thickness, width, length, unit_price, order_date FROM ("
-                    + "  SELECT so.customer AS customer, soi.material_code AS material_code, soi.material_name AS material_name, "
+                String sql = "SELECT customer, material_code, material_name, color_code, thickness, width, length, unit_price, order_date FROM ("
+                    + "  SELECT so.customer AS customer, soi.material_code AS material_code, COALESCE(ts.product_name, '') AS material_name, "
                     + "         soi.color_code AS color_code, soi.thickness AS thickness, soi.width AS width, soi.length AS length, "
                     + "         soi.unit_price AS unit_price, so.order_date AS order_date, so.id AS order_id, soi.id AS item_id, "
                     + "         ROW_NUMBER() OVER (PARTITION BY so.customer, soi.material_code, "
@@ -804,6 +804,7 @@ public class QuotationServiceImpl extends ServiceImpl<QuotationMapper, Quotation
                     + "                            ORDER BY so.order_date DESC, so.id DESC, soi.id DESC) AS rn "
                     + "  FROM sales_orders so "
                     + "  INNER JOIN sales_order_items soi ON soi.order_id = so.id "
+                    + "  LEFT JOIN tape_spec ts ON ts.material_code = soi.material_code "
                     + "  WHERE so.is_deleted = 0 AND soi.is_deleted = 0 AND soi.unit_price IS NOT NULL"
                     + ") t WHERE t.rn = 1 ORDER BY customer ASC, order_date DESC";
 

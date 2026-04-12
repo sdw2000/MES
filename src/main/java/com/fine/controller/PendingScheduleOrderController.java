@@ -27,7 +27,7 @@ public class PendingScheduleOrderController {
      * 分页查询待排程订单
      */
     @GetMapping("/list")
-    public ResponseResult getPendingOrders(
+    public ResponseResult<?> getPendingOrders(
             @RequestParam(defaultValue = "1") Integer pageNum,
             @RequestParam(defaultValue = "10") Integer pageSize,
             @RequestParam(required = false) String materialCode
@@ -52,7 +52,7 @@ public class PendingScheduleOrderController {
      * 按物料编号分组查询待排程订单汇总
      */
     @GetMapping("/group-by-material")
-    public ResponseResult getPendingOrdersGroupByMaterial() {
+    public ResponseResult<?> getPendingOrdersGroupByMaterial() {
         try {
             List<PendingScheduleOrder> list = scheduleService.getPendingOrdersGroupByMaterial();
             return ResponseResult.success(list);
@@ -66,7 +66,7 @@ public class PendingScheduleOrderController {
      * 根据物料编号查询待排程订单
      */
     @GetMapping("/by-material/{materialCode}")
-    public ResponseResult getPendingOrdersByMaterial(@PathVariable String materialCode) {
+    public ResponseResult<?> getPendingOrdersByMaterial(@PathVariable String materialCode) {
         try {
             List<PendingScheduleOrder> list = scheduleService.getPendingOrdersByMaterial(materialCode);
             return ResponseResult.success(list);
@@ -80,7 +80,7 @@ public class PendingScheduleOrderController {
      * 自动涂布排程 - 按物料编号自动生成涂布任务
      */
     @PostMapping("/auto-schedule-coating")
-    public ResponseResult autoScheduleCoating(@RequestBody Map<String, Object> params) {
+    public ResponseResult<?> autoScheduleCoating(@RequestBody Map<String, Object> params) {
         try {
             String materialCode = (String) params.get("materialCode");
             Integer filmWidth = Integer.parseInt(params.get("filmWidth").toString());
@@ -115,7 +115,7 @@ public class PendingScheduleOrderController {
      * 批量涂布排程 - 选择多个订单进行排程
      */
     @PostMapping("/batch-schedule-coating")
-    public ResponseResult batchScheduleCoating(@RequestBody Map<String, Object> params) {
+    public ResponseResult<?> batchScheduleCoating(@RequestBody Map<String, Object> params) {
         try {
             @SuppressWarnings("unchecked")
             List<Long> orderItemIds = (List<Long>) params.get("orderItemIds");

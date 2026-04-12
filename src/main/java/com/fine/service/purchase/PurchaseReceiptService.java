@@ -5,7 +5,7 @@ import com.fine.Utils.ResponseResult;
 import com.fine.modle.purchase.PurchaseReceipt;
 
 public interface PurchaseReceiptService extends IService<PurchaseReceipt> {
-    ResponseResult<?> list(Integer pageNum, Integer pageSize, String supplier, String status);
+    ResponseResult<?> list(Integer pageNum, Integer pageSize, String supplier, String status, String reconciliationStatus);
     ResponseResult<?> detail(Long id);
     ResponseResult<?> create(PurchaseReceipt receipt);
     ResponseResult<?> updateReceipt(PurchaseReceipt receipt);

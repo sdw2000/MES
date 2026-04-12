@@ -1,6 +1,7 @@
 package com.fine.model.stock;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.fasterxml.jackson.annotation.JsonFormat;
@@ -21,6 +22,7 @@ public class ChemicalStockDetail {
     private Long id;
     
     /** 关联chemical_stock表的ID */
+    @TableField("stock_id")
     private Long chemicalStockId;
     
     /** 批次号 */

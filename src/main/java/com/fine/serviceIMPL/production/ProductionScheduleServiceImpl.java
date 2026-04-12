@@ -253,6 +253,7 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
      * 生成涂布任务
      * @return 最后一个任务的结束时间
      */
+    @SuppressWarnings("unused")
     private Date generateCoatingTasks(ProductionSchedule schedule, Map<String, List<Map<String, Object>>> groupedItems, String operator) {
         // 获取可用涂布设备
         List<Equipment> coatingEquipments = equipmentMapper.selectAvailableByType("COATING");
@@ -376,6 +377,7 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
     /**
      * 从库存生成复卷任务（带库存匹配）
      */
+    @SuppressWarnings("unused")
     private Date generateRewindingTasksFromStock(ProductionSchedule schedule,
                                                   List<Map<String, Object>> items,
                                                   Map<Map<String, Object>, TapeStock> itemStockMap,
@@ -1521,7 +1523,6 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
             
             // 解析参数
             String scheduleDate = (String) params.get("scheduleDate");
-            String scheduleType = (String) params.getOrDefault("scheduleType", "order");
             String operator = (String) params.getOrDefault("operator", "admin");
             
             List<Long> orderItemIds = new ArrayList<>();
@@ -3229,7 +3230,7 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
     }
 
     /**
-     * 复卷排序：优先按任务单号后缀数字（RW-YYYYMMDD-XXX）升序，其次按开始时间，其次ID。
+        * 复卷排序：优先按任务单号后缀数字（RW-YYYYMMDD-NNN）升序，其次按开始时间，其次ID。
      */
     private int compareRewindingOrder(ScheduleRewinding a, ScheduleRewinding b) {
         String ta = a.getTaskNo();
@@ -3367,6 +3368,7 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
         return todayAtEight();
     }
 
+    @SuppressWarnings("unused")
     private Date normalizeEnd(ScheduleRewinding t, Date start) {
         if (t == null) return null;
         if (t.getPlanEndTime() != null) return t.getPlanEndTime();
@@ -3693,7 +3695,12 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
             orderMap.put("customerPriority", item.getCustomerPriority());
             orderMap.put("addedAt", item.getAddedAt());
             orderMap.put("poolStatus", item.getPoolStatus());
-            ((List<Map<String, Object>>) group.get("orders")).add(orderMap);
+            Object ordersObj = group.get("orders");
+            if (ordersObj instanceof List<?>) {
+                @SuppressWarnings("unchecked")
+                List<Map<String, Object>> orders = (List<Map<String, Object>>) ordersObj;
+                orders.add(orderMap);
+            }
         }
 
         // 过滤掉缺口为 0 或负值的料号组（不需要涂布的料号不应出现在涂布汇总）
@@ -3830,7 +3837,7 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
     @Override
     public Map<String, Object> generateCoatingTasks(Map<String, Object> data) {
         // 调用现有的批量排程方法
-        List<Long> orderItemIds = (List<Long>) data.get("orderItemIds");
+        List<Long> orderItemIds = parseLongList(data.get("orderItemIds"));
         Integer filmWidth = (Integer) data.get("filmWidth");
         String planDate = (String) data.get("planDate");
         String operator = (String) data.getOrDefault("operator", "admin");
@@ -3840,10 +3847,13 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
         if ((orderItemIds == null || orderItemIds.isEmpty()) && data.get("materialCode") != null) {
             String materialCode = data.get("materialCode").toString();
             List<com.fine.model.schedule.PendingCoatingOrderPool> waitingItems = pendingCoatingPoolMapper.selectWaitingByMaterialCode(materialCode);
+            if (waitingItems == null) {
+                waitingItems = Collections.emptyList();
+            }
 
             // 如未指定计划日期，优先用池中记录的加入日期；仍无则默认今天
             if (planDate == null || planDate.isEmpty()) {
-                Date addedAt = waitingItems.get(0).getAddedAt();
+                Date addedAt = waitingItems.isEmpty() ? null : waitingItems.get(0).getAddedAt();
                 if (addedAt != null) {
                     planDate = new SimpleDateFormat("yyyy-MM-dd").format(addedAt);
                 } else {
@@ -3964,7 +3974,9 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
             }
 
             // 若池为空但 materialCode 传入，继续走订单明细流程
-            orderItemIds = waitingItems.stream()
+                List<com.fine.model.schedule.PendingCoatingOrderPool> safeWaitingItems =
+                    waitingItems == null ? Collections.emptyList() : waitingItems;
+                orderItemIds = safeWaitingItems.stream()
                     .map(com.fine.model.schedule.PendingCoatingOrderPool::getOrderItemId)
                     .filter(Objects::nonNull)
                     .distinct()
@@ -4000,16 +4012,17 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
         }
 
         List<ScheduleCoating> tasks = batchScheduleCoatingWithSchedule(orderItemIds, filmWidth, planDate, operator, scheduleId);
+        List<ScheduleCoating> safeTasks = tasks == null ? Collections.emptyList() : tasks;
 
         // 回填主表统计：订单数、明细数、面积
-        if (scheduleId != null && tasks != null) {
-            int taskItems = tasks.size();
-            int orderCount = (int) tasks.stream()
+        if (scheduleId != null && !safeTasks.isEmpty()) {
+            int taskItems = safeTasks.size();
+            int orderCount = (int) safeTasks.stream()
                 .map(ScheduleCoating::getOrderId)
                 .filter(Objects::nonNull)
                 .distinct()
                 .count();
-            BigDecimal totalArea = tasks.stream()
+            BigDecimal totalArea = safeTasks.stream()
                 .map(t -> t.getPlanSqm() == null ? BigDecimal.ZERO : t.getPlanSqm())
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
@@ -4023,14 +4036,15 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
         }
 
         Map<String, Object> result = new HashMap<>();
-        result.put("taskCount", tasks.size());
-        result.put("tasks", tasks);
-        result.put("message", "成功生成 " + tasks.size() + " 个涂布任务");
+        result.put("taskCount", safeTasks.size());
+        result.put("tasks", safeTasks);
+        result.put("message", "成功生成 " + safeTasks.size() + " 个涂布任务");
 
         return result;
     }
     
     // 辅助方法：转换 PendingScheduleOrder 为 Map
+    @SuppressWarnings("unused")
     private List<Map<String, Object>> convertPendingOrdersToMap(List<com.fine.entity.PendingScheduleOrder> orders) {
         List<Map<String, Object>> result = new ArrayList<>();
         for (com.fine.entity.PendingScheduleOrder order : orders) {
@@ -4043,6 +4057,27 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
             map.put("deliveryDate", order.getDeliveryDate());
             map.put("priority", "MEDIUM");
             result.add(map);
+        }
+        return result;
+    }
+
+    private List<Long> parseLongList(Object source) {
+        if (!(source instanceof List<?>)) {
+            return new ArrayList<>();
+        }
+        List<Long> result = new ArrayList<>();
+        for (Object obj : (List<?>) source) {
+            if (obj == null) {
+                continue;
+            }
+            try {
+                if (obj instanceof Number) {
+                    result.add(((Number) obj).longValue());
+                } else {
+                    result.add(Long.parseLong(String.valueOf(obj)));
+                }
+            } catch (Exception ignore) {
+            }
         }
         return result;
     }

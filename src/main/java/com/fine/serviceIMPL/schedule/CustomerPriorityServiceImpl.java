@@ -30,12 +30,17 @@ import java.util.stream.Collectors;
  * 
  * 计算规则：
  * 1. 账期得分 = max[10 - 1×(账期月数-3), 0]
- * 2. 月均成交金额得分 = 近3个月总成交金额 ÷ 30
+ * 2. 月均成交金额得分 = 月均成交金额 ÷ 30000（每3万元记1分）
  * 3. 单价得分：根据单价偏差率分档计算
  * 4. 总分 = 三项得分之和
  */
 @Service
 public class CustomerPriorityServiceImpl implements CustomerPriorityService {
+
+    /**
+     * 月均交易额评分基数：3万元对应1分（统一万元口径）
+     */
+    private static final BigDecimal AVG_AMOUNT_SCORE_BASE = new BigDecimal("30000");
     
     @Autowired
     private OrderCustomerPriorityMapper priorityMapper;
@@ -208,15 +213,15 @@ public class CustomerPriorityServiceImpl implements CustomerPriorityService {
     
     /**
      * 计算月均成交金额得分
-     * 公式：近3个月总成交金额 ÷ 30
+     * 公式：月均成交金额 ÷ 30000（即每3万元记1分）
      */
     private BigDecimal calculateAvgAmountScore(BigDecimal avgMonthlyAmount) {
         if (avgMonthlyAmount == null || avgMonthlyAmount.compareTo(BigDecimal.ZERO) == 0) {
             return BigDecimal.ZERO;
         }
-        
-        // 月均金额除以30
-        return avgMonthlyAmount.divide(new BigDecimal("30"), 2, RoundingMode.HALF_UP);
+
+        // 统一按“万元口径”计分：30000元=1分
+        return avgMonthlyAmount.divide(AVG_AMOUNT_SCORE_BASE, 2, RoundingMode.HALF_UP);
     }
     
     /**
@@ -414,11 +419,45 @@ public class CustomerPriorityServiceImpl implements CustomerPriorityService {
             wrapper.and(w -> w.eq("sales", uid).or().eq("documentation_person", uid));
         }
 
-        com.baomidou.mybatisplus.extension.plugins.pagination.Page<Customer> page = new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(pageNum, pageSize);
-        com.baomidou.mybatisplus.core.metadata.IPage<Customer> customerPage = customerMapper.selectPage(page, wrapper);
+        // priorityRange 为空时，直接数据库分页，避免每次翻页都全量扫描
+        if (priorityRange == null || priorityRange.isEmpty()) {
+            com.baomidou.mybatisplus.extension.plugins.pagination.Page<Customer> page =
+                    new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(pageNum, pageSize);
+            com.baomidou.mybatisplus.core.metadata.IPage<Customer> customerPage = customerMapper.selectPage(page, wrapper);
+
+            List<Map<String, Object>> pageRows = new ArrayList<>();
+            for (Customer customer : customerPage.getRecords()) {
+                if (customer == null) {
+                    continue;
+                }
+                pageRows.add(buildCustomerPriorityRow(customer));
+            }
+            pageRows.sort((a, b) -> {
+                BigDecimal sa = toBigDecimal(a == null ? null : a.get("totalScore"));
+                BigDecimal sb = toBigDecimal(b == null ? null : b.get("totalScore"));
+                int cmp = sb.compareTo(sa);
+                if (cmp != 0) {
+                    return cmp;
+                }
+                String ca = a == null ? "" : String.valueOf(a.getOrDefault("customerCode", ""));
+                String cb = b == null ? "" : String.valueOf(b.getOrDefault("customerCode", ""));
+                return ca.compareToIgnoreCase(cb);
+            });
+
+            com.baomidou.mybatisplus.extension.plugins.pagination.Page<Map<String, Object>> fastResult =
+                    new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>();
+            fastResult.setCurrent(customerPage.getCurrent());
+            fastResult.setSize(customerPage.getSize());
+            fastResult.setTotal(customerPage.getTotal());
+            fastResult.setRecords(pageRows);
+            return fastResult;
+        }
+
+        // priorityRange 有值时，先全量计算再过滤分页，保证筛选准确
+        List<Customer> customers = customerMapper.selectList(wrapper);
 
         List<Map<String, Object>> rows = new ArrayList<>();
-        for (Customer customer : customerPage.getRecords()) {
+        for (Customer customer : customers) {
             if (customer == null) {
                 continue;
             }
@@ -439,11 +478,31 @@ public class CustomerPriorityServiceImpl implements CustomerPriorityService {
             rows.add(row);
         }
 
+        rows.sort((a, b) -> {
+            BigDecimal sa = toBigDecimal(a == null ? null : a.get("totalScore"));
+            BigDecimal sb = toBigDecimal(b == null ? null : b.get("totalScore"));
+            int cmp = sb.compareTo(sa);
+            if (cmp != 0) {
+                return cmp;
+            }
+            String ca = a == null ? "" : String.valueOf(a.getOrDefault("customerCode", ""));
+            String cb = b == null ? "" : String.valueOf(b.getOrDefault("customerCode", ""));
+            return ca.compareToIgnoreCase(cb);
+        });
+
+        int safePageNum = pageNum == null || pageNum < 1 ? 1 : pageNum;
+        int safePageSize = pageSize == null || pageSize < 1 ? 20 : pageSize;
+        int fromIndex = Math.max(0, (safePageNum - 1) * safePageSize);
+        int toIndex = Math.min(rows.size(), fromIndex + safePageSize);
+        List<Map<String, Object>> pageRecords = fromIndex >= toIndex
+                ? new ArrayList<>()
+                : rows.subList(fromIndex, toIndex);
+
         com.baomidou.mybatisplus.extension.plugins.pagination.Page<Map<String, Object>> result = new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>();
-        result.setCurrent(customerPage.getCurrent());
-        result.setSize(customerPage.getSize());
-        result.setTotal(customerPage.getTotal());
-        result.setRecords(rows);
+        result.setCurrent(safePageNum);
+        result.setSize(safePageSize);
+        result.setTotal(rows.size());
+        result.setRecords(pageRecords);
         return result;
     }
 

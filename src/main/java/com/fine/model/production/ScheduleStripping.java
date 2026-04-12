@@ -16,7 +16,7 @@ public class ScheduleStripping {
     /** 排程ID */
     private Long scheduleId;
     
-    /** 任务单号（ST-YYYYMMDD-XXX） */
+    /** 任务单号（ST-YYYYMMDD-NNN） */
     private String taskNo;
     
     /** 设备ID */

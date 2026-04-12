@@ -14,7 +14,7 @@ public class ProductionSchedule {
     
     private Long id;
     
-    /** 排程单号（PS-YYYYMMDD-XXX） */
+    /** 排程单号（PS-YYYYMMDD-NNN） */
     private String scheduleNo;
     
     /** 排程日期 */

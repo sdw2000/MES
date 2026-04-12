@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 
 @RestController
 @RequestMapping("/api/dev")
@@ -38,7 +39,7 @@ public class DevAuthController {
 
         LoginUser loginUser = new LoginUser(user, perms);
         String key = "login:" + userId;
-        redisCache.setCacheObject(key, JSON.toJSONString(loginUser));
+        redisCache.setCacheObject(key, Objects.requireNonNull(JSON.toJSONString(loginUser), "loginUser json"));
 
         String token = JwtUtil.createJWT(String.valueOf(userId));
         return ResponseResult.success(new java.util.HashMap<String, Object>() {{

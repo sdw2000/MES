@@ -117,7 +117,7 @@ const port = process.env.port || process.env.npm_config_port || 8080
 ## 🎯 常见问题
 
 ### Q1: 为什么之前说是9527？
-**A**: 那是Vue Element Admin的默认端口，但您的项目配置是8080
+**A**: 那是前端脚手架模板的默认端口，但您的项目配置是8080
 
 ### Q2: 如何修改前端端口？
 **A**: 编辑 `vue.config.js` 第17行

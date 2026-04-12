@@ -8,8 +8,8 @@ import static org.mockito.Mockito.when;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Date;
 import java.util.List;
+import java.time.LocalDate;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -99,7 +99,7 @@ public class DeliveryNoticeIntegrationTest {
         DeliveryNotice notice = new DeliveryNotice();
         notice.setOrderId(orderId);
         notice.setNoticeNo("DN-TEST-001");
-        notice.setDeliveryDate(new Date());
+        notice.setDeliveryDate(LocalDate.now());
         
         DeliveryNoticeItem noticeItem = new DeliveryNoticeItem();
         noticeItem.setOrderItemId(item1.getId());

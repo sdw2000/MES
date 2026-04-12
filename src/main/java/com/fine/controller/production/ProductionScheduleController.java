@@ -10,8 +10,6 @@ import org.springframework.web.bind.annotation.*;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.ArrayList;
-import java.util.Date;
 
 /**
  * 生产排程Controller
@@ -1054,6 +1052,7 @@ public class ProductionScheduleController {
      * @param planDate 计划日期 (yyyy-MM-dd)
      */
     @GetMapping("/coating-schedule/merge-records")
+    @SuppressWarnings("deprecation")
     public ResponseResult<List<Map<String, Object>>> getCoatingMergeRecords(
             @RequestParam(required = false) String planDate) {
         try {
@@ -1081,6 +1080,7 @@ public class ProductionScheduleController {
      * 获取涂布原材料锁定情况（看板用）
      */
     @GetMapping("/coating-schedule/material-locks")
+    @SuppressWarnings("deprecation")
     public ResponseResult<List<Map<String, Object>>> getCoatingMaterialLocks() {
         try {
             List<Map<String, Object>> locks = scheduleService.getCoatingMaterialLocks();

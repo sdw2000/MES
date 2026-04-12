@@ -37,6 +37,16 @@ public interface ManualScheduleService extends IService<ManualSchedule> {
     * 分页获取待排程订单列表（可包含已拍完，支持按订单号过滤）
     */
    IPage<Map<String, Object>> getPendingOrdersPage(long current, long size, boolean includeCompleted, String orderNo);
+
+   /**
+    * 分页获取待排程订单列表（可包含已拍完，支持按订单号与料号过滤）
+    */
+   IPage<Map<String, Object>> getPendingOrdersPage(long current, long size, boolean includeCompleted, String orderNo, String materialCode);
+
+   /**
+    * 查询待排程欠料总平米数
+    */
+   BigDecimal getPendingOrdersOweAreaSum(String orderNo, String materialCode);
     
     /**
      * 获取已完成涂布待复卷的订单列表（按涂布日期排序）
@@ -103,7 +113,7 @@ public interface ManualScheduleService extends IService<ManualSchedule> {
     /**
      * 更新分切/包装日期
      */
-   boolean updateSlittingInfo(Long scheduleId, String packagingDate, String slittingEquipment);
+   boolean updateSlittingInfo(Long scheduleId, String packagingDate, String slittingEquipment, String packagingTeam);
     List<Map<String, Object>> getRewindingSchedules();
 
     /**
@@ -142,12 +152,15 @@ public interface ManualScheduleService extends IService<ManualSchedule> {
      * @return 涂布排程ID
      */
    Long createCoatingSchedule(Long scheduleId, Double coatingArea, String coatingDate, String rewindingDate, String packagingDate, String equipmentId,
-                        Double coatingWidth, Double coatingLength);
+                        Double coatingWidth, Double coatingLength, String materialCode,
+                        String insertMode, Long anchorScheduleId, String anchorAfterTime, String rebalanceMode);
 
    /**
     * 预估涂布机台占用（按料号+工序+机台速度计算）
     */
-   Map<String, Object> previewCoatingOccupation(Long scheduleId, String equipmentId, String coatingDate, Double coatingLength);
+   Map<String, Object> previewCoatingOccupation(Long scheduleId, String equipmentId, String coatingDate, Double coatingLength, String materialCode,
+                                                String insertMode, Long anchorScheduleId, String anchorAfterTime,
+                                                String rebalanceMode);
 
    /**
     * 预估复卷机台占用（按料号+工序+机台速度计算）

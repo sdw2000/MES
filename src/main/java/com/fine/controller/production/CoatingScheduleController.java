@@ -134,10 +134,11 @@ public class CoatingScheduleController {
             @ApiParam("页大小") @RequestParam(required = false, defaultValue = "10") Integer pageSize) {
         try {
             List<Map<String, Object>> all = productionScheduleService.getCoatingQueue(planDate);
-            int total = all == null ? 0 : all.size();
+            List<Map<String, Object>> safeAll = all == null ? java.util.Collections.emptyList() : all;
+            int total = safeAll.size();
             int from = Math.max(0, (pageNum - 1) * pageSize);
             int to = Math.min(total, from + pageSize);
-            List<Map<String, Object>> pageList = total == 0 ? java.util.Collections.emptyList() : all.subList(from, to);
+            List<Map<String, Object>> pageList = from >= to ? java.util.Collections.emptyList() : safeAll.subList(from, to);
 
             Map<String, Object> result = new java.util.HashMap<>();
             result.put("list", pageList);

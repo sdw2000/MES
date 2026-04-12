@@ -12,6 +12,7 @@ import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -21,6 +22,8 @@ import java.util.Objects;
 
 @Service
 public class ProductionDashboardServiceImpl implements ProductionDashboardService {
+
+    private static final DateTimeFormatter REPORT_TIME_MINUTE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -43,7 +46,7 @@ public class ProductionDashboardServiceImpl implements ProductionDashboardServic
         for (Map<String, Object> row : rows) {
             if (!canViewRowByOperator(row, loginUser)) continue;
             LocalDateTime ts = extractReportDateTime(row);
-            String groupCode = extractGroupCode(row);
+            String groupCode = resolveShiftCode(row, ts);
             if (normalizedShift != null && !normalizedShift.isEmpty() && !normalizedShift.equalsIgnoreCase(groupCode)) continue;
 
             LocalDate statDate = ts.toLocalDate();
@@ -89,7 +92,7 @@ public class ProductionDashboardServiceImpl implements ProductionDashboardServic
         for (Map<String, Object> row : rows) {
             if (!canViewRowByOperator(row, loginUser)) continue;
             LocalDateTime ts = extractReportDateTime(row);
-            String groupCode = extractGroupCode(row);
+            String groupCode = resolveShiftCode(row, ts);
             if (normalizedShift != null && !normalizedShift.isEmpty() && !normalizedShift.equalsIgnoreCase(groupCode)) continue;
 
             LocalDate statDate = ts.toLocalDate();
@@ -127,7 +130,7 @@ public class ProductionDashboardServiceImpl implements ProductionDashboardServic
         for (Map<String, Object> row : rows) {
             if (!canViewRowByOperator(row, loginUser)) continue;
             LocalDateTime ts = extractReportDateTime(row);
-            String groupCode = extractGroupCode(row);
+            String groupCode = resolveShiftCode(row, ts);
             if (normalizedShift != null && !normalizedShift.isEmpty() && !normalizedShift.equalsIgnoreCase(groupCode)) continue;
 
             LocalDate statDate = ts.toLocalDate();
@@ -162,7 +165,8 @@ public class ProductionDashboardServiceImpl implements ProductionDashboardServic
         for (Map<String, Object> row : rows) {
             if (!canViewRowByOperator(row, loginUser)) continue;
             LocalDateTime ts = extractReportDateTime(row);
-            String groupCode = extractGroupCode(row);
+            if (ts == null) continue;
+            String groupCode = resolveShiftCode(row, ts);
             if (normalizedShift != null && !normalizedShift.isEmpty() && !normalizedShift.equalsIgnoreCase(groupCode)) continue;
 
             LocalDate statDate = ts.toLocalDate();
@@ -173,18 +177,20 @@ public class ProductionDashboardServiceImpl implements ProductionDashboardServic
             item.put("shiftCode", groupCode);
             item.put("taskType", row.get("taskType"));
             item.put("taskNo", row.get("taskNo"));
-            item.put("staffName", row.get("staffName"));
+            item.put("staffName", normalizeStaffName(row.get("staffName")));
             item.put("outputQty", toBigDecimal(row.get("outputQty")));
             item.put("outputSqm", toBigDecimal(row.get("outputSqm")));
-            item.put("reportTime", row.get("reportTime"));
+            item.put("reportTime", ts.format(REPORT_TIME_MINUTE_FORMATTER));
+            item.put("reportTimeSort", ts);
             item.put("statDate", statDate.toString());
             result.add(item);
         }
 
         result.sort(Comparator.comparing(
-                m -> String.valueOf(m.get("reportTime") == null ? "" : m.get("reportTime")),
-                Comparator.reverseOrder()
+                m -> (LocalDateTime) m.get("reportTimeSort"),
+                Comparator.nullsLast(Comparator.reverseOrder())
         ));
+        result.forEach(item -> item.remove("reportTimeSort"));
         return result;
     }
 
@@ -222,6 +228,12 @@ public class ProductionDashboardServiceImpl implements ProductionDashboardServic
 
     private LocalDateTime extractReportDateTime(Map<String, Object> row) {
         Object value = row.get("reportTime");
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof LocalDateTime) {
+            return (LocalDateTime) value;
+        }
         if (value instanceof Timestamp) {
             return ((Timestamp) value).toLocalDateTime();
         }
@@ -231,8 +243,17 @@ public class ProductionDashboardServiceImpl implements ProductionDashboardServic
         try {
             return LocalDateTime.parse(String.valueOf(value).replace(' ', 'T'));
         } catch (Exception e) {
-            return LocalDateTime.now();
+            return null;
         }
+    }
+
+    private String resolveShiftCode(Map<String, Object> row, LocalDateTime reportTime) {
+        if (reportTime != null) {
+            int hour = reportTime.getHour();
+            // 08:00~19:59 为A班，其余为B班
+            return (hour >= 8 && hour < 20) ? "A" : "B";
+        }
+        return extractGroupCode(row);
     }
 
     private String extractGroupCode(Map<String, Object> row) {
@@ -252,6 +273,14 @@ public class ProductionDashboardServiceImpl implements ProductionDashboardServic
         String last = parts.length > 0 ? parts[parts.length - 1] : raw;
         last = last.replaceAll("[^A-Z0-9\\u4E00-\\u9FA5]", "");
         return (last == null || last.isEmpty() || "NULL".equalsIgnoreCase(last)) ? "未识别" : last;
+    }
+
+    private String normalizeStaffName(Object rawName) {
+        String text = rawName == null ? "" : String.valueOf(rawName).trim();
+        if (text.isEmpty() || "null".equalsIgnoreCase(text)) {
+            return "";
+        }
+        return text.replaceFirst("[-_][A-Za-z0-9\\u4E00-\\u9FA5]+班$", "");
     }
 
     private String normalizeShiftCode(String shiftCode) {
