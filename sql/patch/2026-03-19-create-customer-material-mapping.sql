@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS `customer_material_mapping` (
   `customer_length` DECIMAL(18,2) DEFAULT NULL COMMENT '客户长度(m)',
   `customer_material_code` VARCHAR(128) DEFAULT NULL COMMENT '客户料号',
   `customer_material_name` VARCHAR(255) DEFAULT NULL COMMENT '客户物料名称',
+  `customer_spec` VARCHAR(255) DEFAULT NULL COMMENT '客户规格（文本）',
   `is_active` TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否启用',
   `remark` VARCHAR(500) DEFAULT NULL COMMENT '备注',
   `create_by` VARCHAR(64) DEFAULT NULL,

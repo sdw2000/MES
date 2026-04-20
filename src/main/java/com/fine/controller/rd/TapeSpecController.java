@@ -20,7 +20,7 @@ import java.math.BigDecimal;
  */
 @RestController
 @RequestMapping("/api/tape-spec")
-@PreAuthorize("hasAnyAuthority('admin','rd','sales','production','warehouse','finance','quality','packaging','packing','purchase')")
+@PreAuthorize("hasAnyAuthority('admin','rd','sales','production','warehouse','finance','quality','packaging','packing','purchase','coating','plan','scheduler')")
 public class TapeSpecController {
 
     @Autowired
@@ -55,6 +55,16 @@ public class TapeSpecController {
     @GetMapping("/by-code/{materialCode}")
     public ResponseResult<?> getByMaterialCode(@PathVariable String materialCode) {
         return tapeSpecService.getByMaterialCode(materialCode);
+    }
+
+    /**
+     * 料号建议（前缀匹配，最多5条）
+     */
+    @GetMapping("/suggest")
+    public ResponseResult<?> suggestByMaterialCode(
+            @RequestParam String keyword,
+            @RequestParam(defaultValue = "5") Integer limit) {
+        return tapeSpecService.suggestByMaterialCode(keyword, limit);
     }
 
     /**

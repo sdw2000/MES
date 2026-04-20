@@ -53,6 +53,7 @@ public class CustomerMaterialMappingController {
             @RequestParam(required = false) String customerCode,
             @RequestParam(required = false) String customerName,
             @RequestParam(required = false) String materialCode,
+            @RequestParam(required = false) String customerSpec,
             @RequestParam(required = false) BigDecimal thickness,
             @RequestParam(required = false) BigDecimal width,
             @RequestParam(required = false) BigDecimal length,
@@ -86,6 +87,9 @@ public class CustomerMaterialMappingController {
             }
             if (materialCode != null && !materialCode.trim().isEmpty()) {
                 wrapper.eq("material_code", materialCode.trim());
+            }
+            if (customerSpec != null && !customerSpec.trim().isEmpty()) {
+                wrapper.like("customer_spec", customerSpec.trim());
             }
             if (thickness != null) {
                 wrapper.eq("thickness", thickness);
@@ -180,6 +184,7 @@ public class CustomerMaterialMappingController {
             entity.setCustomerLength(body.getCustomerLength() == null ? body.getLength() : body.getCustomerLength());
             entity.setCustomerMaterialCode(body.getCustomerMaterialCode() == null ? null : body.getCustomerMaterialCode().trim());
             entity.setCustomerMaterialName(body.getCustomerMaterialName() == null ? null : body.getCustomerMaterialName().trim());
+                entity.setCustomerSpec(trimToNull(body.getCustomerSpec()));
             entity.setIsActive(body.getIsActive() == null ? 1 : body.getIsActive());
             entity.setRemark(body.getRemark());
             entity.setUpdateBy(user);
@@ -242,6 +247,7 @@ public class CustomerMaterialMappingController {
                 entity.setCustomerLength(body.getCustomerLength() == null ? body.getLength() : body.getCustomerLength());
                 entity.setCustomerMaterialCode(body.getCustomerMaterialCode() == null ? null : body.getCustomerMaterialCode().trim());
                 entity.setCustomerMaterialName(body.getCustomerMaterialName() == null ? null : body.getCustomerMaterialName().trim());
+                entity.setCustomerSpec(trimToNull(body.getCustomerSpec()));
                 entity.setIsActive(body.getIsActive() == null ? 1 : body.getIsActive());
                 entity.setRemark(body.getRemark());
                 entity.setUpdateBy(user);
@@ -340,7 +346,7 @@ public class CustomerMaterialMappingController {
             }
 
             String customerSpec = firstNotBlank(row,
-                "customerSpec", "customerSpecText", "客户规格");
+                "customerSpec", "customerSpecText", "客户标签规格", "客户规格");
             String materialSpec = firstNotBlank(row,
                 "materialSpec", "spec", "specText", "我司规格", "规格");
 
@@ -416,6 +422,7 @@ public class CustomerMaterialMappingController {
             entity.setCustomerLength(customerLength == null ? length : customerLength);
             entity.setCustomerMaterialCode(customerMaterialCode);
             entity.setCustomerMaterialName(customerMaterialName);
+            entity.setCustomerSpec(trimToNull(customerSpec));
             entity.setIsActive(1);
             entity.setRemark(remark);
             entity.setUpdateBy(operator);
@@ -475,6 +482,7 @@ public class CustomerMaterialMappingController {
             headers.add("客户规格");
             headers.add("我司规格");
             headers.add("客户物料名称");
+            headers.add("客户标签规格");
             headers.add("备注");
 
             Map<String, Object> sample = new HashMap<>();
@@ -484,6 +492,7 @@ public class CustomerMaterialMappingController {
             sample.put("客户规格", "50μm*5mm*33m");
             sample.put("我司规格", "50μm*5mm*33m");
             sample.put("客户物料名称", "示例客户品名");
+            sample.put("客户标签规格", "50μm*5mm*33m");
             sample.put("备注", "示例数据");
 
             Map<String, Object> result = new HashMap<>();
@@ -519,6 +528,7 @@ public class CustomerMaterialMappingController {
             }
 
             CustomerMaterialMapping hit = null;
+
             if (thickness != null && width != null && length != null) {
                 QueryWrapper<CustomerMaterialMapping> exact = new QueryWrapper<>();
                 exact.eq("customer_code", c)
@@ -640,6 +650,14 @@ public class CustomerMaterialMappingController {
             }
         }
         return null;
+    }
+
+    private String trimToNull(String text) {
+        if (text == null) {
+            return null;
+        }
+        String v = text.trim();
+        return v.isEmpty() ? null : v;
     }
 
     private List<Map<String, Object>> parseExcelRows(MultipartFile file) throws Exception {
@@ -828,6 +846,7 @@ public class CustomerMaterialMappingController {
                     entity.setCustomerLength(l);
                     entity.setCustomerMaterialCode(m);
                     entity.setCustomerMaterialName(materialName.isEmpty() ? null : materialName);
+                        entity.setCustomerSpec(null);
                     entity.setIsActive(1);
                     entity.setRemark("历史订单初始化");
                     entity.setCreateBy(operator);

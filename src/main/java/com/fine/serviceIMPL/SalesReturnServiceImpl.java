@@ -9,12 +9,14 @@ import com.fine.Dao.SalesReturnItemMapper;
 import com.fine.Dao.SalesReturnMapper;
 import com.fine.Dao.SalesOrderItemMapper;
 import com.fine.Dao.production.SalesOrderMapper;
+import com.fine.Dao.stock.TapeInboundRequestMapper;
 import com.fine.Utils.ResponseResult;
 import com.fine.modle.LoginUser;
 import com.fine.modle.SalesOrder;
 import com.fine.modle.SalesOrderItem;
 import com.fine.modle.SalesReturn;
 import com.fine.modle.SalesReturnItem;
+import com.fine.modle.stock.TapeInboundRequest;
 import com.fine.service.SalesReturnService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -26,6 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -49,9 +52,14 @@ public class SalesReturnServiceImpl extends ServiceImpl<SalesReturnMapper, Sales
     private CustomerMapper customerMapper;
 
     @Autowired
+    private TapeInboundRequestMapper tapeInboundRequestMapper;
+
+    @Autowired
     private JdbcTemplate jdbcTemplate;
 
     private volatile boolean returnTablesChecked = false;
+    private static final String RETURN_WAREHOUSE_LOCATION = "退货专仓";
+    private static final String RETURN_SOURCE_TAG = "[SALES_RETURN]";
 
     @Override
     public ResponseResult<?> getAllReturns(Integer pageNum, Integer pageSize, String returnNo, String customer,
@@ -461,6 +469,109 @@ public class SalesReturnServiceImpl extends ServiceImpl<SalesReturnMapper, Sales
         }
     }
 
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ResponseResult<?> createInboundRequestsFromReturn(String returnNo) {
+        try {
+            ensureReturnTables();
+            if (returnNo == null || returnNo.trim().isEmpty()) {
+                return new ResponseResult<>(400, "退货单号不能为空", null);
+            }
+
+            LambdaQueryWrapper<SalesReturn> wrapper = new LambdaQueryWrapper<>();
+            wrapper.eq(SalesReturn::getReturnNo, returnNo.trim()).eq(SalesReturn::getIsDeleted, 0);
+            SalesReturn found = salesReturnMapper.selectOne(wrapper);
+            if (found == null) {
+                return new ResponseResult<>(404, "退货单不存在", null);
+            }
+            if (!canAccessCustomer(found.getCustomer())) {
+                return new ResponseResult<>(403, "无权限操作该退货单");
+            }
+            if (!"confirmed".equalsIgnoreCase(String.valueOf(found.getStatus()))) {
+                return new ResponseResult<>(400, "仅已确认的退货单可生成入库申请", null);
+            }
+
+            LambdaQueryWrapper<SalesReturnItem> itemWrapper = new LambdaQueryWrapper<>();
+            itemWrapper.eq(SalesReturnItem::getReturnId, found.getId()).eq(SalesReturnItem::getIsDeleted, 0);
+            List<SalesReturnItem> items = salesReturnItemMapper.selectList(itemWrapper);
+            if (items == null || items.isEmpty()) {
+                return new ResponseResult<>(400, "退货单无明细，无法生成入库申请", null);
+            }
+
+            String operator = getCurrentUsername();
+            int createdCount = 0;
+            int skippedCount = 0;
+            List<String> requestNos = new ArrayList<>();
+
+            for (int i = 0; i < items.size(); i++) {
+                SalesReturnItem item = items.get(i);
+                if (item == null) {
+                    skippedCount++;
+                    continue;
+                }
+                int rolls = item.getRolls() == null ? 0 : item.getRolls();
+                if (rolls <= 0) {
+                    skippedCount++;
+                    continue;
+                }
+                String materialCode = trimToNull(item.getMaterialCode());
+                if (materialCode == null) {
+                    skippedCount++;
+                    continue;
+                }
+
+                String sourceToken = buildReturnSourceToken(found.getReturnNo(), item.getId(), i + 1);
+                if (existsActiveInboundBySourceToken(sourceToken)) {
+                    skippedCount++;
+                    continue;
+                }
+
+                TapeInboundRequest request = new TapeInboundRequest();
+                request.setRequestNo(generateInboundRequestNo());
+                request.setMaterialCode(materialCode);
+                request.setProductName(trimToNull(item.getMaterialName()) == null ? materialCode : trimToNull(item.getMaterialName()));
+                request.setBatchNo(buildReturnBatchNo(found.getReturnNo(), item, i + 1));
+                request.setThickness(toIntegerSpec(item.getThickness()));
+                request.setWidth(toIntegerSpec(item.getWidth()));
+                request.setLength(toIntegerSpec(item.getLength()));
+                request.setRolls(rolls);
+                request.setLocation(RETURN_WAREHOUSE_LOCATION);
+                request.setSpecDesc(buildSpecDesc(request.getThickness(), request.getWidth(), request.getLength()));
+                request.setProdDate(found.getReturnDate());
+                if (found.getReturnDate() != null) {
+                    request.setProdYear(found.getReturnDate().getYear());
+                    request.setProdMonth(found.getReturnDate().getMonthValue());
+                    request.setProdDay(found.getReturnDate().getDayOfMonth());
+                }
+                request.setApplicant(operator);
+                request.setApplyDept("销售退货");
+                request.setApplyTime(LocalDateTime.now());
+                request.setStatus(TapeInboundRequest.STATUS_PENDING);
+                request.setRemark(sourceToken + "|customer=" + (found.getCustomer() == null ? "" : found.getCustomer()));
+                request.setAuditRemark("销售退货入库，固定入退货专仓");
+
+                tapeInboundRequestMapper.insert(request);
+                createdCount++;
+                requestNos.add(request.getRequestNo());
+            }
+
+            Map<String, Object> data = new HashMap<>();
+            data.put("returnNo", found.getReturnNo());
+            data.put("createdCount", createdCount);
+            data.put("skippedCount", skippedCount);
+            data.put("requestNos", requestNos);
+            data.put("location", RETURN_WAREHOUSE_LOCATION);
+
+            if (createdCount == 0) {
+                return new ResponseResult<>(200, "未生成新入库申请（可能已生成过）", data);
+            }
+            return new ResponseResult<>(200, "已生成退货入库申请", data);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return new ResponseResult<>(500, "生成退货入库申请失败: " + e.getMessage(), null);
+        }
+    }
+
     private String buildReturnNo(LocalDate returnDate) {
         String dateStr = returnDate.format(DateTimeFormatter.ofPattern("yyMMdd"));
         String base = "RT" + dateStr + "-";
@@ -548,6 +659,50 @@ public class SalesReturnServiceImpl extends ServiceImpl<SalesReturnMapper, Sales
         }
         String trimmed = text.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private String generateInboundRequestNo() {
+        String requestNo = tapeInboundRequestMapper.generateRequestNo();
+        if (requestNo == null || requestNo.trim().isEmpty()) {
+            requestNo = "IN" + DateTimeFormatter.ofPattern("yyyyMMddHHmmss").format(LocalDateTime.now());
+        }
+        return requestNo;
+    }
+
+    private boolean existsActiveInboundBySourceToken(String sourceToken) {
+        if (sourceToken == null || sourceToken.trim().isEmpty()) {
+            return false;
+        }
+        LambdaQueryWrapper<TapeInboundRequest> q = new LambdaQueryWrapper<>();
+        q.like(TapeInboundRequest::getRemark, sourceToken)
+                .in(TapeInboundRequest::getStatus, TapeInboundRequest.STATUS_PENDING, TapeInboundRequest.STATUS_APPROVED)
+                .last("LIMIT 1");
+        return tapeInboundRequestMapper.selectOne(q) != null;
+    }
+
+    private String buildReturnSourceToken(String returnNo, Long itemId, int lineNo) {
+        String itemKey = itemId == null ? String.valueOf(lineNo) : String.valueOf(itemId);
+        return RETURN_SOURCE_TAG + "|returnNo=" + (returnNo == null ? "" : returnNo) + "|item=" + itemKey;
+    }
+
+    private String buildReturnBatchNo(String returnNo, SalesReturnItem item, int index) {
+        String base = (returnNo == null ? "RET" : returnNo).replaceAll("[^A-Za-z0-9-]", "");
+        String itemPart = item != null && item.getId() != null ? String.valueOf(item.getId()) : String.format("%02d", index);
+        return "RET-" + base + "-" + itemPart;
+    }
+
+    private Integer toIntegerSpec(BigDecimal v) {
+        if (v == null) {
+            return null;
+        }
+        return v.setScale(0, RoundingMode.HALF_UP).intValue();
+    }
+
+    private String buildSpecDesc(Integer thickness, Integer width, Integer length) {
+        if (thickness == null && width == null && length == null) {
+            return null;
+        }
+        return (thickness == null ? 0 : thickness) + "μm*" + (width == null ? 0 : width) + "mm*" + (length == null ? 0 : length) + "m";
     }
 
     private boolean tableExists(String tableName) {
@@ -712,7 +867,7 @@ public class SalesReturnServiceImpl extends ServiceImpl<SalesReturnMapper, Sales
 
     private Set<String> getAccessibleCustomerKeys() {
         LoginUser loginUser = getLoginUser();
-        if (loginUser == null || hasRole(loginUser, "admin")) {
+        if (loginUser == null || hasRole(loginUser, "admin") || hasRole(loginUser, "warehouse")) {
             return null;
         }
         Long uid = getCurrentUserId(loginUser);

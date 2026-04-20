@@ -7,6 +7,7 @@ import com.fine.modle.PurchaseOrder;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 import java.util.List;
 
@@ -76,6 +77,15 @@ public interface PurchaseOrderMapper extends BaseMapper<PurchaseOrder> {
             + "WHERE poi.is_deleted = 0 AND po.is_deleted = 0 AND poi.id = #{itemId}")
     List<PurchaseOrder> selectByItemId(@Param("itemId") Long itemId);
 
-        @Select("SELECT order_no FROM purchase_orders WHERE is_deleted = 0 AND order_no LIKE CONCAT(#{prefix}, '%') ORDER BY order_no DESC LIMIT 1")
+    @Update("UPDATE purchase_orders "
+            + "SET is_deleted = 1, updated_by = #{updatedBy}, updated_at = NOW() "
+            + "WHERE order_no = #{orderNo} AND is_deleted = 0")
+    int logicDeleteByOrderNo(@Param("orderNo") String orderNo,
+                             @Param("updatedBy") String updatedBy);
+
+        @Select("SELECT order_no FROM purchase_orders WHERE order_no LIKE CONCAT(#{prefix}, '%') ORDER BY order_no DESC LIMIT 1")
         String selectLastOrderNoByPrefix(@Param("prefix") String prefix);
+
+        @Select("SELECT COUNT(1) FROM purchase_orders WHERE order_no = #{orderNo}")
+        int countByOrderNo(@Param("orderNo") String orderNo);
 }

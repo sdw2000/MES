@@ -32,9 +32,9 @@ public class PurchaseQuotationServiceImpl extends ServiceImpl<PurchaseQuotationM
     private PurchaseQuotationItemMapper quotationItemMapper;
 
     @Override
-    public ResponseResult<?> list(Integer pageNum, Integer pageSize, String supplier, String status) {
+    public ResponseResult<?> list(Integer pageNum, Integer pageSize, String supplier, String status, String materialCode) {
         Page<PurchaseQuotation> page = new Page<>(pageNum == null ? 1 : pageNum, pageSize == null ? 10 : pageSize);
-        IPage<PurchaseQuotation> result = quotationMapper.selectPaged(page, supplier, status);
+        IPage<PurchaseQuotation> result = quotationMapper.selectPaged(page, supplier, status, materialCode);
         return ResponseResult.success(result);
     }
 

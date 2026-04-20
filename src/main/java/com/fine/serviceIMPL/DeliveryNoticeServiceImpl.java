@@ -12,7 +12,9 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
+import java.util.Set;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -287,8 +289,8 @@ public class DeliveryNoticeServiceImpl extends ServiceImpl<DeliveryNoticeMapper,
 
         if (shouldOfflineQuery(notice.getCarrierName())) {
             result.put("success", false);
-            result.put("message", "当前承运方式不支持在线轨迹，请线下查询");
-            result.put("status", "线下承运");
+            result.put("message", "未识别标准承运公司，请先维护物流公司后再查询轨迹");
+            result.put("status", "未识别承运公司");
             result.put("lastUpdate", "-");
             result.put("traces", java.util.Collections.emptyList());
             result.put("carrierNo", normalizedCarrierNo);
@@ -311,10 +313,20 @@ public class DeliveryNoticeServiceImpl extends ServiceImpl<DeliveryNoticeMapper,
             if (companyCodes.isEmpty()) {
                 result.put("success", false);
                 result.put("message", "未识别快递公司，请先填写标准承运公司名称");
+                result.put("carrierName", notice.getCarrierName());
+                result.put("carrierNo", normalizedCarrierNo);
                 return result;
             }
 
             String phoneTail4 = resolvePhoneTail4(notice);
+            if (!StringUtils.hasText(phoneTail4) && containsSfCarrierCode(companyCodes)) {
+                result.put("success", false);
+                result.put("message", "顺丰查询需提供收件/寄件手机号后4位，请补充联系电话或运输电话");
+                result.put("carrierName", notice.getCarrierName());
+                result.put("carrierNo", normalizedCarrierNo);
+                result.put("triedCompanyCodes", companyCodes);
+                return result;
+            }
 
             Map<String, Object> apiResp = null;
             String failMsg = "物流接口查询失败";
@@ -334,6 +346,10 @@ public class DeliveryNoticeServiceImpl extends ServiceImpl<DeliveryNoticeMapper,
             if (apiResp == null || !isKuaidi100Success(apiResp)) {
                 result.put("success", false);
                 result.put("message", failMsg);
+                result.put("carrierName", notice.getCarrierName());
+                result.put("carrierNo", normalizedCarrierNo);
+                result.put("triedCompanyCodes", companyCodes);
+                result.put("lastApiResponse", apiResp == null ? "" : String.valueOf(apiResp));
                 return result;
             }
 
@@ -513,6 +529,11 @@ public class DeliveryNoticeServiceImpl extends ServiceImpl<DeliveryNoticeMapper,
         map.put("申通", "shentong");
         map.put("韵达快递", "yunda");
         map.put("韵达", "yunda");
+        map.put("优速快递", "youshuwuliu");
+        map.put("优速物流", "youshuwuliu");
+        map.put("优速", "youshuwuliu");
+        map.put("UC", "youshuwuliu");
+        map.put("UC56", "youshuwuliu");
         map.put("邮政EMS", "ems");
         map.put("EMS", "ems");
         map.put("京东物流", "jd");
@@ -565,6 +586,11 @@ public class DeliveryNoticeServiceImpl extends ServiceImpl<DeliveryNoticeMapper,
 
         if (isSfTrackingNumber(trackingNo)) {
             codes.add("shunfeng");
+            codes.add("sf");
+        }
+        if (v.contains("顺丰") || v.toUpperCase().contains("SF")) {
+            codes.add("shunfeng");
+            codes.add("sf");
         }
         if (v.contains("跨越")) {
             codes.add("kuayue");
@@ -627,7 +653,8 @@ public class DeliveryNoticeServiceImpl extends ServiceImpl<DeliveryNoticeMapper,
     private boolean isSfTrackingNumber(String trackingNo) {
         if (!StringUtils.hasText(trackingNo)) return false;
         String no = trackingNo.trim().toUpperCase();
-        return no.startsWith("SF") || no.matches("^\\d{12,15}$");
+        // 仅在单号前缀明确为 SF 时识别为顺丰，避免普通数字单号被误判
+        return no.startsWith("SF");
     }
 
     private String resolvePhoneTail4(DeliveryNotice notice) {
@@ -656,6 +683,22 @@ public class DeliveryNoticeServiceImpl extends ServiceImpl<DeliveryNoticeMapper,
         if (!StringUtils.hasText(companyCode)) return false;
         String code = companyCode.trim().toLowerCase();
         return "shunfeng".equals(code) || "sf".equals(code);
+    }
+
+    private boolean containsSfCarrierCode(List<String> companyCodes) {
+        if (companyCodes == null || companyCodes.isEmpty()) {
+            return false;
+        }
+        for (String code : companyCodes) {
+            if (!StringUtils.hasText(code)) {
+                continue;
+            }
+            String value = code.trim().toLowerCase();
+            if ("shunfeng".equals(value) || "sf".equals(value)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean shouldOfflineQuery(String carrierName) {
@@ -748,9 +791,106 @@ public class DeliveryNoticeServiceImpl extends ServiceImpl<DeliveryNoticeMapper,
         if (!StringUtils.hasText(failMsg)) return false;
         return failMsg.contains("不支持此快递公司")
                 || failMsg.contains("公司编码")
-            || failMsg.contains("查询无结果")
-            || failMsg.contains("暂无轨迹")
-            || failMsg.contains("暂无结果")
-            || failMsg.contains("查无信息");
+            || failMsg.contains("手机号")
+            || failMsg.contains("手机尾号");
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public String appendBatchNoByNoticeNo(String noticeNo, String batchNo) {
+        String normalizedNoticeNo = noticeNo == null ? "" : noticeNo.trim();
+        String normalizedBatchNo = batchNo == null ? "" : batchNo.trim();
+        if (!StringUtils.hasText(normalizedNoticeNo)) {
+            throw new RuntimeException("送货单号不能为空");
+        }
+        if (!StringUtils.hasText(normalizedBatchNo)) {
+            throw new RuntimeException("批次号不能为空");
+        }
+
+        DeliveryNotice notice = deliveryNoticeMapper.selectOne(
+                new QueryWrapper<DeliveryNotice>()
+                        .eq("notice_no", normalizedNoticeNo)
+                        .eq("is_deleted", 0)
+                        .last("LIMIT 1")
+        );
+        if (notice == null) {
+            throw new RuntimeException("未找到送货单：" + normalizedNoticeNo);
+        }
+
+        String merged = mergeUniqueBatchNos(notice.getBatchNos(), normalizedBatchNo);
+        notice.setBatchNos(merged);
+        notice.setUpdatedAt(new Date());
+        if (deliveryNoticeMapper.updateById(notice) <= 0) {
+            throw new RuntimeException("更新送货单批次号失败");
+        }
+        return merged;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int syncItemBatchNoByNoticeNo(String noticeNo, String materialCode, String batchNo) {
+        String normalizedNoticeNo = noticeNo == null ? "" : noticeNo.trim();
+        String normalizedMaterialCode = materialCode == null ? "" : materialCode.trim();
+        String normalizedBatchNo = batchNo == null ? "" : batchNo.trim();
+
+        if (!StringUtils.hasText(normalizedNoticeNo) || !StringUtils.hasText(normalizedBatchNo)) {
+            return 0;
+        }
+
+        DeliveryNotice notice = deliveryNoticeMapper.selectOne(
+                new QueryWrapper<DeliveryNotice>()
+                        .eq("notice_no", normalizedNoticeNo)
+                        .eq("is_deleted", 0)
+                        .last("LIMIT 1")
+        );
+        if (notice == null || notice.getId() == null) {
+            return 0;
+        }
+
+        QueryWrapper<DeliveryNoticeItem> itemQw = new QueryWrapper<DeliveryNoticeItem>()
+                .eq("notice_id", notice.getId());
+        if (StringUtils.hasText(normalizedMaterialCode)) {
+            itemQw.eq("material_code", normalizedMaterialCode);
+        }
+        List<DeliveryNoticeItem> items = deliveryNoticeItemMapper.selectList(itemQw);
+        if (items == null || items.isEmpty()) {
+            return 0;
+        }
+
+        int updated = 0;
+        for (DeliveryNoticeItem item : items) {
+            if (item == null || item.getId() == null) {
+                continue;
+            }
+            String merged = mergeUniqueBatchNos(item.getBatchNo(), normalizedBatchNo);
+            String oldVal = item.getBatchNo() == null ? "" : item.getBatchNo().trim();
+            String newVal = merged == null ? "" : merged.trim();
+            if (oldVal.equals(newVal)) {
+                continue;
+            }
+            item.setBatchNo(merged);
+            if (deliveryNoticeItemMapper.updateById(item) > 0) {
+                updated++;
+            }
+        }
+        return updated;
+    }
+
+    private String mergeUniqueBatchNos(String existingBatchNos, String incomingBatchNo) {
+        Set<String> unique = new LinkedHashSet<>();
+        if (StringUtils.hasText(existingBatchNos)) {
+            String[] parts = existingBatchNos.split("[,，]");
+            for (String part : parts) {
+                String one = part == null ? "" : part.trim();
+                if (StringUtils.hasText(one)) {
+                    unique.add(one);
+                }
+            }
+        }
+        String next = incomingBatchNo == null ? "" : incomingBatchNo.trim();
+        if (StringUtils.hasText(next)) {
+            unique.add(next);
+        }
+        return String.join(",", unique);
     }
 }

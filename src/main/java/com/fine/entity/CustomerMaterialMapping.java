@@ -1,6 +1,8 @@
 package com.fine.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
@@ -44,6 +46,10 @@ public class CustomerMaterialMapping {
 
     /** 客户材料名称 */
     private String customerMaterialName;
+
+    /** 客户规格（文本） */
+    @TableField(updateStrategy = FieldStrategy.IGNORED)
+    private String customerSpec;
 
     /** 是否启用：1启用，0禁用 */
     private Integer isActive;

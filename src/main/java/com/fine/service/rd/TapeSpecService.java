@@ -30,6 +30,11 @@ public interface TapeSpecService {
     ResponseResult<?> getByMaterialCode(String materialCode);
 
     /**
+     * 料号建议（前缀匹配）
+     */
+    ResponseResult<?> suggestByMaterialCode(String keyword, Integer limit);
+
+    /**
      * 新增规格
      */
     ResponseResult<?> create(TapeSpec spec, String operator);

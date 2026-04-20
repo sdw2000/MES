@@ -1,6 +1,7 @@
 package com.fine.modle;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.Date;
 import java.util.List;
 
@@ -67,11 +68,11 @@ public class PurchaseOrder {
     private Integer width;
 
     // 下单/交货日期
-    @JsonFormat(pattern = "yyyy-MM-dd", timezone = "GMT+8")
-    private Date orderDate;
+    @JsonFormat(pattern = "yyyy-MM-dd")
+    private LocalDate orderDate;
 
-    @JsonFormat(pattern = "yyyy-MM-dd", timezone = "GMT+8")
-    private Date deliveryDate;
+    @JsonFormat(pattern = "yyyy-MM-dd")
+    private LocalDate deliveryDate;
 
     private String deliveryAddress;
 

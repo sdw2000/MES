@@ -148,6 +148,29 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         if (cnt <= 0) {
             throw new RuntimeException("订单已取消/关闭/完成，不能继续排程");
         }
+        BigDecimal pendingQty = scheduleMapper.selectPendingQtyForScheduling(orderDetailId);
+        if (pendingQty == null || pendingQty.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new RuntimeException("该订单明细待排数量为0，不能再次排程");
+        }
+    }
+
+    private void ensureOrderDetailScheduleQuota(Long orderDetailId, Integer requestQty) {
+        if (orderDetailId == null) {
+            throw new RuntimeException("orderDetailId 不能为空");
+        }
+        if (requestQty == null || requestQty <= 0) {
+            throw new RuntimeException("排程数量无效，请输入大于0的卷数");
+        }
+        ensureOrderDetailSchedulable(orderDetailId);
+
+        BigDecimal pendingQty = scheduleMapper.selectPendingQtyForScheduling(orderDetailId);
+        BigDecimal activeScheduledQty = scheduleMapper.sumActiveScheduleQtyByOrderDetailId(orderDetailId);
+        BigDecimal availableForCreate = (pendingQty == null ? BigDecimal.ZERO : pendingQty)
+                .subtract(activeScheduledQty == null ? BigDecimal.ZERO : activeScheduledQty);
+        BigDecimal requested = BigDecimal.valueOf(requestQty);
+        if (availableForCreate.compareTo(requested) < 0) {
+            throw new RuntimeException("排程数量超出可用待排数量，已存在有效排程占用，不能重复排程");
+        }
     }
     
     @Override
@@ -220,9 +243,9 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
     }
     
     @Override
-    public Map<String, Object> matchStock(String materialCode, Integer width, Integer thickness, Integer requiredQty) {
+    public Map<String, Object> matchStock(String materialCode, Integer width, Integer thickness, Integer requiredQty, Boolean includeReturnWarehouse) {
         // 查询可用库存（先进先出排序）
-        List<Map<String, Object>> stockList = scheduleMapper.selectAvailableStock(materialCode, width, thickness);
+        List<Map<String, Object>> stockList = scheduleMapper.selectAvailableStock(materialCode, width, thickness, includeReturnWarehouse);
         
         Map<String, Object> result = new HashMap<>();
         result.put("stockList", stockList);
@@ -747,7 +770,7 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
             persistMaterialIssues(actualScheduleId, reportId, normalizedProcessType, operatorName, materialIssues);
         }
 
-        autoCreateInboundRequestFromReport(schedule, normalizedProcessType, reportId, producedQty, producedRolls, operatorName);
+        autoCreateInboundRequestFromReport(schedule, normalizedProcessType, reportId, producedQty, producedRolls, operatorName, proceedNextProcess, remark);
         refreshOrderCompletionAfterReport(schedule.getOrderDetailId());
         return true;
     }
@@ -799,8 +822,16 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
                                                     Long reportId,
                                                     BigDecimal producedQty,
                                                     List<Map<String, Object>> producedRolls,
-                                                    String operatorName) {
+                                                    String operatorName,
+                                                    Boolean proceedNextProcess,
+                                                    String reportRemark) {
         if (schedule == null || reportId == null) {
+            return;
+        }
+
+        // 复卷直通分切：允许跳过复卷中间入库，仅在分切完成后入成品库
+        if ("REWINDING".equals(processType)
+                && shouldSkipIntermediateInbound(proceedNextProcess, reportRemark)) {
             return;
         }
 
@@ -922,6 +953,19 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
                 + ", orderNo=" + (schedule.getOrderNo() == null ? "-" : schedule.getOrderNo()));
 
         tapeStockService.createInboundRequest(inboundRequest);
+    }
+
+    private boolean shouldSkipIntermediateInbound(Boolean proceedNextProcess, String reportRemark) {
+        if (!Boolean.TRUE.equals(proceedNextProcess)) {
+            return false;
+        }
+        if (reportRemark == null || reportRemark.trim().isEmpty()) {
+            return false;
+        }
+        String remark = reportRemark.toUpperCase();
+        return remark.contains("[SKIP_INTERMEDIATE_INBOUND]")
+                || remark.contains("DIRECT_TO_SLITTING")
+                || remark.contains("直通分切");
     }
 
     @Override
@@ -1723,7 +1767,12 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
 
     @Override
     @Transactional
-    public boolean updateSlittingInfo(Long scheduleId, String packagingDate, String slittingEquipment, String packagingTeam) {
+    public boolean updateSlittingInfo(Long scheduleId,
+                                      String packagingDate,
+                                      String slittingEquipment,
+                                      String packagingTeam,
+                                      Double manualSlittingSpeed,
+                                      Boolean looseDurationMode) {
         ManualSchedule schedule = this.getById(scheduleId);
         if (schedule == null) {
             throw new RuntimeException("排程记录不存在");
@@ -1739,6 +1788,9 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
             throw new RuntimeException("请先选择分切日期时间");
         }
 
+        // 分切优先级策略：松排模式下优先保证“先排到哪一天”，忽略机台产能与占用冲突
+        boolean dayPriorityMode = Boolean.TRUE.equals(looseDurationMode);
+
         Equipment eq = resolveEquipmentByIdOrCode(equipmentCode);
         if (eq != null && eq.getEquipmentCode() != null && !eq.getEquipmentCode().trim().isEmpty()) {
             equipmentCode = eq.getEquipmentCode().trim();
@@ -1748,7 +1800,9 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
             throw new RuntimeException("请先选择包装班组");
         }
         LocalDate slittingPlanDate = parseDateTime(packagingDate).toLocalDate();
-        validateEquipmentAvailabilityForManualSchedule(eq, equipmentCode, slittingPlanDate);
+        if (!dayPriorityMode) {
+            validateEquipmentAvailabilityForManualSchedule(eq, equipmentCode, slittingPlanDate);
+        }
 
         SalesOrderItem item = salesOrderItemMapper.selectById(schedule.getOrderDetailId());
         if (item == null) {
@@ -1761,23 +1815,33 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
                 item.getWidth(),
                 equipmentCode
         );
-        if (slittingParams == null || slittingParams.getProductionSpeed() == null || slittingParams.getProductionSpeed().compareTo(BigDecimal.ZERO) <= 0) {
-            throw new RuntimeException("未维护该规格在当前机台的分切速度，请先在分切参数中维护");
+        BigDecimal finalSpeed = normalizePositiveSpeed(manualSlittingSpeed);
+        if (finalSpeed == null && slittingParams != null) {
+            finalSpeed = slittingParams.getProductionSpeed();
+        }
+        boolean looseMode = dayPriorityMode;
+        if (finalSpeed == null || finalSpeed.compareTo(BigDecimal.ZERO) <= 0) {
+            if (!looseMode) {
+                throw new RuntimeException("未维护该规格在当前机台的分切速度，请先在分切参数中维护或手工录入速度");
+            }
+            finalSpeed = BigDecimal.ZERO;
         }
 
-        Integer durationMinutes = calcDurationMinutesByRolls(schedule.getScheduleQty(), slittingParams.getProductionSpeed());
-        if (durationMinutes <= 0) {
+        Integer durationMinutes = calcDurationMinutesByRolls(schedule.getScheduleQty(), finalSpeed);
+        if (durationMinutes <= 0 && !looseMode) {
             throw new RuntimeException("分切卷数或分切速度无效，无法计算机台占用时长");
         }
         LocalDateTime rewindingEnd = resolveRewindingEndTime(schedule);
         LocalDateTime selectedStart = parseDateTime(packagingDate);
-        if (rewindingEnd != null && selectedStart.isBefore(rewindingEnd)) {
+        if (!dayPriorityMode && rewindingEnd != null && selectedStart.isBefore(rewindingEnd)) {
             selectedStart = rewindingEnd;
         }
-        selectedStart = alignStartAvoidSlittingOverlap(equipmentCode, scheduleId, selectedStart, durationMinutes);
-        LocalDateTime selectedEnd = selectedStart.plusMinutes(durationMinutes);
-
-        shiftConflictingSlittingOccupations(equipmentCode, scheduleId, selectedStart, selectedEnd);
+        LocalDateTime selectedEnd = selectedStart;
+        if (!dayPriorityMode && durationMinutes != null && durationMinutes > 0) {
+            selectedStart = alignStartAvoidSlittingOverlap(equipmentCode, scheduleId, selectedStart, durationMinutes);
+            selectedEnd = selectedStart.plusMinutes(durationMinutes);
+            shiftConflictingSlittingOccupations(equipmentCode, scheduleId, selectedStart, selectedEnd);
+        }
 
         schedule.setSlittingScheduleDate(selectedStart.toLocalDate());
         schedule.setPackagingDate(selectedStart.toLocalDate());
@@ -1785,22 +1849,29 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         schedule.setStatus("CONFIRMED");
 
         // 分切锁定链：优先锁定仓库现有复卷，不足创建待补锁（等待复卷入库自动补锁）
-        lockMaterialsForSlittingIfNeeded(schedule, item);
+        // 业务放宽：锁料异常不阻塞排程落地
+        try {
+            lockMaterialsForSlittingIfNeeded(schedule, item);
+        } catch (Exception ex) {
+            System.err.println("分切锁料降级处理（不中断排程）: " + ex.getMessage());
+        }
 
         boolean updated = this.updateById(schedule);
 
-        EquipmentOccupation oc = new EquipmentOccupation();
-        oc.setScheduleId(scheduleId);
-        oc.setProcessType("SLITTING");
-        oc.setEquipmentId(eq == null ? null : eq.getId());
-        oc.setEquipmentCode(equipmentCode);
-        oc.setStartTime(selectedStart);
-        oc.setEndTime(selectedEnd);
-        oc.setDurationMinutes(durationMinutes);
-        oc.setStatus("PLANNED");
-        oc.setRemark("分切排程自动回推机台占用");
         equipmentOccupationMapper.deleteByScheduleAndProcess(scheduleId, "SLITTING");
-        equipmentOccupationMapper.insert(oc);
+        if (!dayPriorityMode && durationMinutes != null && durationMinutes > 0) {
+            EquipmentOccupation oc = new EquipmentOccupation();
+            oc.setScheduleId(scheduleId);
+            oc.setProcessType("SLITTING");
+            oc.setEquipmentId(eq == null ? null : eq.getId());
+            oc.setEquipmentCode(equipmentCode);
+            oc.setStartTime(selectedStart);
+            oc.setEndTime(selectedEnd);
+            oc.setDurationMinutes(durationMinutes);
+            oc.setStatus("PLANNED");
+            oc.setRemark("分切排程自动回推机台占用");
+            equipmentOccupationMapper.insert(oc);
+        }
 
         // 写入统一排程计划表（分切）
         try {
@@ -1988,13 +2059,17 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
     @Override
     @Transactional
     public Long createSchedule(ManualSchedule schedule) {
+        String normalizedScheduleType = schedule.getScheduleType() == null
+                ? ""
+                : schedule.getScheduleType().trim().toUpperCase(Locale.ROOT);
+
         if (schedule.getOrderDetailId() != null) {
             ensureOrderDetailSchedulable(schedule.getOrderDetailId());
         } else {
-            String scheduleType = schedule.getScheduleType() == null ? "" : schedule.getScheduleType().trim().toUpperCase();
-            if (!"COATING".equals(scheduleType)) {
+            if (!"COATING".equals(normalizedScheduleType)) {
                 throw new RuntimeException("缺少订单明细，仅支持创建涂布手工排程");
             }
+            schedule.setOrderNo(nextManualCoatingOrderNo());
         }
 
         if (schedule.getMaterialCode() != null) {
@@ -2043,10 +2118,13 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
             }
         }
 
-        if ("COATING".equalsIgnoreCase(schedule.getScheduleType())) {
-            schedule.setStatus(schedule.getStatus() == null ? "PENDING" : schedule.getStatus());
+        if ("SLITTING_MANUAL".equals(normalizedScheduleType)) {
+            schedule.setStatus(schedule.getStatus() == null ? "REWINDING_SCHEDULED" : schedule.getStatus());
         } else {
             schedule.setStatus(schedule.getStatus() == null ? "PENDING" : schedule.getStatus());
+        }
+        if (schedule.getOrderDetailId() != null) {
+            ensureOrderDetailScheduleQuota(schedule.getOrderDetailId(), schedule.getScheduleQty());
         }
         if (schedule.getPackagingTeam() != null) {
             schedule.setPackagingTeam(schedule.getPackagingTeam().trim());
@@ -2063,7 +2141,89 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
                 createCoatingBomPendingLocksIfNeeded(schedule.getId(), schedule.getOrderNo(), item.getMaterialCode(), schedule.getCoatingArea());
             }
         }
+        if ("SLITTING_MANUAL".equals(normalizedScheduleType)) {
+            upsertSlittingPlanForManualSchedule(schedule);
+        }
         return schedule.getId();
+    }
+
+    private String nextManualCoatingOrderNo() {
+        String day = LocalDate.now().format(DateTimeFormatter.ofPattern("yyMMdd"));
+        String prefix = "MT" + day + "-";
+        String latest = scheduleMapper.selectLatestOrderNoByPrefix(prefix);
+        int seq = 1;
+        if (latest != null) {
+            String text = latest.trim().toUpperCase(Locale.ROOT);
+            if (text.startsWith(prefix) && text.length() >= prefix.length() + 3) {
+                String tail = text.substring(text.length() - 3);
+                try {
+                    seq = Integer.parseInt(tail) + 1;
+                } catch (Exception ignored) {
+                    seq = 1;
+                }
+            }
+        }
+        if (seq > 999) {
+            throw new RuntimeException("今日手工订单号已超出 999 条，请联系管理员扩展编码规则");
+        }
+
+        while (seq <= 999) {
+            String candidate = prefix + String.format("%03d", seq);
+            QueryWrapper<ManualSchedule> q = new QueryWrapper<>();
+            q.eq("order_no", candidate);
+            Long exists = this.count(q);
+            if (exists == null || exists <= 0) {
+                return candidate;
+            }
+            seq++;
+        }
+        throw new RuntimeException("生成手工订单号失败：今日编号已满");
+    }
+
+    private void upsertSlittingPlanForManualSchedule(ManualSchedule schedule) {
+        if (schedule == null || schedule.getOrderDetailId() == null) {
+            return;
+        }
+        try {
+            SalesOrderItem item = salesOrderItemMapper.selectById(schedule.getOrderDetailId());
+            if (item == null) {
+                return;
+            }
+
+            SchedulePlan plan = new SchedulePlan();
+            plan.setOrderDetailId(schedule.getOrderDetailId());
+            plan.setOrderNo(schedule.getOrderNo());
+            plan.setMaterialCode(schedule.getMaterialCode() != null ? schedule.getMaterialCode() : item.getMaterialCode());
+            plan.setMaterialName(schedule.getMaterialName() != null ? schedule.getMaterialName() : item.getMaterialName());
+            plan.setThickness(item.getThickness() == null ? null : item.getThickness().intValue());
+            plan.setWidth(item.getWidth() == null ? null : item.getWidth().intValue());
+            plan.setLength(item.getLength() == null ? null : item.getLength().intValue());
+            plan.setStage("SLITTING");
+
+            LocalDateTime planDate = null;
+            if (schedule.getPackagingDate() != null) {
+                planDate = schedule.getPackagingDate().atTime(8, 0);
+            } else if (schedule.getSlittingScheduleDate() != null) {
+                planDate = schedule.getSlittingScheduleDate().atTime(8, 0);
+            } else {
+                planDate = schedule.getCreatedAt() != null ? schedule.getCreatedAt() : LocalDateTime.now();
+            }
+            plan.setPlanDate(planDate);
+            plan.setEquipment(schedule.getRewindingEquipment());
+
+            BigDecimal area = BigDecimal.ZERO;
+            if (item.getWidth() != null && item.getLength() != null && schedule.getScheduleQty() != null) {
+                area = item.getWidth()
+                        .divide(new BigDecimal("1000"), 8, RoundingMode.HALF_UP)
+                        .multiply(item.getLength())
+                        .multiply(BigDecimal.valueOf(schedule.getScheduleQty()));
+            }
+            plan.setPlanArea(area.setScale(2, RoundingMode.HALF_UP));
+            plan.setStatus("CONFIRMED");
+            schedulePlanService.upsertPlan(plan);
+        } catch (Exception e) {
+            log.warn("同步分切计划失败, scheduleId=" + schedule.getId() + ", orderDetailId=" + schedule.getOrderDetailId() + ", msg=" + e.getMessage());
+        }
     }
     
     @Override
@@ -2445,6 +2605,16 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         }
         double raw = rolls / speed.doubleValue();
         return (int) Math.ceil(raw);
+    }
+
+    private BigDecimal normalizePositiveSpeed(Double speed) {
+        if (speed == null) {
+            return null;
+        }
+        if (speed <= 0) {
+            return null;
+        }
+        return BigDecimal.valueOf(speed);
     }
 
     private int calcRewindingDurationMinutesByArea(Double areaSquareMeter, Double rewindingWidthMm, BigDecimal speedMeterPerMinute) {
@@ -2856,7 +3026,11 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
     }
 
     @Override
-    public Map<String, Object> previewRewindingOccupation(Long scheduleId, String rewindingEquipment, String rewindingDate) {
+    public Map<String, Object> previewRewindingOccupation(Long scheduleId,
+                                                          String rewindingEquipment,
+                                                          String rewindingDate,
+                                                          Double manualRewindingSpeed,
+                                                          Boolean looseDurationMode) {
         if (scheduleId == null) {
             throw new RuntimeException("scheduleId 不能为空");
         }
@@ -2908,8 +3082,16 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
             }
         }
 
-        if (params == null || params.getRewindingSpeed() == null || params.getRewindingSpeed().compareTo(BigDecimal.ZERO) <= 0) {
-            throw new RuntimeException("未维护该料号的复卷速度，请先在工艺参数中维护");
+        BigDecimal finalSpeed = normalizePositiveSpeed(manualRewindingSpeed);
+        if (finalSpeed == null && params != null) {
+            finalSpeed = params.getRewindingSpeed();
+        }
+        boolean looseMode = Boolean.TRUE.equals(looseDurationMode);
+        if (finalSpeed == null || finalSpeed.compareTo(BigDecimal.ZERO) <= 0) {
+            if (!looseMode) {
+                throw new RuntimeException("未维护该料号的复卷速度，请先在工艺参数中维护或手工录入速度");
+            }
+            finalSpeed = BigDecimal.ZERO;
         }
 
         Double rewindingArea = schedule.getRewindingScheduledArea() != null
@@ -2925,29 +3107,40 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
             rewindingWidthMm = item.getWidth() != null ? item.getWidth().doubleValue() : 500D;
         }
 
-        int durationMinutes = calcRewindingDurationMinutesByArea(rewindingArea, rewindingWidthMm, params.getRewindingSpeed());
-        if (durationMinutes <= 0) {
+        int durationMinutes = calcRewindingDurationMinutesByArea(rewindingArea, rewindingWidthMm, finalSpeed);
+        if (durationMinutes <= 0 && !looseMode) {
             throw new RuntimeException("复卷面积/宽度/速度无效，无法计算机台占用时长");
         }
 
-        LocalDateTime suggestedStart = alignStartAvoidRewindingOverlap(equipmentCode, scheduleId, requestedStart, durationMinutes);
+        LocalDateTime suggestedStart = requestedStart;
+        if (durationMinutes > 0) {
+            suggestedStart = alignStartAvoidRewindingOverlap(equipmentCode, scheduleId, requestedStart, durationMinutes);
+        }
         LocalDateTime coatingStart = resolveCoatingStartTime(schedule);
         boolean earlierThanCoating = coatingStart != null && suggestedStart.isBefore(coatingStart);
         if (earlierThanCoating) {
-            suggestedStart = alignStartAvoidRewindingOverlap(equipmentCode, scheduleId, coatingStart, durationMinutes);
+            suggestedStart = durationMinutes > 0
+                    ? alignStartAvoidRewindingOverlap(equipmentCode, scheduleId, coatingStart, durationMinutes)
+                    : coatingStart;
+        }
+        if (suggestedStart == null) {
+            suggestedStart = requestedStart;
         }
         LocalDateTime latestEnd = equipmentOccupationMapper.selectLatestEndTime(equipmentCode, "REWINDING", scheduleId);
-        LocalDateTime suggestedEnd = suggestedStart.plusMinutes(durationMinutes);
+        LocalDateTime suggestedEnd = durationMinutes > 0 ? suggestedStart.plusMinutes(durationMinutes) : suggestedStart;
 
         Map<String, Object> result = new HashMap<>();
         result.put("equipmentId", equipment.getId());
         result.put("equipmentCode", equipmentCode);
         result.put("equipmentName", equipment.getEquipmentName());
         result.put("materialCode", materialCode);
-        result.put("rewindingSpeed", params.getRewindingSpeed());
+        result.put("rewindingSpeed", finalSpeed.compareTo(BigDecimal.ZERO) > 0 ? finalSpeed : null);
         result.put("rewindingArea", rewindingArea);
         result.put("rewindingWidth", rewindingWidthMm);
-        result.put("durationMinutes", durationMinutes);
+        result.put("durationMinutes", Math.max(durationMinutes, 0));
+        result.put("durationEstimated", durationMinutes > 0);
+        result.put("looseDurationMode", looseMode);
+        result.put("manualSpeedApplied", normalizePositiveSpeed(manualRewindingSpeed) != null);
         result.put("suggestedStart", suggestedStart.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
         result.put("suggestedEnd", suggestedEnd.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
         result.put("latestEnd", latestEnd == null ? null : latestEnd.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
@@ -2957,12 +3150,18 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         result.put("earlierThanCoating", earlierThanCoating);
         if (earlierThanCoating) {
             result.put("warning", "复卷开始时间不能早于涂布开始时间，已自动调整");
+        } else if (durationMinutes <= 0) {
+            result.put("warning", "未获取到有效复卷速度，已按松排模式仅排开始时间");
         }
         return result;
     }
 
     @Override
-    public Map<String, Object> previewSlittingOccupation(Long scheduleId, String slittingEquipment, String packagingDate) {
+    public Map<String, Object> previewSlittingOccupation(Long scheduleId,
+                                                         String slittingEquipment,
+                                                         String packagingDate,
+                                                         Double manualSlittingSpeed,
+                                                         Boolean looseDurationMode) {
         if (scheduleId == null) {
             throw new RuntimeException("scheduleId 不能为空");
         }
@@ -2973,8 +3172,14 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         if (slittingEquipment == null || slittingEquipment.trim().isEmpty()) {
             throw new RuntimeException("请先选择分切机台");
         }
+        // 分切优先级策略：松排模式下仅确认排程日期，不校验机台可用性/产能
+        boolean dayPriorityMode = Boolean.TRUE.equals(looseDurationMode);
         if (packagingDate == null || packagingDate.trim().isEmpty()) {
-            throw new RuntimeException("请先选择分切日期时间");
+            if (dayPriorityMode) {
+                packagingDate = LocalDate.now().atTime(8, 0).format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+            } else {
+                throw new RuntimeException("请先选择分切日期时间");
+            }
         }
 
         String equipmentCode = slittingEquipment.trim();
@@ -2983,7 +3188,13 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
             equipmentCode = eq.getEquipmentCode().trim();
         }
         LocalDateTime requestedStart = parseDateTime(packagingDate);
-        validateEquipmentAvailabilityForManualSchedule(eq, equipmentCode, requestedStart.toLocalDate());
+        if (requestedStart == null) {
+            requestedStart = LocalDateTime.now();
+        }
+        final LocalDateTime baseRequestedStart = Objects.requireNonNull(requestedStart);
+        if (!dayPriorityMode) {
+            validateEquipmentAvailabilityForManualSchedule(eq, equipmentCode, requestedStart.toLocalDate());
+        }
 
         SalesOrderItem item = salesOrderItemMapper.selectById(schedule.getOrderDetailId());
         if (item == null) {
@@ -2996,40 +3207,73 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
                 item.getWidth(),
                 equipmentCode
         );
-        if (slittingParams == null || slittingParams.getProductionSpeed() == null || slittingParams.getProductionSpeed().compareTo(BigDecimal.ZERO) <= 0) {
-            throw new RuntimeException("未维护该规格在当前机台的分切速度，请先在分切参数中维护");
+        BigDecimal finalSpeed = normalizePositiveSpeed(manualSlittingSpeed);
+        if (finalSpeed == null && slittingParams != null) {
+            finalSpeed = slittingParams.getProductionSpeed();
+        }
+        boolean looseMode = dayPriorityMode;
+        if (finalSpeed == null || finalSpeed.compareTo(BigDecimal.ZERO) <= 0) {
+            if (!looseMode) {
+                throw new RuntimeException("未维护该规格在当前机台的分切速度，请先在分切参数中维护或手工录入速度");
+            }
+            finalSpeed = BigDecimal.ZERO;
         }
 
-        Integer durationMinutes = calcDurationMinutesByRolls(schedule.getScheduleQty(), slittingParams.getProductionSpeed());
-        if (durationMinutes == null || durationMinutes <= 0) {
+        Integer durationMinutes = calcDurationMinutesByRolls(schedule.getScheduleQty(), finalSpeed);
+        if (durationMinutes == null || (durationMinutes <= 0 && !looseMode)) {
             throw new RuntimeException("分切卷数或分切速度无效，无法计算机台占用时长");
         }
 
         LocalDateTime rewindingEnd = resolveRewindingEndTime(schedule);
-        boolean earlierThanRewinding = rewindingEnd != null && requestedStart.isBefore(rewindingEnd);
-        if (earlierThanRewinding) {
+        boolean earlierThanRewinding = !dayPriorityMode && rewindingEnd != null && requestedStart.isBefore(rewindingEnd);
+        if (!dayPriorityMode && earlierThanRewinding) {
             requestedStart = rewindingEnd;
         }
 
-        LocalDateTime latestEnd = equipmentOccupationMapper.selectLatestEndTime(equipmentCode, "SLITTING", scheduleId);
-        LocalDateTime suggestedStart = alignStartAvoidSlittingOverlap(equipmentCode, scheduleId, requestedStart, durationMinutes);
-        if (rewindingEnd != null && suggestedStart.isBefore(rewindingEnd)) {
-            suggestedStart = alignStartAvoidSlittingOverlap(equipmentCode, scheduleId, rewindingEnd, durationMinutes);
+        LocalDateTime latestEnd = dayPriorityMode
+                ? null
+                : equipmentOccupationMapper.selectLatestEndTime(equipmentCode, "SLITTING", scheduleId);
+        LocalDateTime suggestedStart = dayPriorityMode ? baseRequestedStart : baseRequestedStart;
+        if (!dayPriorityMode && durationMinutes != null && durationMinutes > 0) {
+            suggestedStart = alignStartAvoidSlittingOverlap(equipmentCode, scheduleId, baseRequestedStart, durationMinutes);
         }
-        LocalDateTime suggestedEnd = suggestedStart.plusMinutes(durationMinutes);
+        if (suggestedStart == null) {
+            suggestedStart = baseRequestedStart;
+        }
+        LocalDateTime safeSuggestedStart = suggestedStart == null ? baseRequestedStart : suggestedStart;
+        if (!dayPriorityMode && rewindingEnd != null && safeSuggestedStart.isBefore(rewindingEnd)) {
+            suggestedStart = (!dayPriorityMode && durationMinutes != null && durationMinutes > 0)
+                    ? alignStartAvoidSlittingOverlap(equipmentCode, scheduleId, rewindingEnd, durationMinutes)
+                    : rewindingEnd;
+        }
+        if (suggestedStart == null) {
+            suggestedStart = baseRequestedStart;
+        }
+        LocalDateTime finalSuggestedStart = Objects.requireNonNull(suggestedStart);
+        LocalDateTime suggestedEnd = (!dayPriorityMode && durationMinutes != null && durationMinutes > 0)
+                ? finalSuggestedStart.plusMinutes(durationMinutes)
+                : finalSuggestedStart;
 
         Map<String, Object> result = new HashMap<>();
         result.put("equipmentCode", equipmentCode);
         result.put("equipmentName", eq == null ? null : eq.getEquipmentName());
-        result.put("productionSpeed", slittingParams.getProductionSpeed());
-        result.put("durationMinutes", durationMinutes);
-        result.put("suggestedStart", suggestedStart.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+        result.put("productionSpeed", (!dayPriorityMode && finalSpeed.compareTo(BigDecimal.ZERO) > 0) ? finalSpeed : null);
+        result.put("durationMinutes", dayPriorityMode ? 0 : Math.max(durationMinutes == null ? 0 : durationMinutes, 0));
+        result.put("durationEstimated", !dayPriorityMode && durationMinutes != null && durationMinutes > 0);
+        result.put("looseDurationMode", looseMode);
+        result.put("capacityIgnored", dayPriorityMode);
+        result.put("manualSpeedApplied", normalizePositiveSpeed(manualSlittingSpeed) != null);
+        result.put("suggestedStart", finalSuggestedStart.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
         result.put("suggestedEnd", suggestedEnd.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
         result.put("latestEnd", latestEnd == null ? null : latestEnd.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
         result.put("rewindingEnd", rewindingEnd == null ? null : rewindingEnd.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
         result.put("earlierThanRewinding", earlierThanRewinding);
         if (earlierThanRewinding) {
             result.put("warning", "分切开始时间不能早于复卷结束时间，已自动调整");
+        } else if (dayPriorityMode) {
+            result.put("warning", "已按日期优先排程，暂不校验分切机台产能与占用冲突");
+        } else if (durationMinutes == null || durationMinutes <= 0) {
+            result.put("warning", "未获取到有效分切速度，已按松排模式仅排开始时间");
         }
         return result;
     }
@@ -3037,7 +3281,7 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
     @Override
     public Map<String, Object> previewCoatingOccupation(Long scheduleId, String equipmentId, String coatingDate, Double coatingLength, String materialCode,
                                                         String insertMode, Long anchorScheduleId, String anchorAfterTime,
-                                                        String rebalanceMode) {
+                                                        String rebalanceMode, Double manualCoatingSpeed) {
         ManualSchedule schedule = null;
         if (scheduleId != null) {
             schedule = this.getById(scheduleId);
@@ -3117,6 +3361,10 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
             }
             params.setCoatingSpeed(DEFAULT_COATING_SPEED);
         }
+        BigDecimal manualSpeed = normalizePositiveSpeed(manualCoatingSpeed);
+        if (manualSpeed != null) {
+            params.setCoatingSpeed(manualSpeed);
+        }
 
         Double finalLength = null;
         Double finalArea = (schedule != null && schedule.getCoatingArea() != null) ? schedule.getCoatingArea().doubleValue() : null;
@@ -3150,6 +3398,7 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         result.put("equipmentName", equipment.getEquipmentName());
         result.put("materialCode", resolvedMaterialCode);
         result.put("coatingSpeed", params.getCoatingSpeed());
+        result.put("manualSpeedApplied", manualSpeed != null);
         result.put("coatingLength", finalLength);
         result.put("coatingArea", finalArea);
         result.put("coatingWidth", finalWidth);
@@ -3199,7 +3448,8 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
     @Transactional
     public Long createCoatingSchedule(Long scheduleId, Double coatingArea, String coatingDate, String rewindingDate, String packagingDate, String equipmentId,
                                       Double coatingWidth, Double coatingLength, String materialCode,
-                                      String insertMode, Long anchorScheduleId, String anchorAfterTime, String rebalanceMode) {
+                                      String insertMode, Long anchorScheduleId, String anchorAfterTime, String rebalanceMode,
+                                      Double manualCoatingSpeed) {
         ManualSchedule schedule = this.getById(scheduleId);
         if (schedule == null) {
             throw new RuntimeException("排程记录不存在");
@@ -3209,7 +3459,7 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         }
 
         Map<String, Object> occupation = previewCoatingOccupation(scheduleId, equipmentId, coatingDate, coatingLength, materialCode,
-            insertMode, anchorScheduleId, anchorAfterTime, rebalanceMode);
+            insertMode, anchorScheduleId, anchorAfterTime, rebalanceMode, manualCoatingSpeed);
         Integer durationMinutes = ((Number) occupation.get("durationMinutes")).intValue();
         String equipmentCode = String.valueOf(occupation.get("equipmentCode"));
         LocalDateTime selectedStart = parseDateTime(String.valueOf(occupation.get("suggestedStart")));
@@ -3257,6 +3507,8 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
                 }
             }
         }
+        BigDecimal manualSpeed = normalizePositiveSpeed(manualCoatingSpeed);
+        schedule.setManualCoatingSpeed(manualSpeed);
         schedule.setStatus("COATING_SCHEDULED");
         schedule.setScheduleType("COATING");
         
@@ -3344,7 +3596,13 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
 
     @Override
     @Transactional
-    public boolean updateRewindingInfo(Long scheduleId, Double rewindingArea, String rewindingDate, String rewindingEquipment, Double rewindingWidth) {
+    public boolean updateRewindingInfo(Long scheduleId,
+                                       Double rewindingArea,
+                                       String rewindingDate,
+                                       String rewindingEquipment,
+                                       Double rewindingWidth,
+                                       Double manualRewindingSpeed,
+                                       Boolean looseDurationMode) {
         ManualSchedule schedule = this.getById(scheduleId);
         if (schedule == null) {
             throw new RuntimeException("排程记录不存在");
@@ -3353,21 +3611,37 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
             ensureOrderDetailSchedulable(schedule.getOrderDetailId());
         }
 
-        Map<String, Object> occupation = previewRewindingOccupation(scheduleId, rewindingEquipment, rewindingDate);
-        Integer durationMinutes = ((Number) occupation.get("durationMinutes")).intValue();
-        if (durationMinutes <= 0) {
+        Map<String, Object> occupation = previewRewindingOccupation(
+            scheduleId,
+            rewindingEquipment,
+            rewindingDate,
+            manualRewindingSpeed,
+            looseDurationMode
+        );
+        Number durationNumber = occupation.get("durationMinutes") instanceof Number
+                ? (Number) occupation.get("durationMinutes")
+                : null;
+        Integer durationMinutes = durationNumber == null ? 0 : durationNumber.intValue();
+        boolean looseMode = Boolean.TRUE.equals(looseDurationMode);
+        if (durationMinutes <= 0 && !looseMode) {
             throw new RuntimeException("复卷面积/宽度/速度无效，无法计算机台占用时长");
         }
         String equipmentCode = String.valueOf(occupation.get("equipmentCode"));
         LocalDateTime selectedStart = parseDateTime(String.valueOf(occupation.get("suggestedStart")));
-        selectedStart = alignStartAvoidRewindingOverlap(equipmentCode, scheduleId, selectedStart, durationMinutes);
+        if (durationMinutes > 0) {
+            selectedStart = alignStartAvoidRewindingOverlap(equipmentCode, scheduleId, selectedStart, durationMinutes);
+        }
         LocalDateTime coatingStart = resolveCoatingStartTime(schedule);
         if (coatingStart != null && selectedStart.isBefore(coatingStart)) {
-            selectedStart = alignStartAvoidRewindingOverlap(equipmentCode, scheduleId, coatingStart, durationMinutes);
+            selectedStart = durationMinutes > 0
+                    ? alignStartAvoidRewindingOverlap(equipmentCode, scheduleId, coatingStart, durationMinutes)
+                    : coatingStart;
         }
-        LocalDateTime selectedEnd = selectedStart.plusMinutes(durationMinutes);
+        LocalDateTime selectedEnd = durationMinutes > 0 ? selectedStart.plusMinutes(durationMinutes) : selectedStart;
 
-        shiftConflictingRewindingOccupations(equipmentCode, scheduleId, selectedStart, selectedEnd);
+        if (durationMinutes > 0) {
+            shiftConflictingRewindingOccupations(equipmentCode, scheduleId, selectedStart, selectedEnd);
+        }
 
         Object calcAreaObj = occupation.get("rewindingArea");
         Double finalRewindingArea = null;
@@ -3401,19 +3675,21 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         schedule.setStatus("REWINDING_SCHEDULED");
         boolean updated = this.updateById(schedule);
 
-        Equipment eq = resolveEquipmentByIdOrCode(rewindingEquipment);
-        EquipmentOccupation oc = new EquipmentOccupation();
-        oc.setScheduleId(scheduleId);
-        oc.setProcessType("REWINDING");
-        oc.setEquipmentId(eq == null ? null : eq.getId());
-        oc.setEquipmentCode(equipmentCode);
-        oc.setStartTime(selectedStart);
-        oc.setEndTime(selectedEnd);
-        oc.setDurationMinutes(durationMinutes);
-        oc.setStatus("PLANNED");
-        oc.setRemark("复卷排程自动回推机台占用");
         equipmentOccupationMapper.deleteByScheduleAndProcess(scheduleId, "REWINDING");
-        equipmentOccupationMapper.insert(oc);
+        if (durationMinutes > 0) {
+            Equipment eq = resolveEquipmentByIdOrCode(rewindingEquipment);
+            EquipmentOccupation oc = new EquipmentOccupation();
+            oc.setScheduleId(scheduleId);
+            oc.setProcessType("REWINDING");
+            oc.setEquipmentId(eq == null ? null : eq.getId());
+            oc.setEquipmentCode(equipmentCode);
+            oc.setStartTime(selectedStart);
+            oc.setEndTime(selectedEnd);
+            oc.setDurationMinutes(durationMinutes);
+            oc.setStatus("PLANNED");
+            oc.setRemark("复卷排程自动回推机台占用");
+            equipmentOccupationMapper.insert(oc);
+        }
 
         // 写入统一排程计划表（复卷）
         try {
@@ -4383,6 +4659,51 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
 
         if (reason != null && !reason.trim().isEmpty()) {
             System.out.println("[ResetSchedule] orderDetailId=" + orderDetailId + ", reason=" + reason + ", operator=" + operator);
+        }
+        return true;
+    }
+
+    @Override
+    @Transactional
+    public boolean resetScheduleByScheduleId(Long scheduleId, String reason, String operator) {
+        if (scheduleId == null) {
+            throw new RuntimeException("scheduleId 不能为空");
+        }
+
+        ManualSchedule schedule = this.getById(scheduleId);
+        if (schedule == null) {
+            throw new RuntimeException("排程记录不存在");
+        }
+
+        releaseStockAllocationsPartial(schedule.getStockAllocations(), BigDecimal.ONE);
+        try {
+            manualScheduleCoatingAllocationMapper.deleteByScheduleId(scheduleId);
+        } catch (Exception ignored) {
+        }
+        try {
+            scheduleMapper.deleteProcessReportsByScheduleId(scheduleId);
+        } catch (Exception ignored) {
+        }
+        try {
+            equipmentOccupationMapper.delete(new LambdaQueryWrapper<EquipmentOccupation>()
+                    .eq(EquipmentOccupation::getScheduleId, scheduleId));
+        } catch (Exception ignored) {
+        }
+
+        if (schedule.getOrderDetailId() != null) {
+            int rollbackQty = Math.max(schedule.getScheduleQty() == null ? 0 : schedule.getScheduleQty(), 0);
+            if (rollbackQty > 0) {
+                scheduleMapper.rollbackScheduledQtyByDetailId(schedule.getOrderDetailId(), BigDecimal.valueOf(rollbackQty));
+            }
+        }
+
+        boolean removed = this.removeById(scheduleId);
+        if (!removed) {
+            throw new RuntimeException("清空单行排程失败");
+        }
+
+        if (reason != null && !reason.trim().isEmpty()) {
+            System.out.println("[ResetSingleSchedule] scheduleId=" + scheduleId + ", reason=" + reason + ", operator=" + operator);
         }
         return true;
     }

@@ -64,6 +64,18 @@ public class TapeSpecServiceImpl implements TapeSpecService {
     }
 
     @Override
+    public ResponseResult<?> suggestByMaterialCode(String keyword, Integer limit) {
+        String normalized = keyword == null ? "" : keyword.trim().toUpperCase(Locale.ROOT);
+        if (normalized.isEmpty()) {
+            return new ResponseResult<>(20000, "查询成功", Collections.emptyList());
+        }
+        int safeLimit = (limit == null || limit <= 0) ? 5 : Math.min(limit, 5);
+        List<TapeSpec> list = tapeSpecMapper.selectTopByMaterialCodePrefix(normalized, safeLimit);
+        fillMissingColorNameForList(list);
+        return new ResponseResult<>(20000, "查询成功", list == null ? Collections.emptyList() : list);
+    }
+
+    @Override
     public ResponseResult<?> create(TapeSpec spec, String operator) {
         // 检查料号是否重复
         if (tapeSpecMapper.checkMaterialCodeExists(spec.getMaterialCode(), 0L) > 0) {

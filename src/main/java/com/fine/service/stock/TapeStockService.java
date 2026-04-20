@@ -27,9 +27,29 @@ public interface TapeStockService {
     List<TapeStock> getStockSummary();
 
     /**
+     * 按料号汇总库存（按库位过滤）
+     */
+    List<TapeStock> getStockSummary(String location);
+
+    /**
+     * 按料号汇总库存（按退货专仓过滤）
+     */
+    List<TapeStock> getStockSummary(Boolean includeReturnWarehouse);
+
+    /**
      * 按料号汇总库存（分页）
      */
     IPage<TapeStock> getStockSummaryPage(int page, int size, String materialCode);
+
+    /**
+     * 按料号汇总库存（分页，按库位过滤）
+     */
+    IPage<TapeStock> getStockSummaryPage(int page, int size, String materialCode, String location);
+
+    /**
+     * 按料号汇总库存（分页，按退货专仓过滤）
+     */
+    IPage<TapeStock> getStockSummaryPage(int page, int size, String materialCode, Boolean includeReturnWarehouse);
     
     /**
      * 根据料号查询所有批次（FIFO排序）
@@ -37,9 +57,24 @@ public interface TapeStockService {
     List<TapeStock> getStockByMaterialFIFO(String materialCode);
 
     /**
+     * 按关键词查询可用批次（支持胶带/原材料料号模糊匹配）
+     */
+    List<TapeStock> searchStockByMaterialKeyword(String keyword);
+
+    /**
      * 根据料号查询库存明细（分页）
      */
     IPage<TapeStock> getStockByMaterialPage(int page, int size, String materialCode);
+
+    /**
+     * 根据料号查询库存明细（分页，按库位过滤）
+     */
+    IPage<TapeStock> getStockByMaterialPage(int page, int size, String materialCode, String location);
+
+    /**
+     * 根据料号查询库存明细（分页，按退货专仓过滤）
+     */
+    IPage<TapeStock> getStockByMaterialPage(int page, int size, String materialCode, Boolean includeReturnWarehouse);
     
     /**
      * 根据ID查询库存
@@ -55,6 +90,21 @@ public interface TapeStockService {
      * 导入Excel库存数据
      */
     Map<String, Object> importExcel(MultipartFile file);
+
+    /**
+     * 异步导入Excel库存数据（返回任务ID）
+     */
+    Map<String, Object> importExcelAsync(MultipartFile file);
+
+    /**
+     * 查询异步导入任务状态
+     */
+    Map<String, Object> getImportTaskStatus(String taskId);
+
+    /**
+     * 获取异步导入任务失败明细Excel
+     */
+    byte[] getImportTaskFailedExcel(String taskId);
     
     /**
      * 导出库存数据
@@ -142,4 +192,9 @@ public interface TapeStockService {
      * 导出流水数据
      */
     List<TapeStockLog> exportStockLog(String type, String materialCode, String startDate, String endDate);
+
+    /**
+     * 历史分切成品库存合并：将“每卷一条”的旧数据按申请单聚合为单条多卷库存
+     */
+    Map<String, Object> mergeHistoricalSlittingFinishedStock();
 }

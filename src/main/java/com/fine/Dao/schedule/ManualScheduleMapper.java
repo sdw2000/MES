@@ -193,8 +193,8 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "AND IFNULL(soi.delivered_qty, 0) < IFNULL(soi.rolls, 0) " +
             "AND IFNULL(soi.remaining_qty, (soi.rolls - IFNULL(soi.scheduled_qty, 0))) > 0 " +
             "AND (ms.packaging_date IS NULL AND ms.slitting_schedule_date IS NULL) " +
-            "AND (#{orderNo} IS NULL OR #{orderNo} = '' OR REPLACE(UPPER(o.order_no), ' ', '') LIKE CONCAT('%', REPLACE(UPPER(#{orderNo}), ' ', ''), '%')) " +
-            "AND (#{materialCode} IS NULL OR #{materialCode} = '' OR REPLACE(UPPER(soi.material_code), ' ', '') LIKE CONCAT('%', REPLACE(UPPER(#{materialCode}), ' ', ''), '%')) " +
+            "AND (#{orderNo} IS NULL OR #{orderNo} = '' OR o.order_no LIKE CONCAT('%', #{orderNo}, '%') OR IFNULL(o.customer_order_no, '') LIKE CONCAT('%', #{orderNo}, '%')) " +
+            "AND (#{materialCode} IS NULL OR #{materialCode} = '' OR soi.material_code LIKE CONCAT(#{materialCode}, '%')) " +
             "ORDER BY " +
             "  CASE WHEN IFNULL(soi.remaining_qty, (soi.rolls - IFNULL(soi.scheduled_qty, 0))) > 0 THEN 0 ELSE 1 END, " +
             "  priority_score DESC, " +
@@ -224,8 +224,8 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "AND IFNULL(soi.delivered_qty, 0) < IFNULL(soi.rolls, 0) " +
             "AND IFNULL(soi.remaining_qty, (soi.rolls - IFNULL(soi.scheduled_qty, 0))) > 0 " +
             "AND (ms.packaging_date IS NULL AND ms.slitting_schedule_date IS NULL) " +
-            "AND (#{orderNo} IS NULL OR #{orderNo} = '' OR REPLACE(UPPER(o.order_no), ' ', '') LIKE CONCAT('%', REPLACE(UPPER(#{orderNo}), ' ', ''), '%')) " +
-            "AND (#{materialCode} IS NULL OR #{materialCode} = '' OR REPLACE(UPPER(soi.material_code), ' ', '') LIKE CONCAT('%', REPLACE(UPPER(#{materialCode}), ' ', ''), '%'))")
+            "AND (#{orderNo} IS NULL OR #{orderNo} = '' OR o.order_no LIKE CONCAT('%', #{orderNo}, '%') OR IFNULL(o.customer_order_no, '') LIKE CONCAT('%', #{orderNo}, '%')) " +
+            "AND (#{materialCode} IS NULL OR #{materialCode} = '' OR soi.material_code LIKE CONCAT(#{materialCode}, '%'))")
     Long selectPendingOrdersCount(@Param("orderNo") String orderNo,
                                   @Param("materialCode") String materialCode);
 
@@ -250,8 +250,8 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "AND IFNULL(soi.delivered_qty, 0) < IFNULL(soi.rolls, 0) " +
             "AND IFNULL(soi.remaining_qty, (soi.rolls - IFNULL(soi.scheduled_qty, 0))) > 0 " +
             "AND (ms.packaging_date IS NULL AND ms.slitting_schedule_date IS NULL) " +
-            "AND (#{orderNo} IS NULL OR #{orderNo} = '' OR REPLACE(UPPER(o.order_no), ' ', '') LIKE CONCAT('%', REPLACE(UPPER(#{orderNo}), ' ', ''), '%')) " +
-            "AND (#{materialCode} IS NULL OR #{materialCode} = '' OR REPLACE(UPPER(soi.material_code), ' ', '') LIKE CONCAT('%', REPLACE(UPPER(#{materialCode}), ' ', ''), '%'))")
+            "AND (#{orderNo} IS NULL OR #{orderNo} = '' OR o.order_no LIKE CONCAT('%', #{orderNo}, '%') OR IFNULL(o.customer_order_no, '') LIKE CONCAT('%', #{orderNo}, '%')) " +
+            "AND (#{materialCode} IS NULL OR #{materialCode} = '' OR soi.material_code LIKE CONCAT(#{materialCode}, '%'))")
     BigDecimal selectPendingOrdersOweAreaSum(@Param("orderNo") String orderNo,
                                               @Param("materialCode") String materialCode);
 
@@ -399,8 +399,8 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             ") ms ON ms.order_detail_id = soi.id " +
             "WHERE (o.status IS NULL OR LOWER(o.status) NOT IN ('cancelled','canceled','closed')) " +
             "AND o.is_deleted = 0 AND soi.is_deleted = 0 " +
-            "AND (#{orderNo} IS NULL OR #{orderNo} = '' OR REPLACE(UPPER(o.order_no), ' ', '') LIKE CONCAT('%', REPLACE(UPPER(#{orderNo}), ' ', ''), '%')) " +
-            "AND (#{materialCode} IS NULL OR #{materialCode} = '' OR REPLACE(UPPER(soi.material_code), ' ', '') LIKE CONCAT('%', REPLACE(UPPER(#{materialCode}), ' ', ''), '%')) " +
+            "AND (#{orderNo} IS NULL OR #{orderNo} = '' OR o.order_no LIKE CONCAT('%', #{orderNo}, '%') OR IFNULL(o.customer_order_no, '') LIKE CONCAT('%', #{orderNo}, '%')) " +
+            "AND (#{materialCode} IS NULL OR #{materialCode} = '' OR soi.material_code LIKE CONCAT(#{materialCode}, '%')) " +
             "ORDER BY " +
             "  CASE WHEN IFNULL(soi.remaining_qty, (soi.rolls - IFNULL(soi.scheduled_qty, 0))) > 0 THEN 0 ELSE 1 END, " +
             "  priority_score DESC, " +
@@ -417,8 +417,8 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "JOIN sales_orders o ON soi.order_id = o.id " +
             "WHERE (o.status IS NULL OR LOWER(o.status) NOT IN ('cancelled','canceled','closed')) " +
             "AND o.is_deleted = 0 AND soi.is_deleted = 0 " +
-            "AND (#{orderNo} IS NULL OR #{orderNo} = '' OR REPLACE(UPPER(o.order_no), ' ', '') LIKE CONCAT('%', REPLACE(UPPER(#{orderNo}), ' ', ''), '%')) " +
-            "AND (#{materialCode} IS NULL OR #{materialCode} = '' OR REPLACE(UPPER(soi.material_code), ' ', '') LIKE CONCAT('%', REPLACE(UPPER(#{materialCode}), ' ', ''), '%'))")
+            "AND (#{orderNo} IS NULL OR #{orderNo} = '' OR o.order_no LIKE CONCAT('%', #{orderNo}, '%') OR IFNULL(o.customer_order_no, '') LIKE CONCAT('%', #{orderNo}, '%')) " +
+            "AND (#{materialCode} IS NULL OR #{materialCode} = '' OR soi.material_code LIKE CONCAT(#{materialCode}, '%'))")
     Long selectPendingOrdersCountIncludeCompleted(@Param("orderNo") String orderNo,
                                                    @Param("materialCode") String materialCode);
     
@@ -795,7 +795,7 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "LEFT JOIN equipment_occupation eo_sl ON eo_sl.schedule_id = ms.id AND eo_sl.process_type = 'SLITTING' AND eo_sl.status IN ('PLANNED','RUNNING','FINISHED') " +
             "WHERE o.is_deleted = 0 AND soi.is_deleted = 0 " +
             "AND (o.status IS NULL OR LOWER(o.status) NOT IN ('cancelled','canceled','closed')) " +
-            "AND (#{orderNo} IS NULL OR #{orderNo} = '' OR o.order_no LIKE CONCAT('%', #{orderNo}, '%')) " +
+            "AND (#{orderNo} IS NULL OR #{orderNo} = '' OR o.order_no LIKE CONCAT('%', #{orderNo}, '%') OR IFNULL(o.customer_order_no, '') LIKE CONCAT('%', #{orderNo}, '%')) " +
             "ORDER BY COALESCE(ms.packaging_date, ms.slitting_schedule_date) ASC, o.delivery_date ASC")
     List<Map<String, Object>> selectSlittingSchedulesPage(Page<Map<String, Object>> page,
                                                           @Param("orderNo") String orderNo);
@@ -817,7 +817,7 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "JOIN sales_orders o ON soi.order_id = o.id " +
             "WHERE o.is_deleted = 0 AND soi.is_deleted = 0 " +
             "AND (o.status IS NULL OR LOWER(o.status) NOT IN ('cancelled','canceled','closed')) " +
-            "AND (#{orderNo} IS NULL OR #{orderNo} = '' OR o.order_no LIKE CONCAT('%', #{orderNo}, '%'))")
+            "AND (#{orderNo} IS NULL OR #{orderNo} = '' OR o.order_no LIKE CONCAT('%', #{orderNo}, '%') OR IFNULL(o.customer_order_no, '') LIKE CONCAT('%', #{orderNo}, '%'))")
     Long selectSlittingSchedulesCount(@Param("orderNo") String orderNo);
 
         /**
@@ -829,7 +829,8 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
     /**
      * 查询指定料号规格的库存（先进先出排序）
      */
-    @Select("SELECT " +
+    @Select("<script>" +
+            "SELECT " +
             "id AS stock_id, " +
             "material_code, " +
             "batch_no, " +
@@ -853,11 +854,16 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "AND total_rolls > 0 " +
             "AND IFNULL(available_area, 0) > 0 " +
             "AND status = 1 " +
-            "ORDER BY prod_date ASC, batch_no ASC")
+            "<if test='includeReturnWarehouse != null and includeReturnWarehouse == false'> " +
+            "AND (location IS NULL OR location != '退货专仓') " +
+            "</if> " +
+            "ORDER BY prod_date ASC, batch_no ASC" +
+            "</script>")
     List<Map<String, Object>> selectAvailableStock(
             @Param("materialCode") String materialCode,
             @Param("width") Integer width,
-            @Param("thickness") Integer thickness);
+            @Param("thickness") Integer thickness,
+            @Param("includeReturnWarehouse") Boolean includeReturnWarehouse);
     
     /**
      * 计算涂布需求：聚合此订单及以后订单的相同料号前缀
@@ -970,6 +976,7 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "COALESCE(soi.length, ms.coating_length) AS length, " +
             "COALESCE(ms.coating_width, soi.width) AS coating_width, " +
             "COALESCE(ms.coating_length, soi.length) AS coating_length, " +
+            "ms.manual_coating_speed AS manual_coating_speed, " +
             "soi.thickness, " +
             "ms.schedule_qty, " +
             "COALESCE(NULLIF(ms.coating_area, 0), (soi.width / 1000.0) * soi.length * IFNULL(ms.schedule_qty, 0)) AS coating_area, " +
@@ -1024,6 +1031,7 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "COALESCE(soi.length, ms.coating_length) AS length, " +
             "COALESCE(ms.coating_width, soi.width) AS coating_width, " +
             "COALESCE(ms.coating_length, soi.length) AS coating_length, " +
+            "ms.manual_coating_speed AS manual_coating_speed, " +
             "COALESCE(soi.thickness, ts.total_thickness) AS thickness, " +
             "ms.schedule_qty, " +
             "COALESCE(NULLIF(ms.coating_area, 0), (COALESCE(soi.width, ms.coating_width) / 1000.0) * COALESCE(soi.length, ms.coating_length) * IFNULL(ms.schedule_qty, 0)) AS coating_area, " +
@@ -1472,6 +1480,26 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
     int countSchedulableOrderDetail(@Param("orderDetailId") Long orderDetailId);
 
     /**
+     * 查询订单明细当前待排卷数（按排程口径：rolls - scheduled_qty）
+     */
+    @Select("SELECT GREATEST(IFNULL(soi.rolls, 0) - IFNULL(soi.scheduled_qty, 0), 0) " +
+            "FROM sales_order_items soi " +
+            "JOIN sales_orders o ON soi.order_id = o.id " +
+            "WHERE soi.id = #{orderDetailId} " +
+            "AND soi.is_deleted = 0 AND o.is_deleted = 0 " +
+            "AND (o.status IS NULL OR LOWER(o.status) NOT IN ('completed','cancelled','canceled','closed'))")
+    BigDecimal selectPendingQtyForScheduling(@Param("orderDetailId") Long orderDetailId);
+
+    /**
+     * 查询当前有效手工排程已占用卷数（防重复创建）
+     */
+    @Select("SELECT IFNULL(SUM(IFNULL(schedule_qty, 0)), 0) " +
+            "FROM manual_schedule " +
+            "WHERE order_detail_id = #{orderDetailId} " +
+            "AND status IN ('PENDING','COATING_SCHEDULED','REWINDING_SCHEDULED','CONFIRMED')")
+    BigDecimal sumActiveScheduleQtyByOrderDetailId(@Param("orderDetailId") Long orderDetailId);
+
+    /**
      * 查询订单明细下仍有效的手动排程（用于取消联动）
      */
     @Select("SELECT id, order_detail_id, schedule_qty, status, stock_allocations " +
@@ -1524,9 +1552,13 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
      */
     @Update("UPDATE sales_order_items " +
             "SET scheduled_qty = 0, " +
-            "coating_date = NULL, " +
-            "rewinding_date = NULL, " +
-            "packaging_date = NULL " +
+            "coating_date = NULL " +
             "WHERE id = #{orderDetailId}")
     int resetOrderDetailScheduleFields(@Param("orderDetailId") Long orderDetailId);
+
+        /**
+         * 按前缀查询最新订单号（例如 MT260420-）
+         */
+        @Select("SELECT order_no FROM manual_schedule WHERE order_no LIKE CONCAT(#{prefix}, '%') ORDER BY order_no DESC LIMIT 1")
+        String selectLatestOrderNoByPrefix(@Param("prefix") String prefix);
 }

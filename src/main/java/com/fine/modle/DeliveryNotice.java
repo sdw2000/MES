@@ -65,6 +65,10 @@ public class DeliveryNotice {
     // 运输公司电话
     private String carrierPhone;
 
+    // 打印标签时累计保存的批次号（逗号分隔、去重）
+    @TableField("batch_nos")
+    private String batchNos;
+
     // 状态：draft-草稿, shipped-已发货, cancelled-已作废
     private String status;
     

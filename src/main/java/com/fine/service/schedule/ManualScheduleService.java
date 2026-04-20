@@ -66,7 +66,7 @@ public interface ManualScheduleService extends IService<ManualSchedule> {
      * @param requiredQty 需求数量（卷）
      * @return 匹配结果：库存列表、总可用数量、是否充足
      */
-    Map<String, Object> matchStock(String materialCode, Integer width, Integer thickness, Integer requiredQty);
+   Map<String, Object> matchStock(String materialCode, Integer width, Integer thickness, Integer requiredQty, Boolean includeReturnWarehouse);
     
     /**
      * 计算涂布需求
@@ -113,7 +113,12 @@ public interface ManualScheduleService extends IService<ManualSchedule> {
     /**
      * 更新分切/包装日期
      */
-   boolean updateSlittingInfo(Long scheduleId, String packagingDate, String slittingEquipment, String packagingTeam);
+  boolean updateSlittingInfo(Long scheduleId,
+                    String packagingDate,
+                    String slittingEquipment,
+                    String packagingTeam,
+                    Double manualSlittingSpeed,
+                    Boolean looseDurationMode);
     List<Map<String, Object>> getRewindingSchedules();
 
     /**
@@ -141,7 +146,13 @@ public interface ManualScheduleService extends IService<ManualSchedule> {
     /**
      * 确认复卷排程（更新复卷日期/机台/已排面积）
      */
-   boolean updateRewindingInfo(Long scheduleId, Double rewindingArea, String rewindingDate, String rewindingEquipment, Double rewindingWidth);
+  boolean updateRewindingInfo(Long scheduleId,
+                     Double rewindingArea,
+                     String rewindingDate,
+                     String rewindingEquipment,
+                     Double rewindingWidth,
+                     Double manualRewindingSpeed,
+                     Boolean looseDurationMode);
     
     /**
      * 创建涂布排程
@@ -151,26 +162,35 @@ public interface ManualScheduleService extends IService<ManualSchedule> {
      * @param equipmentId 机台ID
      * @return 涂布排程ID
      */
-   Long createCoatingSchedule(Long scheduleId, Double coatingArea, String coatingDate, String rewindingDate, String packagingDate, String equipmentId,
-                        Double coatingWidth, Double coatingLength, String materialCode,
-                        String insertMode, Long anchorScheduleId, String anchorAfterTime, String rebalanceMode);
+  Long createCoatingSchedule(Long scheduleId, Double coatingArea, String coatingDate, String rewindingDate, String packagingDate, String equipmentId,
+                Double coatingWidth, Double coatingLength, String materialCode,
+                String insertMode, Long anchorScheduleId, String anchorAfterTime, String rebalanceMode,
+                Double manualCoatingSpeed);
 
    /**
     * 预估涂布机台占用（按料号+工序+机台速度计算）
     */
-   Map<String, Object> previewCoatingOccupation(Long scheduleId, String equipmentId, String coatingDate, Double coatingLength, String materialCode,
-                                                String insertMode, Long anchorScheduleId, String anchorAfterTime,
-                                                String rebalanceMode);
+  Map<String, Object> previewCoatingOccupation(Long scheduleId, String equipmentId, String coatingDate, Double coatingLength, String materialCode,
+                                String insertMode, Long anchorScheduleId, String anchorAfterTime,
+                                String rebalanceMode, Double manualCoatingSpeed);
 
    /**
     * 预估复卷机台占用（按料号+工序+机台速度计算）
     */
-   Map<String, Object> previewRewindingOccupation(Long scheduleId, String rewindingEquipment, String rewindingDate);
+  Map<String, Object> previewRewindingOccupation(Long scheduleId,
+                                  String rewindingEquipment,
+                                  String rewindingDate,
+                                  Double manualRewindingSpeed,
+                                  Boolean looseDurationMode);
 
    /**
     * 预估分切机台占用（按厚度+宽度+长度+机台速度计算）
     */
-   Map<String, Object> previewSlittingOccupation(Long scheduleId, String slittingEquipment, String packagingDate);
+  Map<String, Object> previewSlittingOccupation(Long scheduleId,
+                                 String slittingEquipment,
+                                 String packagingDate,
+                                 Double manualSlittingSpeed,
+                                 Boolean looseDurationMode);
     
     /**
      * 确认排程 - 更新订单明细的已排程数量
@@ -262,6 +282,11 @@ public interface ManualScheduleService extends IService<ManualSchedule> {
     * 清空订单明细的排程数据并允许重排
     */
    boolean resetScheduleByOrderDetailId(Long orderDetailId, String reason, String operator);
+
+   /**
+    * 清空单条排程数据（按排程ID）
+    */
+   boolean resetScheduleByScheduleId(Long scheduleId, String reason, String operator);
 
    /**
     * 急单物料抢占：先锁未锁定库存；不足时释放低优先级订单锁定并转给急单

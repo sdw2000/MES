@@ -12,6 +12,7 @@ CREATE TABLE `delivery_notices` (
   `delivery_address` varchar(255) DEFAULT NULL COMMENT '收货地址',
   `contact_person` varchar(50) DEFAULT NULL COMMENT '联系人',
   `contact_phone` varchar(50) DEFAULT NULL COMMENT '联系电话',
+  `batch_nos` varchar(1000) DEFAULT NULL COMMENT '标签打印累计批次号（逗号分隔唯一值）',
   `status` varchar(20) DEFAULT 'draft' COMMENT '状态：draft-草稿, shipped-已发货, cancelled-已作废',
   `remark` varchar(500) DEFAULT NULL COMMENT '备注',
   `created_by` varchar(50) DEFAULT NULL,

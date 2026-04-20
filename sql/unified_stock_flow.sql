@@ -1,0 +1,27 @@
+-- 统一库存流水表（支持所有库存类型）
+CREATE TABLE IF NOT EXISTS stock_flow_log (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  stock_type VARCHAR(20) NOT NULL COMMENT '库存类型：TAPE/CHEMICAL/FILM',
+  stock_id BIGINT NOT NULL COMMENT '关联库存ID',
+  batch_no VARCHAR(50) COMMENT '生产批次号',
+  material_code VARCHAR(50) COMMENT '料号',
+  product_name VARCHAR(100) COMMENT '产品名称',
+  type VARCHAR(10) NOT NULL COMMENT 'IN入库/OUT出库/ADJUST调整/CONSUME消耗',
+  change_quantity DECIMAL(15,3) NOT NULL COMMENT '变动数量（入库正数，出库负数）',
+  unit VARCHAR(20) COMMENT '单位：卷/㎡/kg/L等',
+  std_change_quantity DECIMAL(15,3) COMMENT '标准单位下的变动数量',
+  std_unit VARCHAR(20) COMMENT '标准单位，例如 kg/㎡/L',
+  before_quantity DECIMAL(15,3) COMMENT '变动前数量',
+  std_before_quantity DECIMAL(15,3) COMMENT '变动前数量的标准单位值',
+  after_quantity DECIMAL(15,3) COMMENT '变动后数量',
+  std_after_quantity DECIMAL(15,3) COMMENT '变动后数量的标准单位值',
+  ref_no VARCHAR(50) COMMENT '关联单号',
+  operator VARCHAR(50) COMMENT '操作人',
+  remark VARCHAR(200) COMMENT '备注',
+  create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_stock_type_id (stock_type, stock_id),
+  INDEX idx_batch_no (batch_no),
+  INDEX idx_material_code (material_code),
+  INDEX idx_type (type),
+  INDEX idx_create_time (create_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='统一库存流水表';

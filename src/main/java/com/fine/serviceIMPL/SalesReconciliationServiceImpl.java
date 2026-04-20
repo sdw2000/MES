@@ -14,7 +14,15 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
+import javax.servlet.http.HttpServletResponse;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.io.StringWriter;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
@@ -29,6 +37,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.Locale;
 
 import com.fine.modle.SalesReconciliationConfirmRequest;
 
@@ -402,6 +411,142 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
         }
         }
 
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ResponseResult<?> importHistory(String customerCode, MultipartFile file) {
+        try {
+            ensureHistoryTable();
+            if (!hasText(customerCode)) {
+                return new ResponseResult<>(400, "客户不能为空", null);
+            }
+            if (!canAccessCustomer(customerCode)) {
+                return new ResponseResult<>(403, "无权限操作该客户", null);
+            }
+            if (file == null || file.isEmpty()) {
+                return new ResponseResult<>(400, "导入文件不能为空", null);
+            }
+
+            String operator = getCurrentUsername();
+            String normalizedCustomerCode = customerCode.trim();
+            int successCount = 0;
+            int skipCount = 0;
+            List<String> errors = new ArrayList<>();
+
+            try (BufferedReader reader = new BufferedReader(new java.io.InputStreamReader(file.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                int lineNo = 0;
+                while ((line = reader.readLine()) != null) {
+                    lineNo++;
+                    String trimmed = lineNo == 1 ? stripBom(line).trim() : line.trim();
+                    if (!hasText(trimmed)) {
+                        continue;
+                    }
+                    if (lineNo == 1 && isHistoryCsvHeader(trimmed)) {
+                        continue;
+                    }
+
+                    String[] parts = splitCsvLine(trimmed);
+                    if (parts.length < 3) {
+                        skipCount++;
+                        errors.add("第" + lineNo + "行格式错误，至少需要3列(月份,欠款金额,开票金额)");
+                        continue;
+                    }
+
+                    String statementMonth = safeTrim(parts[0]);
+                    if (!hasText(statementMonth) || !statementMonth.matches("\\d{4}-\\d{2}")) {
+                        skipCount++;
+                        errors.add("第" + lineNo + "行月份格式错误，应为yyyy-MM");
+                        continue;
+                    }
+
+                    BigDecimal unpaidAmount = parseDecimal(parts[1]);
+                    BigDecimal invoiceAmount = parseDecimal(parts[2]);
+                    LocalDate invoiceDate = parts.length > 3 ? parseDate(parts[3]) : null;
+                    String remark = parts.length > 4 ? safeTrim(parts[4]) : "";
+
+                    upsertHistoryByMonth(normalizedCustomerCode, statementMonth, unpaidAmount, invoiceAmount, invoiceDate, remark, operator, true);
+                    successCount++;
+                }
+            }
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("successCount", successCount);
+            result.put("skipCount", skipCount);
+            result.put("errors", errors);
+            return new ResponseResult<>(200, "导入完成", result);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return new ResponseResult<>(500, "导入历史台账失败: " + e.getMessage(), null);
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ResponseResult<?> initializeHistory(SalesStatementHistory history) {
+        try {
+            ensureHistoryTable();
+            if (history == null || !hasText(history.getCustomerCode())) {
+                return new ResponseResult<>(400, "客户不能为空", null);
+            }
+            if (!canAccessCustomer(history.getCustomerCode())) {
+                return new ResponseResult<>(403, "无权限操作该客户", null);
+            }
+            if (!hasText(history.getStatementMonth()) || !history.getStatementMonth().matches("\\d{4}-\\d{2}")) {
+                return new ResponseResult<>(400, "对账月份格式应为yyyy-MM", null);
+            }
+
+            SalesStatementHistory saved = upsertHistoryByMonth(
+                    history.getCustomerCode().trim(),
+                    history.getStatementMonth().trim(),
+                    defaultDecimal(history.getUnpaidAmount()),
+                    defaultDecimal(history.getInvoiceAmount()),
+                    history.getInvoiceDate(),
+                    history.getRemark(),
+                    getCurrentUsername(),
+                    false
+            );
+            return new ResponseResult<>(200, "历史初始化成功", saved);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return new ResponseResult<>(500, "历史初始化失败: " + e.getMessage(), null);
+        }
+    }
+
+    @Override
+    public void exportStatement(String customerCode, String month, HttpServletResponse response) {
+        try {
+            ResponseResult<?> statementResult = getStatement(customerCode, month);
+            if (statementResult == null || statementResult.getCode() != 200 || !(statementResult.getData() instanceof Map)) {
+                response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+                response.setContentType("text/plain;charset=UTF-8");
+                response.getWriter().write("导出失败");
+                return;
+            }
+
+            Map<String, Object> data = (Map<String, Object>) statementResult.getData();
+            String exportMonth = hasText(month) ? month.trim() : LocalDate.now().toString();
+            String fileName = URLEncoder.encode("销售对账单_" + exportMonth + ".csv", "UTF-8");
+
+            response.setCharacterEncoding("UTF-8");
+            response.setContentType("text/csv;charset=UTF-8");
+            response.setHeader("Content-Disposition", "attachment;filename=" + fileName);
+
+            try (OutputStream os = response.getOutputStream()) {
+                os.write(new byte[]{(byte) 0xEF, (byte) 0xBB, (byte) 0xBF});
+                String csv = buildStatementCsv(data);
+                os.write(csv.getBytes(StandardCharsets.UTF_8));
+                os.flush();
+            }
+        } catch (Exception e) {
+            try {
+                response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+                response.setContentType("text/plain;charset=UTF-8");
+                response.getWriter().write("导出失败: " + e.getMessage());
+            } catch (IOException ignore) {
+            }
+        }
+    }
+
     private List<Map<String, Object>> queryDeliveryRows(List<String> customerKeys, String month, LocalDate periodStart, LocalDate periodEnd, int reconciliationDay, String reconciliationBasis) {
         if (customerKeys == null || customerKeys.isEmpty()) {
             return Collections.emptyList();
@@ -482,7 +627,7 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
                 "sri.order_no AS orderNo, " +
                 "COALESCE(so.customer_order_no, '') AS customerOrderNo, " +
                 "sri.material_code AS materialCode, " +
-                "sri.material_name AS materialName, " +
+            "COALESCE(NULLIF(sri.material_name, ''), ts.product_name, CONCAT('产品-', COALESCE(sri.material_code, '未知'))) AS materialName, " +
                 "'' AS spec, " +
                 "sri.thickness AS thickness, " +
                 "sri.width AS width, " +
@@ -493,6 +638,9 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
                 "-COALESCE(sri.amount, 0) AS amount " +
                 "FROM sales_return_orders sro " +
                 "LEFT JOIN sales_return_items sri ON sro.id = sri.return_id " +
+            "LEFT JOIN tape_spec ts ON " +
+            "CONVERT(ts.material_code USING utf8mb4) COLLATE utf8mb4_unicode_ci = " +
+            "CONVERT(sri.material_code USING utf8mb4) COLLATE utf8mb4_unicode_ci " +
                 "LEFT JOIN sales_orders so ON " +
                 "CONVERT(so.order_no USING utf8mb4) COLLATE utf8mb4_unicode_ci = " +
                 "CONVERT(sri.order_no USING utf8mb4) COLLATE utf8mb4_unicode_ci " +
@@ -516,6 +664,216 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
             row.put("includeInCurrentStatement", true);
         }
         return rows;
+    }
+
+    private SalesStatementHistory upsertHistoryByMonth(String customerCode,
+                                                       String statementMonth,
+                                                       BigDecimal unpaidAmount,
+                                                       BigDecimal invoiceAmount,
+                                                       LocalDate invoiceDate,
+                                                       String remark,
+                                                       String operator,
+                                                       boolean appendRemark) {
+        List<SalesStatementHistory> exists = salesStatementHistoryMapper.selectList(
+                new LambdaQueryWrapper<SalesStatementHistory>()
+                        .eq(SalesStatementHistory::getCustomerCode, customerCode)
+                        .eq(SalesStatementHistory::getStatementMonth, statementMonth)
+                        .eq(SalesStatementHistory::getIsDeleted, 0)
+                        .orderByAsc(SalesStatementHistory::getId)
+        );
+
+        Date now = new Date();
+        String safeRemark = safeTrim(remark);
+        if (!hasText(safeRemark)) {
+            safeRemark = appendRemark ? "导入初始化" : "历史初始化";
+        }
+
+        SalesStatementHistory target;
+        if (exists != null && !exists.isEmpty()) {
+            target = exists.get(0);
+            target.setUnpaidAmount(defaultDecimal(unpaidAmount));
+            target.setInvoiceAmount(defaultDecimal(invoiceAmount));
+            target.setInvoiceDate(invoiceDate);
+            target.setRemark(safeRemark);
+            target.setUpdatedAt(now);
+            target.setUpdatedBy(operator);
+            target.setIsDeleted(0);
+            salesStatementHistoryMapper.updateById(target);
+
+            if (exists.size() > 1) {
+                for (int i = 1; i < exists.size(); i++) {
+                    SalesStatementHistory duplicate = exists.get(i);
+                    duplicate.setIsDeleted(1);
+                    duplicate.setUpdatedAt(now);
+                    duplicate.setUpdatedBy(operator);
+                    salesStatementHistoryMapper.updateById(duplicate);
+                }
+            }
+            return target;
+        }
+
+        target = new SalesStatementHistory();
+        target.setCustomerCode(customerCode);
+        target.setStatementMonth(statementMonth);
+        target.setUnpaidAmount(defaultDecimal(unpaidAmount));
+        target.setInvoiceAmount(defaultDecimal(invoiceAmount));
+        target.setInvoiceDate(invoiceDate);
+        target.setRemark(safeRemark);
+        target.setCreatedAt(now);
+        target.setUpdatedAt(now);
+        target.setCreatedBy(operator);
+        target.setUpdatedBy(operator);
+        target.setIsDeleted(0);
+        salesStatementHistoryMapper.insert(target);
+        return target;
+    }
+
+    private String buildStatementCsv(Map<String, Object> data) {
+        StringWriter writer = new StringWriter();
+        writer.append("类型,日期,单号,订单号,产品,规格,数量(R),面积(㎡),单价(元/㎡),金额,对账月份\n");
+
+        List<Map<String, Object>> detailRows = castRowList(data.get("detailRows"));
+        for (Map<String, Object> row : detailRows) {
+            writer.append(csvCell("delivery".equals(String.valueOf(row.get("bizType"))) ? "发货" : "退货")).append(',')
+                    .append(csvCell(String.valueOf(row.get("bizDate")))).append(',')
+                    .append(csvCell(String.valueOf(row.get("documentNo")))).append(',')
+                    .append(csvCell(String.valueOf(row.get("orderNo")))).append(',')
+                    .append(csvCell(String.valueOf(row.get("materialName")))).append(',')
+                    .append(csvCell(String.valueOf(row.get("spec")))).append(',')
+                    .append(csvCell(toDecimal(row.get("quantity")).setScale(0, RoundingMode.HALF_UP).toPlainString())).append(',')
+                    .append(csvCell(toDecimal(row.get("areaSize")).setScale(2, RoundingMode.HALF_UP).toPlainString())).append(',')
+                    .append(csvCell(toDecimal(row.get("unitPrice")).setScale(4, RoundingMode.HALF_UP).toPlainString())).append(',')
+                    .append(csvCell(toDecimal(row.get("amount")).setScale(2, RoundingMode.HALF_UP).toPlainString())).append(',')
+                    .append(csvCell(String.valueOf(row.get("reconcileTargetMonth"))))
+                    .append("\n");
+        }
+
+        writer.append("\n");
+        writer.append("历史月份,欠款金额,开票金额,开票日期,备注\n");
+        List<SalesStatementHistory> histories = castHistoryList(data.get("historyRows"));
+        for (SalesStatementHistory history : histories) {
+            writer.append(csvCell(history.getStatementMonth())).append(',')
+                    .append(csvCell(defaultDecimal(history.getUnpaidAmount()).toPlainString())).append(',')
+                    .append(csvCell(defaultDecimal(history.getInvoiceAmount()).toPlainString())).append(',')
+                    .append(csvCell(history.getInvoiceDate() == null ? "" : history.getInvoiceDate().toString())).append(',')
+                    .append(csvCell(history.getRemark()))
+                    .append("\n");
+        }
+
+        writer.append("\n");
+        Map<String, Object> summary = data.get("summary") instanceof Map ? (Map<String, Object>) data.get("summary") : new HashMap<String, Object>();
+        writer.append("汇总项,值\n");
+        writer.append("发货金额,").append(csvCell(toDecimal(summary.get("deliveryAmount")).setScale(2, RoundingMode.HALF_UP).toPlainString())).append("\n");
+        writer.append("退货影响,").append(csvCell(toDecimal(summary.get("returnAmount")).setScale(2, RoundingMode.HALF_UP).toPlainString())).append("\n");
+        writer.append("本月对账金额,").append(csvCell(toDecimal(summary.get("totalAmount")).setScale(2, RoundingMode.HALF_UP).toPlainString())).append("\n");
+        return writer.toString();
+    }
+
+    private List<Map<String, Object>> castRowList(Object rows) {
+        if (!(rows instanceof List)) {
+            return Collections.emptyList();
+        }
+        List<?> raw = (List<?>) rows;
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Object item : raw) {
+            if (item instanceof Map) {
+                result.add((Map<String, Object>) item);
+            }
+        }
+        return result;
+    }
+
+    private List<SalesStatementHistory> castHistoryList(Object histories) {
+        if (!(histories instanceof List)) {
+            return Collections.emptyList();
+        }
+        List<?> raw = (List<?>) histories;
+        List<SalesStatementHistory> result = new ArrayList<>();
+        for (Object item : raw) {
+            if (item instanceof SalesStatementHistory) {
+                result.add((SalesStatementHistory) item);
+            }
+        }
+        return result;
+    }
+
+    private String csvCell(String value) {
+        String text = value == null ? "" : value;
+        String escaped = text.replace("\"", "\"\"");
+        return "\"" + escaped + "\"";
+    }
+
+    private boolean isHistoryCsvHeader(String line) {
+        String lower = line.toLowerCase(Locale.ROOT);
+        return lower.contains("statementmonth") || lower.contains("月份") || lower.contains("month");
+    }
+
+    private String stripBom(String text) {
+        if (text == null) {
+            return "";
+        }
+        if (!text.isEmpty() && text.charAt(0) == '\ufeff') {
+            return text.substring(1);
+        }
+        return text;
+    }
+
+    private String[] splitCsvLine(String line) {
+        String safeLine = stripBom(line);
+        if (!safeLine.contains(",")) {
+            return safeLine.split("\\t", -1);
+        }
+        List<String> result = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        boolean inQuotes = false;
+        for (int i = 0; i < safeLine.length(); i++) {
+            char c = safeLine.charAt(i);
+            if (c == '"') {
+                if (inQuotes && i + 1 < safeLine.length() && safeLine.charAt(i + 1) == '"') {
+                    current.append('"');
+                    i++;
+                } else {
+                    inQuotes = !inQuotes;
+                }
+                continue;
+            }
+            if (c == ',' && !inQuotes) {
+                result.add(current.toString().trim());
+                current.setLength(0);
+                continue;
+            }
+            current.append(c);
+        }
+        result.add(current.toString().trim());
+        return result.toArray(new String[0]);
+    }
+
+    private String safeTrim(String text) {
+        return text == null ? "" : text.trim();
+    }
+
+    private BigDecimal parseDecimal(String text) {
+        String cleaned = safeTrim(text).replace(",", "");
+        if (!hasText(cleaned)) {
+            return BigDecimal.ZERO;
+        }
+        try {
+            return new BigDecimal(cleaned).setScale(2, RoundingMode.HALF_UP);
+        } catch (Exception e) {
+            return BigDecimal.ZERO;
+        }
+    }
+
+    private LocalDate parseDate(String text) {
+        String value = safeTrim(text);
+        if (!hasText(value)) {
+            return null;
+        }
+        try {
+            return LocalDate.parse(value);
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     private void ensureHistoryTable() {

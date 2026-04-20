@@ -5,7 +5,7 @@ import com.fine.modle.purchase.PurchaseReceiptItem;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
-import org.apache.ibatis.annotations.Delete;
+import org.apache.ibatis.annotations.Update;
 
 import java.util.List;
 
@@ -15,6 +15,6 @@ public interface PurchaseReceiptItemMapper extends BaseMapper<PurchaseReceiptIte
     @Select("SELECT * FROM purchase_receipt_items WHERE receipt_id = #{receiptId} AND is_deleted = 0")
     List<PurchaseReceiptItem> selectByReceiptId(@Param("receiptId") Long receiptId);
 
-    @Delete("UPDATE purchase_receipt_items SET is_deleted = 1 WHERE receipt_id = #{receiptId}")
+    @Update("UPDATE purchase_receipt_items SET is_deleted = 1, updated_at = NOW() WHERE receipt_id = #{receiptId} AND is_deleted = 0")
     int deleteByReceiptId(@Param("receiptId") Long receiptId);
 }

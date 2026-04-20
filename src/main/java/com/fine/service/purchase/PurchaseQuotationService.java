@@ -5,7 +5,7 @@ import com.fine.Utils.ResponseResult;
 import com.fine.modle.purchase.PurchaseQuotation;
 
 public interface PurchaseQuotationService extends IService<PurchaseQuotation> {
-    ResponseResult<?> list(Integer pageNum, Integer pageSize, String supplier, String status);
+    ResponseResult<?> list(Integer pageNum, Integer pageSize, String supplier, String status, String materialCode);
     ResponseResult<?> detail(Long id);
     ResponseResult<?> create(PurchaseQuotation quotation);
     ResponseResult<?> updateQuotation(PurchaseQuotation quotation);

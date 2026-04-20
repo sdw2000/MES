@@ -5,15 +5,15 @@
     <!-- 按化工库存ID查询出库记录 -->
     <select id="selectByChemicalStockId" resultType="com.fine.model.stock.ChemicalStockOut">
         SELECT * FROM chemical_stock_out
-        WHERE chemical_stock_id = #{chemicalStockId}
-        ORDER BY outbound_time DESC
+        WHERE stock_id = #{chemicalStockId}
+        ORDER BY out_date DESC
     </select>
     
     <!-- 按排程ID查询出库记录 -->
     <select id="selectByScheduleId" resultType="com.fine.model.stock.ChemicalStockOut">
         SELECT * FROM chemical_stock_out
         WHERE schedule_id = #{scheduleId}
-        ORDER BY outbound_time DESC
+        ORDER BY out_date DESC
     </select>
     
     <!-- 按涂布任务ID查询出库记录 -->

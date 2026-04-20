@@ -43,4 +43,14 @@ public class PurchaseReceiptController {
     public ResponseResult<?> delete(@PathVariable Long id) {
         return receiptService.deleteReceipt(id);
     }
+
+    @PostMapping("/test-data/seed")
+    public ResponseResult<?> seedTestData(@RequestParam(value = "count", required = false, defaultValue = "3") Integer count) {
+        return receiptService.seedTestData(count);
+    }
+
+    @DeleteMapping("/test-data/cleanup")
+    public ResponseResult<?> cleanupTestData() {
+        return receiptService.cleanupTestData();
+    }
 }

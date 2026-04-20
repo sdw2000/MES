@@ -205,6 +205,38 @@ public class ManualScheduleController {
         }
     }
 
+    private Double parseDouble(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).doubleValue();
+        }
+        String text = String.valueOf(value).trim();
+        if (text.isEmpty()) {
+            return null;
+        }
+        try {
+            return Double.parseDouble(text);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private Boolean parseBoolean(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Boolean) {
+            return (Boolean) value;
+        }
+        String text = String.valueOf(value).trim();
+        if (text.isEmpty()) {
+            return null;
+        }
+        return Boolean.parseBoolean(text);
+    }
+
     private List<Map<String, Object>> toListOfMap(Object raw) {
         if (!(raw instanceof List<?>)) {
             return null;
@@ -253,8 +285,15 @@ public class ManualScheduleController {
         Integer width = ((Number) params.get("width")).intValue();
         Integer thickness = ((Number) params.get("thickness")).intValue();
         Integer requiredQty = ((Number) params.get("requiredQty")).intValue();
+        Boolean includeReturnWarehouse = null;
+        Object includeReturnWarehouseObj = params.get("includeReturnWarehouse");
+        if (includeReturnWarehouseObj instanceof Boolean) {
+            includeReturnWarehouse = (Boolean) includeReturnWarehouseObj;
+        } else if (includeReturnWarehouseObj instanceof String) {
+            includeReturnWarehouse = Boolean.parseBoolean((String) includeReturnWarehouseObj);
+        }
         
-        Map<String, Object> result = manualScheduleService.matchStock(materialCode, width, thickness, requiredQty);
+        Map<String, Object> result = manualScheduleService.matchStock(materialCode, width, thickness, requiredQty, includeReturnWarehouse);
         return ResponseResult.success(result);
     }
     
@@ -468,7 +507,16 @@ public class ManualScheduleController {
             String packagingDate = (String) params.get("packagingDate");
             String slittingEquipment = params.get("slittingEquipment") == null ? null : String.valueOf(params.get("slittingEquipment"));
             String packagingTeam = params.get("packagingTeam") == null ? null : String.valueOf(params.get("packagingTeam"));
-            boolean ok = manualScheduleService.updateSlittingInfo(scheduleId, packagingDate, slittingEquipment, packagingTeam);
+            Double manualSlittingSpeed = parseDouble(params.get("manualSlittingSpeed"));
+            Boolean looseDurationMode = parseBoolean(params.get("looseDurationMode"));
+            boolean ok = manualScheduleService.updateSlittingInfo(
+                    scheduleId,
+                    packagingDate,
+                    slittingEquipment,
+                    packagingTeam,
+                    manualSlittingSpeed,
+                    looseDurationMode
+            );
             return ResponseResult.success(ok);
         } catch (Exception e) {
             return ResponseResult.error("更新分切/包装日期失败: " + e.getMessage());
@@ -506,9 +554,21 @@ public class ManualScheduleController {
             String endTime = params.get("endTime") == null ? null : String.valueOf(params.get("endTime"));
             String operator = params.get("operator") == null ? null : String.valueOf(params.get("operator"));
             String remark = params.get("remark") == null ? null : String.valueOf(params.get("remark"));
+            Boolean skipIntermediateInbound = params.get("skipIntermediateInbound") == null
+                    ? Boolean.FALSE
+                    : Boolean.valueOf(String.valueOf(params.get("skipIntermediateInbound")));
                 Boolean proceedNextProcess = params.get("proceedNextProcess") == null
                     ? Boolean.TRUE
                     : Boolean.valueOf(String.valueOf(params.get("proceedNextProcess")));
+
+            if (Boolean.TRUE.equals(skipIntermediateInbound)) {
+                String marker = "[SKIP_INTERMEDIATE_INBOUND]";
+                if (remark == null || remark.trim().isEmpty()) {
+                    remark = marker;
+                } else if (!remark.contains(marker)) {
+                    remark = remark + " " + marker;
+                }
+            }
 
             java.math.BigDecimal producedQty = null;
             Object producedQtyObj = params.get("producedQty");
@@ -817,7 +877,18 @@ public class ManualScheduleController {
                 rewindingWidth = Double.parseDouble((String) rewindingWidthObj);
             }
 
-            manualScheduleService.updateRewindingInfo(scheduleId, rewindingArea, rewindingDate, rewindingEquipment, rewindingWidth);
+            Double manualRewindingSpeed = parseDouble(params.get("manualRewindingSpeed"));
+            Boolean looseDurationMode = parseBoolean(params.get("looseDurationMode"));
+
+            manualScheduleService.updateRewindingInfo(
+                    scheduleId,
+                    rewindingArea,
+                    rewindingDate,
+                    rewindingEquipment,
+                    rewindingWidth,
+                    manualRewindingSpeed,
+                    looseDurationMode
+            );
             return ResponseResult.success(scheduleId);
         } catch (Exception e) {
             return ResponseResult.<Long>error("创建复卷排程失败: " + e.getMessage());
@@ -835,6 +906,7 @@ public class ManualScheduleController {
             Object equipmentIdObj = params.get("equipmentId");
             Object coatingWidthObj = params.get("coatingWidth");
             Object coatingLengthObj = params.get("coatingLength");
+            Object manualCoatingSpeedObj = params.get("manualCoatingSpeed");
             String materialCode = params.get("materialCode") == null ? null : String.valueOf(params.get("materialCode"));
             String insertMode = params.get("insertMode") == null ? null : String.valueOf(params.get("insertMode"));
             String anchorAfterTime = params.get("anchorAfterTime") == null ? null : String.valueOf(params.get("anchorAfterTime"));
@@ -876,6 +948,12 @@ public class ManualScheduleController {
             } else if (coatingLengthObj instanceof String && !((String) coatingLengthObj).trim().isEmpty()) {
                 coatingLength = Double.parseDouble((String) coatingLengthObj);
             }
+            Double manualCoatingSpeed = null;
+            if (manualCoatingSpeedObj instanceof Number) {
+                manualCoatingSpeed = ((Number) manualCoatingSpeedObj).doubleValue();
+            } else if (manualCoatingSpeedObj instanceof String && !((String) manualCoatingSpeedObj).trim().isEmpty()) {
+                manualCoatingSpeed = Double.parseDouble((String) manualCoatingSpeedObj);
+            }
 
             Long anchorScheduleId = null;
             if (anchorScheduleIdObj instanceof Number) {
@@ -897,7 +975,8 @@ public class ManualScheduleController {
                         insertMode,
                         anchorScheduleId,
                         anchorAfterTime,
-                        rebalanceMode
+                        rebalanceMode,
+                        manualCoatingSpeed
             );
             return ResponseResult.success(coatingId);
         } catch (Exception e) {
@@ -914,6 +993,7 @@ public class ManualScheduleController {
             Object scheduleIdObj = params.get("scheduleId");
             Object equipmentIdObj = params.get("equipmentId");
             Object coatingLengthObj = params.get("coatingLength");
+            Object manualCoatingSpeedObj = params.get("manualCoatingSpeed");
             String materialCode = params.get("materialCode") == null ? null : String.valueOf(params.get("materialCode"));
 
             Long scheduleId = null;
@@ -934,6 +1014,12 @@ public class ManualScheduleController {
             } else if (coatingLengthObj instanceof String && !((String) coatingLengthObj).trim().isEmpty()) {
                 coatingLength = Double.parseDouble((String) coatingLengthObj);
             }
+            Double manualCoatingSpeed = null;
+            if (manualCoatingSpeedObj instanceof Number) {
+                manualCoatingSpeed = ((Number) manualCoatingSpeedObj).doubleValue();
+            } else if (manualCoatingSpeedObj instanceof String && !((String) manualCoatingSpeedObj).trim().isEmpty()) {
+                manualCoatingSpeed = Double.parseDouble((String) manualCoatingSpeedObj);
+            }
             String coatingDate = params.get("coatingDate") == null ? null : String.valueOf(params.get("coatingDate"));
             String insertMode = params.get("insertMode") == null ? null : String.valueOf(params.get("insertMode"));
             String anchorAfterTime = params.get("anchorAfterTime") == null ? null : String.valueOf(params.get("anchorAfterTime"));
@@ -947,7 +1033,7 @@ public class ManualScheduleController {
             }
 
                 Map<String, Object> result = manualScheduleService.previewCoatingOccupation(scheduleId, equipmentId, coatingDate, coatingLength, materialCode,
-                    insertMode, anchorScheduleId, anchorAfterTime, rebalanceMode);
+                    insertMode, anchorScheduleId, anchorAfterTime, rebalanceMode, manualCoatingSpeed);
             return ResponseResult.success(result);
         } catch (Exception e) {
             return ResponseResult.error("获取涂布机台可用时间失败: " + e.getMessage());
@@ -972,8 +1058,16 @@ public class ManualScheduleController {
 
             String rewindingEquipment = rewindingEquipmentObj == null ? null : String.valueOf(rewindingEquipmentObj);
             String rewindingDate = params.get("rewindingDate") == null ? null : String.valueOf(params.get("rewindingDate"));
+                Double manualRewindingSpeed = parseDouble(params.get("manualRewindingSpeed"));
+                Boolean looseDurationMode = parseBoolean(params.get("looseDurationMode"));
 
-            Map<String, Object> result = manualScheduleService.previewRewindingOccupation(scheduleId, rewindingEquipment, rewindingDate);
+                Map<String, Object> result = manualScheduleService.previewRewindingOccupation(
+                    scheduleId,
+                    rewindingEquipment,
+                    rewindingDate,
+                    manualRewindingSpeed,
+                    looseDurationMode
+                );
             return ResponseResult.success(result);
         } catch (Exception e) {
             return ResponseResult.error("获取复卷机台可用时间失败: " + e.getMessage());
@@ -998,8 +1092,16 @@ public class ManualScheduleController {
 
             String slittingEquipment = slittingEquipmentObj == null ? null : String.valueOf(slittingEquipmentObj);
             String packagingDate = params.get("packagingDate") == null ? null : String.valueOf(params.get("packagingDate"));
+                Double manualSlittingSpeed = parseDouble(params.get("manualSlittingSpeed"));
+                Boolean looseDurationMode = parseBoolean(params.get("looseDurationMode"));
 
-            Map<String, Object> result = manualScheduleService.previewSlittingOccupation(scheduleId, slittingEquipment, packagingDate);
+                Map<String, Object> result = manualScheduleService.previewSlittingOccupation(
+                    scheduleId,
+                    slittingEquipment,
+                    packagingDate,
+                    manualSlittingSpeed,
+                    looseDurationMode
+                );
             return ResponseResult.success(result);
         } catch (Exception e) {
             return ResponseResult.error("获取分切机台可用时间失败: " + e.getMessage());
@@ -1072,6 +1174,31 @@ public class ManualScheduleController {
             return ResponseResult.success(ok);
         } catch (Exception e) {
             return ResponseResult.error("清空重排失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 清空单条排程（按排程ID）
+     */
+    @PostMapping("/reset-by-schedule")
+    public ResponseResult<Boolean> resetBySchedule(@RequestBody Map<String, Object> params) {
+        try {
+            Object scheduleIdObj = params.get("scheduleId");
+            Long scheduleId = null;
+            if (scheduleIdObj instanceof Number) {
+                scheduleId = ((Number) scheduleIdObj).longValue();
+            } else if (scheduleIdObj instanceof String) {
+                scheduleId = Long.parseLong((String) scheduleIdObj);
+            }
+            if (scheduleId == null) {
+                return ResponseResult.error("scheduleId 不能为空");
+            }
+            String reason = params.get("reason") == null ? null : String.valueOf(params.get("reason"));
+            String operator = params.get("operator") == null ? null : String.valueOf(params.get("operator"));
+            boolean ok = manualScheduleService.resetScheduleByScheduleId(scheduleId, reason, operator);
+            return ResponseResult.success(ok);
+        } catch (Exception e) {
+            return ResponseResult.error("清空单行排程失败: " + e.getMessage());
         }
     }
 

@@ -2,6 +2,7 @@ package com.fine.model.stock;
 
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import lombok.Data;
@@ -66,4 +67,8 @@ public class ChemicalStock {
     
     /** 更新人 */
     private String updateBy;
+
+    /** 桶数（按导入原值持久化） */
+    @TableField("bucket_count")
+    private Integer bucketCount;
 }

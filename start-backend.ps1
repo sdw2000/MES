@@ -70,7 +70,7 @@ if (Test-Path $jarPath) {
 
 Write-Host ""
 Write-Host "3. Check port 8090..." -ForegroundColor Yellow
-$portInUse = Get-NetTCPConnection -LocalPort 8090 -ErrorAction SilentlyContinue
+$portInUse = Get-NetTCPConnection -LocalPort 8090 -State Listen -ErrorAction SilentlyContinue
 if ($portInUse) {
     $processIdToCheck = [int]($portInUse | Select-Object -First 1 -ExpandProperty OwningProcess)
     Write-Host "   Port 8090 is in use" -ForegroundColor Red

@@ -54,6 +54,11 @@ public class PurchaseOrderController {
         return purchaseOrderService.deleteOrder(orderNo);
     }
 
+    @PostMapping("/delete")
+    public ResponseResult<?> deleteOrderByPost(@RequestParam String orderNo) {
+        return purchaseOrderService.deleteOrder(orderNo);
+    }
+
     @GetMapping("/{orderNo}")
     public ResponseResult<?> getOrderDetail(@PathVariable String orderNo) {
         return purchaseOrderService.getOrderByOrderNo(orderNo);
@@ -62,6 +67,13 @@ public class PurchaseOrderController {
     @GetMapping("/{orderNo}/reconciliation")
     public ResponseResult<?> getReconciliationSummary(@PathVariable String orderNo) {
         return purchaseOrderService.getReconciliationSummary(orderNo);
+    }
+
+    @GetMapping("/spec-history")
+    public ResponseResult<?> getRawSpecHistory(
+            @RequestParam(value = "supplier", required = false) String supplier,
+            @RequestParam(value = "materialCode") String materialCode) {
+        return purchaseOrderService.getRawSpecHistory(supplier, materialCode);
     }
 
     @GetMapping("/search")

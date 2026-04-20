@@ -24,8 +24,9 @@ public class PurchaseQuotationController {
     public ResponseResult<?> list(@RequestParam(defaultValue = "1") Integer page,
                                   @RequestParam(defaultValue = "20") Integer size,
                                   @RequestParam(required = false) String supplier,
-                                  @RequestParam(required = false) String status) {
-        return quotationService.list(page, size, supplier, status);
+                                  @RequestParam(required = false) String status,
+                                  @RequestParam(required = false) String materialCode) {
+        return quotationService.list(page, size, supplier, status, materialCode);
     }
 
     @GetMapping("/{id}")

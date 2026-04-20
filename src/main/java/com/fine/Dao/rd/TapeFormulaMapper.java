@@ -133,25 +133,31 @@ public interface TapeFormulaMapper {
 
     // =============== 原料字典 ===============
 
-        @Select("SELECT id, material_code, material_name, unit, spec, '' AS performance_params, sort_order, status, '' AS material_category, '' AS material_type FROM tape_raw_material WHERE status = 1 ORDER BY sort_order")
+        @Select("SELECT id, material_code, material_name, supplier_code, material_major, material_category_raw, material_category, material_type, unit, spec, performance_params, remark, sort_order, status FROM tape_raw_material WHERE status = 1 ORDER BY sort_order")
     @Results(id = "rawMaterialResultMap", value = {
             @Result(property = "id", column = "id"),
             @Result(property = "materialCode", column = "material_code"),
             @Result(property = "materialName", column = "material_name"),
+            @Result(property = "supplierCode", column = "supplier_code"),
+            @Result(property = "materialMajor", column = "material_major"),
+            @Result(property = "materialCategoryRaw", column = "material_category_raw"),
             @Result(property = "materialCategory", column = "material_category"),
             @Result(property = "materialType", column = "material_type"),
             @Result(property = "unit", column = "unit"),
             @Result(property = "spec", column = "spec"),
             @Result(property = "performanceParams", column = "performance_params"),
+            @Result(property = "remark", column = "remark"),
             @Result(property = "sortOrder", column = "sort_order"),
             @Result(property = "status", column = "status")
     })
     List<TapeRawMaterial> selectAllRawMaterials();
 
     @Select("<script>" +
-            "SELECT id, material_code, material_name, unit, spec, '' AS performance_params, sort_order, status, '' AS material_category, '' AS material_type FROM tape_raw_material WHERE 1=1" +
+            "SELECT id, material_code, material_name, supplier_code, material_major, material_category_raw, material_category, material_type, unit, spec, performance_params, remark, sort_order, status FROM tape_raw_material WHERE 1=1" +
             "<if test='materialCode != null and materialCode != \"\"'> AND material_code LIKE CONCAT('%',#{materialCode},'%')</if>" +
             "<if test='materialName != null and materialName != \"\"'> AND material_name LIKE CONCAT('%',#{materialName},'%')</if>" +
+            "<if test='materialCategory != null and materialCategory != \"\"'> AND (material_category = #{materialCategory} OR material_category_raw LIKE CONCAT('%',#{materialCategory},'%'))</if>" +
+            "<if test='materialType != null and materialType != \"\"'> AND material_type = #{materialType}</if>" +
             "<if test='status != null'> AND status = #{status}</if>" +
             " ORDER BY sort_order ASC, id DESC" +
             " LIMIT #{offset}, #{size}" +
@@ -169,6 +175,8 @@ public interface TapeFormulaMapper {
             "SELECT COUNT(*) FROM tape_raw_material WHERE 1=1" +
             "<if test='materialCode != null and materialCode != \"\"'> AND material_code LIKE CONCAT('%',#{materialCode},'%')</if>" +
             "<if test='materialName != null and materialName != \"\"'> AND material_name LIKE CONCAT('%',#{materialName},'%')</if>" +
+            "<if test='materialCategory != null and materialCategory != \"\"'> AND (material_category = #{materialCategory} OR material_category_raw LIKE CONCAT('%',#{materialCategory},'%'))</if>" +
+            "<if test='materialType != null and materialType != \"\"'> AND material_type = #{materialType}</if>" +
             "<if test='status != null'> AND status = #{status}</if>" +
             "</script>")
     int selectRawMaterialCount(@Param("materialCode") String materialCode,
@@ -177,28 +185,29 @@ public interface TapeFormulaMapper {
                                @Param("materialType") String materialType,
                                @Param("status") Integer status);
 
-        @Select("SELECT id, material_code, material_name, unit, spec, '' AS performance_params, sort_order, status, '' AS material_category, '' AS material_type FROM tape_raw_material WHERE id = #{id}")
+        @Select("SELECT id, material_code, material_name, supplier_code, material_major, material_category_raw, material_category, material_type, unit, spec, performance_params, remark, sort_order, status FROM tape_raw_material WHERE id = #{id}")
     @ResultMap("rawMaterialResultMap")
     TapeRawMaterial selectRawMaterialById(@Param("id") Long id);
 
-                @Select("SELECT id, material_code, material_name, unit, spec, '' AS performance_params, sort_order, status, '' AS material_category, '' AS material_type FROM tape_raw_material WHERE material_code = #{materialCode} LIMIT 1")
+                @Select("SELECT id, material_code, material_name, supplier_code, material_major, material_category_raw, material_category, material_type, unit, spec, performance_params, remark, sort_order, status FROM tape_raw_material WHERE material_code = #{materialCode} LIMIT 1")
         @ResultMap("rawMaterialResultMap")
         TapeRawMaterial selectRawMaterialByCode(@Param("materialCode") String materialCode);
 
     @Select("SELECT COUNT(*) FROM tape_raw_material WHERE material_code = #{materialCode} AND id != #{excludeId}")
     int checkRawMaterialCodeExists(@Param("materialCode") String materialCode, @Param("excludeId") Long excludeId);
 
-        @Select("SELECT id, material_code, material_name, unit, spec, '' AS performance_params, sort_order, status, '' AS material_category, '' AS material_type FROM tape_raw_material WHERE status = 1 ORDER BY sort_order")
+        @Select("SELECT id, material_code, material_name, supplier_code, material_major, material_category_raw, material_category, material_type, unit, spec, performance_params, remark, sort_order, status FROM tape_raw_material WHERE status = 1 ORDER BY sort_order")
     @ResultMap("rawMaterialResultMap")
     List<TapeRawMaterial> selectRawMaterialsByType(@Param("type") String type);
 
-    @Insert("INSERT INTO tape_raw_material (material_code, material_name, unit, spec, sort_order, status) " +
-            "VALUES (#{materialCode}, #{materialName}, #{unit}, #{spec}, #{sortOrder}, #{status})")
+    @Insert("INSERT INTO tape_raw_material (material_code, material_name, supplier_code, material_major, material_category_raw, material_category, material_type, unit, spec, performance_params, remark, sort_order, status) " +
+            "VALUES (#{materialCode}, #{materialName}, #{supplierCode}, #{materialMajor}, #{materialCategoryRaw}, #{materialCategory}, #{materialType}, #{unit}, #{spec}, #{performanceParams}, #{remark}, #{sortOrder}, #{status})")
     @Options(useGeneratedKeys = true, keyProperty = "id")
     int insertRawMaterial(TapeRawMaterial material);
 
     @Update("UPDATE tape_raw_material SET material_name = #{materialName}, " +
-            "unit = #{unit}, spec = #{spec}, sort_order = #{sortOrder}, status = #{status} WHERE id = #{id}")
+            "supplier_code = #{supplierCode}, material_major = #{materialMajor}, material_category_raw = #{materialCategoryRaw}, material_category = #{materialCategory}, material_type = #{materialType}, " +
+            "unit = #{unit}, spec = #{spec}, performance_params = #{performanceParams}, remark = #{remark}, sort_order = #{sortOrder}, status = #{status} WHERE id = #{id}")
     int updateRawMaterial(TapeRawMaterial material);
 
     @Delete("DELETE FROM tape_raw_material WHERE id = #{id}")

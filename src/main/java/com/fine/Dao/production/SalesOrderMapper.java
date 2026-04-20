@@ -124,7 +124,7 @@ public interface SalesOrderMapper extends BaseMapper<SalesOrder> {
             "  </choose> " +
             "</if>" +
             "<if test='(lifecycleStatus == null or lifecycleStatus == \"\") and (showCompleted == null or showCompleted == false)'> " +
-            "  AND UPPER(IFNULL(so.status, '')) NOT IN ('SHIPPED_FULL','PAID','CLOSED','CANCELLED','CANCELED','COMPLETED','CLOSED','CANCELLED','CANCELED') " +
+            "  AND UPPER(IFNULL(so.status, '')) NOT IN ('RECEIVED','SHIPPED_FULL','PAID','CLOSED','CANCELLED','CANCELED','COMPLETED','CLOSED','CANCELLED','CANCELED') " +
             "</if>" +
             "<choose>" +
             "  <when test='sortField == \"customerDisplay\"'> ORDER BY so.customer </when>" +

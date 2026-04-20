@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/sales/returns")
-@PreAuthorize("hasAnyAuthority('admin','sales','finance')")
+@PreAuthorize("hasAnyAuthority('admin','sales','finance','warehouse')")
 public class SalesReturnController {
 
     @Autowired
@@ -30,16 +30,19 @@ public class SalesReturnController {
     }
 
     @PostMapping
+    @PreAuthorize("hasAnyAuthority('admin','sales','finance')")
     public ResponseResult<?> createReturn(@RequestBody SalesReturn salesReturn) {
         return salesReturnService.createReturn(salesReturn);
     }
 
     @PutMapping
+    @PreAuthorize("hasAnyAuthority('admin','sales','finance')")
     public ResponseResult<?> updateReturn(@RequestBody SalesReturn salesReturn) {
         return salesReturnService.updateReturn(salesReturn);
     }
 
     @DeleteMapping
+    @PreAuthorize("hasAnyAuthority('admin','sales','finance')")
     public ResponseResult<?> deleteReturn(@RequestParam("returnNo") String returnNo) {
         return salesReturnService.deleteReturn(returnNo);
     }
@@ -50,6 +53,7 @@ public class SalesReturnController {
     }
 
     @GetMapping("/generate-no")
+    @PreAuthorize("hasAnyAuthority('admin','sales','finance')")
     public ResponseResult<?> generateReturnNo(
             @RequestParam(value = "customerCode", required = false) String customerCode,
             @RequestParam(value = "returnDate", required = false)
@@ -64,6 +68,7 @@ public class SalesReturnController {
     }
 
     @GetMapping("/order-items")
+    @PreAuthorize("hasAnyAuthority('admin','sales','finance')")
     public ResponseResult<?> getReturnableOrderItems(
             @RequestParam("orderNo") String orderNo,
             @RequestParam(value = "excludeReturnNo", required = false) String excludeReturnNo
@@ -78,5 +83,11 @@ public class SalesReturnController {
             @RequestParam(value = "pageSize", defaultValue = "20") Integer pageSize
     ) {
         return salesReturnService.getReturnAuditLogs(returnNo, pageNum, pageSize);
+    }
+
+    @PostMapping("/{returnNo}/create-inbound-requests")
+    @PreAuthorize("hasAnyAuthority('admin','sales','finance','warehouse')")
+    public ResponseResult<?> createInboundRequestsFromReturn(@PathVariable("returnNo") String returnNo) {
+        return salesReturnService.createInboundRequestsFromReturn(returnNo);
     }
 }

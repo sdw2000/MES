@@ -14,6 +14,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
+import javax.servlet.http.HttpServletResponse;
 
 @RestController
 @RequestMapping("/sales/reconciliation")
@@ -52,5 +54,22 @@ public class SalesReconciliationController {
     @PreAuthorize("hasAnyAuthority('admin', 'finance')")
     public ResponseResult<?> migrateLegacyReceiptStatus(@RequestParam(value = "cutoffDate", required = false) String cutoffDate) {
         return salesReconciliationService.migrateLegacyReceiptStatus(cutoffDate);
+    }
+
+    @PostMapping("/history/import")
+    public ResponseResult<?> importHistory(@RequestParam String customerCode, @RequestParam("file") MultipartFile file) {
+        return salesReconciliationService.importHistory(customerCode, file);
+    }
+
+    @PostMapping("/history/initialize")
+    public ResponseResult<?> initializeHistory(@RequestBody SalesStatementHistory history) {
+        return salesReconciliationService.initializeHistory(history);
+    }
+
+    @GetMapping("/export")
+    public void exportStatement(@RequestParam String customerCode,
+                                @RequestParam String month,
+                                HttpServletResponse response) {
+        salesReconciliationService.exportStatement(customerCode, month, response);
     }
 }

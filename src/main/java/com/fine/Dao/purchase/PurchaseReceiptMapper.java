@@ -7,6 +7,9 @@ import com.fine.modle.purchase.PurchaseReceipt;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
+
+import java.time.LocalDateTime;
 
 @Mapper
 public interface PurchaseReceiptMapper extends BaseMapper<PurchaseReceipt> {
@@ -22,4 +25,7 @@ public interface PurchaseReceiptMapper extends BaseMapper<PurchaseReceipt> {
                                        @Param("supplier") String supplier,
                                        @Param("status") String status,
                                        @Param("reconciliationStatus") String reconciliationStatus);
+
+        @Update("UPDATE purchase_receipts SET is_deleted = 1, updated_at = #{updatedAt} WHERE id = #{id} AND is_deleted = 0")
+        int logicDeleteById(@Param("id") Long id, @Param("updatedAt") LocalDateTime updatedAt);
 }

@@ -43,6 +43,9 @@ public class ManualSchedule {
 
     /** 涂布长度(米) - 计划员手工输入 */
     private BigDecimal coatingLength;
+
+    /** 手工涂布速度(米/分) */
+    private BigDecimal manualCoatingSpeed;
     
     /** 复卷已排程面积㎡ */
     private BigDecimal rewindingScheduledArea;

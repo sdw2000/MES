@@ -18,16 +18,20 @@ public interface TapeStockMapper extends BaseMapper<TapeStock> {
     /**
      * 按料号汇总库存
      */
-    @Select("SELECT material_code, product_name, " +
+    @Select("<script>" +
+            "SELECT material_code, product_name, " +
             "SUM(total_rolls) as total_rolls, " +
             "SUM(total_sqm) as total_sqm, " +
             "COALESCE(SUM(available_area),0) as available_area, " +
             "COALESCE(SUM(reserved_area),0) as reserved_area, " +
             "COALESCE(SUM(consumed_area),0) as consumed_area " +
             "FROM tape_stock WHERE status = 1 " +
+            "<if test='location != null and location != \"\"'> AND location = #{location} </if> " +
+            "<if test='includeReturnWarehouse != null and !includeReturnWarehouse'> AND location != '退货专仓' </if> " +
             "GROUP BY material_code, product_name " +
-            "ORDER BY material_code")
-    List<TapeStock> selectSummaryByMaterial();
+            "ORDER BY material_code" +
+            "</script>")
+    List<TapeStock> selectSummaryByMaterial(@Param("location") String location, @Param("includeReturnWarehouse") Boolean includeReturnWarehouse);
 
     /**
      * 按料号汇总库存（分页列表）
@@ -41,13 +45,17 @@ public interface TapeStockMapper extends BaseMapper<TapeStock> {
             "COALESCE(SUM(consumed_area),0) as consumed_area " +
             "FROM tape_stock WHERE status = 1 " +
             "<if test='materialCode != null and materialCode != \"\"'> AND material_code LIKE CONCAT('%', #{materialCode}, '%') </if> " +
+            "<if test='location != null and location != \"\"'> AND location = #{location} </if> " +
+            "<if test='includeReturnWarehouse != null and !includeReturnWarehouse'> AND location != '退货专仓' </if> " +
             "GROUP BY material_code, product_name " +
             "ORDER BY material_code " +
             "LIMIT #{offset}, #{size}" +
             "</script>")
     List<TapeStock> selectSummaryByMaterialPageList(@Param("offset") long offset,
                                                     @Param("size") long size,
-                                                    @Param("materialCode") String materialCode);
+                                                    @Param("materialCode") String materialCode,
+                                                    @Param("location") String location,
+                                                    @Param("includeReturnWarehouse") Boolean includeReturnWarehouse);
 
     /**
      * 按料号汇总库存（总数）
@@ -57,10 +65,14 @@ public interface TapeStockMapper extends BaseMapper<TapeStock> {
             "  SELECT material_code, product_name " +
             "  FROM tape_stock WHERE status = 1 " +
             "  <if test='materialCode != null and materialCode != \"\"'> AND material_code LIKE CONCAT('%', #{materialCode}, '%') </if> " +
+            "  <if test='location != null and location != \"\"'> AND location = #{location} </if> " +
+            "  <if test='includeReturnWarehouse != null and !includeReturnWarehouse'> AND location != '退货专仓' </if> " +
             "  GROUP BY material_code, product_name" +
             ") t" +
             "</script>")
-    Long countSummaryByMaterial(@Param("materialCode") String materialCode);
+    Long countSummaryByMaterial(@Param("materialCode") String materialCode,
+                                @Param("location") String location,
+                                @Param("includeReturnWarehouse") Boolean includeReturnWarehouse);
 
     /**
      * 归一化面积字段，填充null为0，并在可用面积缺失时重新计算
@@ -91,13 +103,30 @@ public interface TapeStockMapper extends BaseMapper<TapeStock> {
     List<TapeStock> selectByMaterialCodeFIFO(@Param("materialCode") String materialCode);
 
     /**
-     * 根据料号查询库存明细（分页）
+     * 按关键词查询可用批次（料号/品名模糊匹配）
      */
     @Select("SELECT * FROM tape_stock " +
-            "WHERE material_code = #{materialCode} AND status = 1 " +
+            "WHERE status = 1 AND total_rolls > 0 " +
+            "AND (material_code LIKE CONCAT('%', #{keyword}, '%') " +
+            "OR product_name LIKE CONCAT('%', #{keyword}, '%')) " +
             "ORDER BY prod_date ASC, id ASC")
-    IPage<TapeStock> selectByMaterialCodePage(Page<TapeStock> page, @Param("materialCode") String materialCode);
-    
+    List<TapeStock> selectByMaterialKeywordFIFO(@Param("keyword") String keyword);
+
+    /**
+     * 根据料号查询库存明细（分页）
+     */
+    @Select("<script>" +
+            "SELECT * FROM tape_stock " +
+            "WHERE material_code = #{materialCode} AND status = 1 " +
+            "<if test='location != null and location != \"\"'> AND location = #{location} </if> " +
+            "<if test='includeReturnWarehouse != null and !includeReturnWarehouse'> AND location != '退货专仓' </if> " +
+            "ORDER BY prod_date ASC, id ASC" +
+            "</script>")
+    IPage<TapeStock> selectByMaterialCodePage(Page<TapeStock> page,
+                                              @Param("materialCode") String materialCode,
+                                              @Param("location") String location,
+                                              @Param("includeReturnWarehouse") Boolean includeReturnWarehouse);
+
     /**
      * 根据批次号查询
      */
@@ -113,8 +142,15 @@ public interface TapeStockMapper extends BaseMapper<TapeStock> {
     /**
      * 查询批次号下最大的序号（用于自动生成二维码）
      */
-    @Select("SELECT COALESCE(MAX(CAST(SUBSTRING_INDEX(qr_code, '-', -1) AS UNSIGNED)), 0) " +
-            "FROM tape_stock WHERE batch_no = #{batchNo} AND qr_code LIKE CONCAT(#{batchNo}, '-%')")
+    @Select("SELECT COALESCE(MAX(" +
+            "CASE " +
+            "  WHEN batch_no = #{batchNo} THEN 1 " +
+            "  WHEN batch_no LIKE CONCAT(#{batchNo}, '-%') THEN CAST(SUBSTRING_INDEX(SUBSTRING(batch_no, LENGTH(#{batchNo}) + 2), '-', 1) AS UNSIGNED) " +
+            "  ELSE 0 " +
+            "END" +
+            "), 0) " +
+            "FROM tape_stock " +
+            "WHERE batch_no = #{batchNo} OR batch_no LIKE CONCAT(#{batchNo}, '-%')")
     Integer selectMaxSequenceNoByBatchNo(@Param("batchNo") String batchNo);
     
     /**

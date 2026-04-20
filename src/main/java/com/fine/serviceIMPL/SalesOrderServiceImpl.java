@@ -1213,6 +1213,8 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
         try {
             LambdaQueryWrapper<SalesOrder> queryWrapper = new LambdaQueryWrapper<>();
             queryWrapper.eq(SalesOrder::getIsDeleted, 0);
+            String keywordValue = keyword == null ? "" : keyword.trim();
+            boolean hasKeyword = !keywordValue.isEmpty();
 
             String statusFilter = status == null ? "" : status.trim();
             String statusFilterLower = statusFilter.toLowerCase(Locale.ROOT);
@@ -1227,11 +1229,11 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
 
             LoginUser loginUser = getLoginUser();
             // 根据关键词搜索订单号或客户名
-            if (keyword != null && !keyword.isEmpty()) {
+            if (hasKeyword) {
                 queryWrapper.and(wrapper -> 
-                    wrapper.like(SalesOrder::getOrderNo, keyword)
+                    wrapper.like(SalesOrder::getOrderNo, keywordValue)
                           .or()
-                          .like(SalesOrder::getCustomer, keyword)
+                          .like(SalesOrder::getCustomer, keywordValue)
                 );
             }
 
@@ -1281,7 +1283,20 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
                 queryWrapper.last("LIMIT 20"); // 默认场景限制返回20条，completed模式不限制
             }
             
-            List<SalesOrder> orders = salesOrderMapper.selectList(queryWrapper);
+            List<SalesOrder> orders;
+            if (hasKeyword) {
+                LambdaQueryWrapper<SalesOrder> exactWrapper = new LambdaQueryWrapper<>();
+                exactWrapper.eq(SalesOrder::getIsDeleted, 0)
+                        .eq(SalesOrder::getOrderNo, keywordValue)
+                        .orderByDesc(SalesOrder::getCreatedAt)
+                        .last("LIMIT 20");
+                List<SalesOrder> exactOrders = salesOrderMapper.selectList(exactWrapper);
+                orders = (exactOrders != null && !exactOrders.isEmpty())
+                        ? exactOrders
+                        : salesOrderMapper.selectList(queryWrapper);
+            } else {
+                orders = salesOrderMapper.selectList(queryWrapper);
+            }
 
             // 按模式返回订单：
             // 1) pending/unshipped（默认）：仅未发完

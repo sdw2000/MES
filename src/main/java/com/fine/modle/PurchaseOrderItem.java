@@ -58,6 +58,11 @@ public class PurchaseOrderItem {
      */
     private String rawSpec;
 
+    /**
+     * 薄膜规格原文（按前端输入原样保存，如 25μm*1250mm*3000m）
+     */
+    private String filmSpecRaw;
+
     private String reconciliationStatus;
 
     private String remark;

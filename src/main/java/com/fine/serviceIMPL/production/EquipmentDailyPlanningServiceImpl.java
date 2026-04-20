@@ -35,7 +35,6 @@ public class EquipmentDailyPlanningServiceImpl implements EquipmentDailyPlanning
     private static final String CODE_OK = "OK";
     private static final String CODE_EQUIPMENT_NOT_NORMAL = "EQUIPMENT_NOT_NORMAL";
     private static final String CODE_DAILY_STATUS_NOT_OPEN = "DAILY_STATUS_NOT_OPEN";
-    private static final String CODE_STAFF_NOT_ENOUGH = "STAFF_NOT_ENOUGH";
 
     @Autowired
     private EquipmentDailyStatusMapper equipmentDailyStatusMapper;
@@ -273,7 +272,6 @@ public class EquipmentDailyPlanningServiceImpl implements EquipmentDailyPlanning
         int available = countOnDutyQualifiedStaff(row.getEquipmentCode(), target.toLocalDate(), row.getRequiredSkillLevel());
         row.setAvailableStaffCount(available);
 
-        int required = row.getMinStaffRequired() == null || row.getMinStaffRequired() <= 0 ? 1 : row.getMinStaffRequired();
         String equipmentStatus = row.getEquipmentStatus() == null ? "" : row.getEquipmentStatus().trim().toLowerCase();
         String dailyStatus = row.getDailyStatus() == null ? "OPEN" : row.getDailyStatus().trim().toUpperCase();
 
@@ -288,10 +286,6 @@ public class EquipmentDailyPlanningServiceImpl implements EquipmentDailyPlanning
             can = false;
             reason = "日状态非OPEN(" + dailyStatus + ")";
             code = CODE_DAILY_STATUS_NOT_OPEN;
-        } else if (available < required) {
-            can = false;
-            reason = "在岗人数不足(" + available + "/" + required + ")";
-            code = CODE_STAFF_NOT_ENOUGH;
         }
         row.setCanSchedule(can ? 1 : 0);
         row.setCanScheduleReason(reason);

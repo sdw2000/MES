@@ -2,10 +2,10 @@ package com.fine.serviceIMPL;
 
 import java.math.BigDecimal;
 import java.text.SimpleDateFormat;
-import java.util.Calendar;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -75,6 +75,18 @@ public class PurchaseOrderServiceImpl extends ServiceImpl<PurchaseOrderMapper, P
 
             if (purchaseOrder.getOrderNo() == null || purchaseOrder.getOrderNo().isEmpty()) {
                 purchaseOrder.setOrderNo(generateOrderNo());
+            } else {
+                String incomingOrderNo = purchaseOrder.getOrderNo().trim();
+                purchaseOrder.setOrderNo(incomingOrderNo);
+                if (purchaseOrderMapper.countByOrderNo(incomingOrderNo) > 0) {
+                    purchaseOrder.setOrderNo(generateOrderNo());
+                }
+            }
+
+            int retry = 0;
+            while (purchaseOrderMapper.countByOrderNo(purchaseOrder.getOrderNo()) > 0 && retry < 5) {
+                purchaseOrder.setOrderNo(generateOrderNo());
+                retry++;
             }
             if (purchaseOrder.getStatus() == null || purchaseOrder.getStatus().isEmpty()) {
                 purchaseOrder.setStatus("pending");
@@ -85,9 +97,6 @@ public class PurchaseOrderServiceImpl extends ServiceImpl<PurchaseOrderMapper, P
             purchaseOrder.setCreatedAt(new Date());
             purchaseOrder.setUpdatedAt(new Date());
             purchaseOrder.setIsDeleted(0);
-            purchaseOrder.setOrderDate(toDateOnly(purchaseOrder.getOrderDate()));
-            purchaseOrder.setDeliveryDate(toDateOnly(purchaseOrder.getDeliveryDate()));
-
             calculateOrderTotals(purchaseOrder);
             enrichItemsWithSpecInfo(purchaseOrder.getItems());
             normalizeItems(purchaseOrder.getItems());
@@ -136,9 +145,6 @@ public class PurchaseOrderServiceImpl extends ServiceImpl<PurchaseOrderMapper, P
             purchaseOrder.setUpdatedBy(username);
             purchaseOrder.setUpdatedAt(new Date());
             purchaseOrder.setIsDeleted(0);
-            purchaseOrder.setOrderDate(toDateOnly(purchaseOrder.getOrderDate()));
-            purchaseOrder.setDeliveryDate(toDateOnly(purchaseOrder.getDeliveryDate()));
-
             calculateOrderTotals(purchaseOrder);
             enrichItemsWithSpecInfo(purchaseOrder.getItems());
             normalizeItems(purchaseOrder.getItems());
@@ -325,19 +331,6 @@ public class PurchaseOrderServiceImpl extends ServiceImpl<PurchaseOrderMapper, P
         }
     }
 
-    private Date toDateOnly(Date date) {
-        if (date == null) {
-            return null;
-        }
-        Calendar calendar = Calendar.getInstance();
-        calendar.setTime(date);
-        calendar.set(Calendar.HOUR_OF_DAY, 0);
-        calendar.set(Calendar.MINUTE, 0);
-        calendar.set(Calendar.SECOND, 0);
-        calendar.set(Calendar.MILLISECOND, 0);
-        return calendar.getTime();
-    }
-
     private void initializeReconciliationStatus(PurchaseOrder purchaseOrder) {
         if (purchaseOrder == null) {
             return;
@@ -382,6 +375,12 @@ public class PurchaseOrderServiceImpl extends ServiceImpl<PurchaseOrderMapper, P
     @Transactional(rollbackFor = Exception.class)
     public ResponseResult<?> deleteOrder(String orderNo) {
         try {
+            if (orderNo == null || orderNo.trim().isEmpty()) {
+                return new ResponseResult<>(400, "采购单号不能为空");
+            }
+            orderNo = orderNo.trim();
+            String username = getCurrentUsername();
+
             LambdaQueryWrapper<PurchaseOrder> queryWrapper = new LambdaQueryWrapper<>();
             queryWrapper.eq(PurchaseOrder::getOrderNo, orderNo)
                     .eq(PurchaseOrder::getIsDeleted, 0);
@@ -390,17 +389,11 @@ public class PurchaseOrderServiceImpl extends ServiceImpl<PurchaseOrderMapper, P
                 return new ResponseResult<>(404, "采购订单不存在或已删除: " + orderNo);
             }
 
-            LambdaQueryWrapper<PurchaseOrderItem> itemWrapper = new LambdaQueryWrapper<>();
-            itemWrapper.eq(PurchaseOrderItem::getOrderId, order.getId())
-                       .eq(PurchaseOrderItem::getIsDeleted, 0);
-            List<PurchaseOrderItem> items = purchaseOrderItemMapper.selectList(itemWrapper);
-            for (PurchaseOrderItem item : items) {
-                item.setIsDeleted(1);
-                purchaseOrderItemMapper.updateById(item);
+            purchaseOrderItemMapper.logicDeleteByOrderNo(orderNo, username);
+            int affectedOrder = purchaseOrderMapper.logicDeleteByOrderNo(orderNo, username);
+            if (affectedOrder <= 0) {
+                return new ResponseResult<>(500, "删除失败，未更新到采购单: " + orderNo);
             }
-
-            order.setIsDeleted(1);
-            purchaseOrderMapper.updateById(order);
             return new ResponseResult<>(200, "删除成功");
         } catch (Exception e) {
             e.printStackTrace();
@@ -411,7 +404,8 @@ public class PurchaseOrderServiceImpl extends ServiceImpl<PurchaseOrderMapper, P
     @Override
     public ResponseResult<?> getOrderByOrderNo(String orderNo) {
         LambdaQueryWrapper<PurchaseOrder> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(PurchaseOrder::getOrderNo, orderNo);
+        queryWrapper.eq(PurchaseOrder::getOrderNo, orderNo)
+            .eq(PurchaseOrder::getIsDeleted, 0);
         PurchaseOrder order = purchaseOrderMapper.selectOne(queryWrapper);
         if (order != null) {
             LambdaQueryWrapper<PurchaseOrderItem> itemWrapper = new LambdaQueryWrapper<>();
@@ -443,6 +437,34 @@ public class PurchaseOrderServiceImpl extends ServiceImpl<PurchaseOrderMapper, P
         } catch (Exception e) {
             e.printStackTrace();
             return new ResponseResult<>(500, "搜索采购订单失败: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public ResponseResult<?> getRawSpecHistory(String supplier, String materialCode) {
+        try {
+            String code = materialCode == null ? "" : materialCode.trim();
+            if (code.isEmpty()) {
+                return new ResponseResult<>(400, "materialCode不能为空");
+            }
+            String supplierKeyword = supplier == null ? "" : supplier.trim();
+            List<String> rawList = purchaseOrderItemMapper.selectRawSpecHistory(supplierKeyword, code);
+            LinkedHashSet<String> dedup = new LinkedHashSet<>();
+            if (rawList != null) {
+                for (String value : rawList) {
+                    if (value == null) {
+                        continue;
+                    }
+                    String text = value.trim();
+                    if (!text.isEmpty()) {
+                        dedup.add(text);
+                    }
+                }
+            }
+            return new ResponseResult<>(200, "success", dedup);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return new ResponseResult<>(500, "获取历史规格失败: " + e.getMessage());
         }
     }
 

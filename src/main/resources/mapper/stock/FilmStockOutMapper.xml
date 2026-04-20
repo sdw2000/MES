@@ -5,15 +5,15 @@
     <!-- 按薄膜库存ID查询出库记录 -->
     <select id="selectByFilmStockId" resultType="com.fine.model.stock.FilmStockOut">
         SELECT * FROM film_stock_out
-        WHERE film_stock_id = #{filmStockId}
-        ORDER BY outbound_time DESC
+        WHERE stock_id = #{filmStockId}
+        ORDER BY out_date DESC
     </select>
     
     <!-- 按排程ID查询出库记录 -->
     <select id="selectByScheduleId" resultType="com.fine.model.stock.FilmStockOut">
         SELECT * FROM film_stock_out
         WHERE schedule_id = #{scheduleId}
-        ORDER BY outbound_time DESC
+        ORDER BY out_date DESC
     </select>
     
     <!-- 按涂布任务ID查询出库记录 -->

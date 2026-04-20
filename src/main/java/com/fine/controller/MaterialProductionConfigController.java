@@ -39,7 +39,7 @@ public class MaterialProductionConfigController {
             QueryWrapper<MaterialProductionConfig> wrapper = new QueryWrapper<>();
             
             if (materialCode != null && !materialCode.isEmpty()) {
-                wrapper.like("material_code", materialCode);
+                wrapper.likeRight("material_code", materialCode);
             }
             if (materialType != null && !materialType.isEmpty()) {
                 wrapper.eq("material_type", materialType);

@@ -6,6 +6,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fine.Dao.SampleOrderMapper;
 import com.fine.Dao.SampleItemMapper;
 import com.fine.Dao.CustomerMapper;
+import com.fine.Dao.CustomerContactMapper;
 import com.fine.Dao.UserMapper;
 import com.fine.Utils.ResponseResult;
 import com.fine.modle.*;
@@ -51,6 +52,9 @@ public class SampleOrderServiceImpl implements SampleOrderService {
 
     @Autowired
     private CustomerMapper customerMapper;
+
+    @Autowired
+    private CustomerContactMapper customerContactMapper;
 
     @Autowired
     private UserMapper userMapper;
@@ -386,6 +390,13 @@ public class SampleOrderServiceImpl implements SampleOrderService {
         }
 
         try {
+            String normalizedTrackingNo = normalizeTrackingNumber(order.getTrackingNumber());
+            if (!StringUtils.hasText(normalizedTrackingNo)) {
+                result.put("success", false);
+                result.put("message", "物流单号格式无效");
+                return result;
+            }
+
             List<String> companyCodes = resolveExpressCodeCandidates(order.getExpressCompany());
             if (companyCodes.isEmpty()) {
                 result.put("success", false);
@@ -393,10 +404,17 @@ public class SampleOrderServiceImpl implements SampleOrderService {
                 return result;
             }
 
+            String phoneTail4 = resolvePhoneTail4(order);
+            if (!StringUtils.hasText(phoneTail4) && containsSfCarrierCode(companyCodes)) {
+                result.put("success", false);
+                result.put("message", "顺丰查询需提供收件手机号后4位，请补充联系人手机号");
+                return result;
+            }
+
             Map<String, Object> apiResp = null;
             String failMsg = "物流接口查询失败";
             for (String companyCode : companyCodes) {
-                apiResp = queryKuaidi100(companyCode, order.getTrackingNumber());
+                apiResp = queryKuaidi100(companyCode, normalizedTrackingNo, phoneTail4);
                 if (isKuaidi100Success(apiResp)) {
                     break;
                 }
@@ -449,10 +467,13 @@ public class SampleOrderServiceImpl implements SampleOrderService {
         }
     }
 
-    private Map<String, Object> queryKuaidi100(String companyCode, String trackingNumber) throws Exception {
+    private Map<String, Object> queryKuaidi100(String companyCode, String trackingNumber, String phoneTail4) throws Exception {
         Map<String, Object> param = new LinkedHashMap<>();
         param.put("com", companyCode);
         param.put("num", trackingNumber);
+        if (StringUtils.hasText(phoneTail4) && isPhoneRequiredCarrier(companyCode)) {
+            param.put("phone", phoneTail4);
+        }
 
         com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
         String paramJson = mapper.writeValueAsString(param);
@@ -492,6 +513,9 @@ public class SampleOrderServiceImpl implements SampleOrderService {
         Map<String, String> map = new HashMap<>();
         map.put("顺丰速运", "shunfeng");
         map.put("顺丰", "shunfeng");
+        map.put("顺丰快递", "shunfeng");
+        map.put("SF", "shunfeng");
+        map.put("SF EXPRESS", "shunfeng");
         map.put("圆通速递", "yuantong");
         map.put("圆通", "yuantong");
         map.put("中通快递", "zhongtong");
@@ -524,6 +548,112 @@ public class SampleOrderServiceImpl implements SampleOrderService {
         // 默认兜底：将原值当编码尝试一次
         codes.add(v);
         return new java.util.ArrayList<>(codes);
+    }
+
+    private String normalizeTrackingNumber(String trackingNo) {
+        if (!StringUtils.hasText(trackingNo)) {
+            return "";
+        }
+        String normalized = trackingNo.trim();
+        normalized = normalized.replaceAll("[\\s\\u00A0]", "");
+        normalized = normalized.replaceAll("[^0-9A-Za-z-]", "");
+        return normalized.toUpperCase();
+    }
+
+    private String resolvePhoneTail4(SampleOrder order) {
+        if (order == null) {
+            return "";
+        }
+
+        // 1) 优先取样品单表头联系电话
+        String tail4 = extractPhoneTail4(order.getContactPhone());
+        if (StringUtils.hasText(tail4)) {
+            return tail4;
+        }
+
+        // 2) 按客户ID从客户管理表获取
+        if (order.getCustomerId() != null) {
+            Customer byId = customerMapper.selectById(order.getCustomerId());
+            tail4 = resolvePhoneTail4FromCustomer(byId);
+            if (StringUtils.hasText(tail4)) {
+                return tail4;
+            }
+        }
+
+        // 3) 按客户代码/名称兜底匹配客户管理表
+        String customerText = order.getCustomerName() == null ? "" : order.getCustomerName().trim();
+        if (StringUtils.hasText(customerText)) {
+            Customer byCode = customerMapper.selectByCustomerCode(customerText);
+            tail4 = resolvePhoneTail4FromCustomer(byCode);
+            if (StringUtils.hasText(tail4)) {
+                return tail4;
+            }
+
+            Customer byName = customerMapper.selectByShortNameOrCustomerName(customerText, customerText);
+            tail4 = resolvePhoneTail4FromCustomer(byName);
+            if (StringUtils.hasText(tail4)) {
+                return tail4;
+            }
+        }
+
+        return "";
+    }
+
+    private String resolvePhoneTail4FromCustomer(Customer customer) {
+        if (customer == null) {
+            return "";
+        }
+
+        // 客户主表公司电话
+        String tail4 = extractPhoneTail4(customer.getCompanyPhone());
+        if (StringUtils.hasText(tail4)) {
+            return tail4;
+        }
+
+        // 客户主联系人手机号/电话
+        if (customer.getId() != null) {
+            CustomerContact primary = customerContactMapper.selectPrimaryContact(customer.getId());
+            if (primary != null) {
+                tail4 = extractPhoneTail4(primary.getContactMobile());
+                if (StringUtils.hasText(tail4)) {
+                    return tail4;
+                }
+                tail4 = extractPhoneTail4(primary.getContactPhone());
+                if (StringUtils.hasText(tail4)) {
+                    return tail4;
+                }
+            }
+        }
+
+        return "";
+    }
+
+    private String extractPhoneTail4(String phone) {
+        if (!StringUtils.hasText(phone)) {
+            return "";
+        }
+        String digits = phone.replaceAll("\\D", "");
+        if (digits.length() < 4) {
+            return "";
+        }
+        return digits.substring(digits.length() - 4);
+    }
+
+    private boolean isPhoneRequiredCarrier(String companyCode) {
+        String code = companyCode == null ? "" : companyCode.trim().toLowerCase();
+        return "shunfeng".equals(code) || "sf".equals(code) || "sfexpress".equals(code);
+    }
+
+    private boolean containsSfCarrierCode(List<String> companyCodes) {
+        if (companyCodes == null || companyCodes.isEmpty()) {
+            return false;
+        }
+        for (String one : companyCodes) {
+            if (isPhoneRequiredCarrier(one)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private String mapKuaidi100StateToStatus(String state) {

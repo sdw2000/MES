@@ -17,7 +17,7 @@ public interface TapeSpecMapper {
      */
     @Select("<script>" +
             "SELECT * FROM tape_spec WHERE 1=1" +
-            "<if test='materialCode != null and materialCode != \"\"'> AND material_code LIKE CONCAT('%',#{materialCode},'%')</if>" +
+            "<if test='materialCode != null and materialCode != \"\"'> AND material_code LIKE CONCAT(#{materialCode},'%')</if>" +
             "<if test='productName != null and productName != \"\"'> AND product_name LIKE CONCAT('%',#{productName},'%')</if>" +
             "<if test='colorCode != null and colorCode != \"\"'> AND color_code = #{colorCode}</if>" +
             "<if test='baseMaterial != null and baseMaterial != \"\"'> AND base_material = #{baseMaterial}</if>" +
@@ -69,7 +69,7 @@ public interface TapeSpecMapper {
      */
     @Select("<script>" +
             "SELECT * FROM tape_spec WHERE 1=1" +
-            "<if test='materialCode != null and materialCode != \"\"'> AND material_code LIKE CONCAT('%',#{materialCode},'%')</if>" +
+            "<if test='materialCode != null and materialCode != \"\"'> AND material_code LIKE CONCAT(#{materialCode},'%')</if>" +
             "<if test='productName != null and productName != \"\"'> AND product_name LIKE CONCAT('%',#{productName},'%')</if>" +
             "<if test='colorCode != null and colorCode != \"\"'> AND color_code = #{colorCode}</if>" +
             "<if test='baseMaterial != null and baseMaterial != \"\"'> AND base_material = #{baseMaterial}</if>" +
@@ -90,7 +90,7 @@ public interface TapeSpecMapper {
      */
     @Select("<script>" +
             "SELECT COUNT(*) FROM tape_spec WHERE 1=1" +
-            "<if test='materialCode != null and materialCode != \"\"'> AND material_code LIKE CONCAT('%',#{materialCode},'%')</if>" +
+            "<if test='materialCode != null and materialCode != \"\"'> AND material_code LIKE CONCAT(#{materialCode},'%')</if>" +
             "<if test='productName != null and productName != \"\"'> AND product_name LIKE CONCAT('%',#{productName},'%')</if>" +
             "<if test='colorCode != null and colorCode != \"\"'> AND color_code = #{colorCode}</if>" +
             "<if test='baseMaterial != null and baseMaterial != \"\"'> AND base_material = #{baseMaterial}</if>" +
@@ -115,6 +115,23 @@ public interface TapeSpecMapper {
     @Select("SELECT * FROM tape_spec WHERE material_code = #{materialCode} LIMIT 1")
     @ResultMap("tapeSpecResultMap")
     TapeSpec selectByMaterialCode(@Param("materialCode") String materialCode);
+
+    /**
+     * 料号建议（仅研发规格表，前缀匹配，按接近度返回）
+     */
+    @Select("<script>" +
+            "SELECT * FROM tape_spec " +
+            "WHERE status = 1 " +
+            "AND material_code LIKE CONCAT(#{keyword}, '%') " +
+            "ORDER BY " +
+            "  CASE WHEN material_code = #{keyword} THEN 0 ELSE 1 END ASC, " +
+            "  ABS(CHAR_LENGTH(material_code) - CHAR_LENGTH(#{keyword})) ASC, " +
+            "  material_code ASC " +
+            "LIMIT #{limit}" +
+            "</script>")
+    @ResultMap("tapeSpecResultMap")
+    List<TapeSpec> selectTopByMaterialCodePrefix(@Param("keyword") String keyword,
+                                                 @Param("limit") int limit);
 
     /**
      * 根据料号列表批量查询

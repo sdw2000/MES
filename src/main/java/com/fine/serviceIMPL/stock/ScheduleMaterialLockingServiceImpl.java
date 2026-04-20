@@ -731,8 +731,8 @@ public class ScheduleMaterialLockingServiceImpl implements ScheduleMaterialLocki
             PurchaseOrder po = new PurchaseOrder();
             po.setOrderNo(generatePurchaseOrderNo());
             po.setSupplier("AUTO-PROCUREMENT");
-            po.setOrderDate(java.util.Date.from(LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant()));
-            po.setDeliveryDate(java.util.Date.from(LocalDate.now().plusDays(7).atStartOfDay(ZoneId.systemDefault()).toInstant()));
+            po.setOrderDate(LocalDate.now());
+            po.setDeliveryDate(LocalDate.now().plusDays(7));
             po.setStatus("pending");
             po.setRemark("source=schedule_procurement_plan;mode=grouped-by-material;materialCode=" + materialCode + ";planCount=" + (linkedPlans == null ? 0 : linkedPlans.size()));
             po.setCreatedBy("system");

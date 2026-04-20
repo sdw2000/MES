@@ -8,6 +8,9 @@ import com.fine.service.stock.TapeStockService;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -99,8 +102,10 @@ public class TapeStockController {
      */
     @GetMapping("/summary")
     @PreAuthorize("hasAnyAuthority('warehouse','admin','sales','finance','quality')")
-    public ResponseResult<?> getStockSummary() {
-        List<TapeStock> list = stockService.getStockSummary();
+    public ResponseResult<?> getStockSummary(@RequestParam(required = false) Boolean includeReturnWarehouse) {
+        List<TapeStock> list = includeReturnWarehouse != null ? 
+            stockService.getStockSummary(includeReturnWarehouse) : 
+            stockService.getStockSummary(true);  // 默认包含退货专仓
         return ResponseResult.success("查询成功", list);
     }
 
@@ -112,8 +117,11 @@ public class TapeStockController {
     public ResponseResult<?> getStockSummaryPage(
             @RequestParam(defaultValue = "1") int current,
             @RequestParam(defaultValue = "20") int size,
-            @RequestParam(required = false) String materialCode) {
-        IPage<TapeStock> result = stockService.getStockSummaryPage(current, size, materialCode);
+            @RequestParam(required = false) String materialCode,
+            @RequestParam(required = false) Boolean includeReturnWarehouse) {
+        IPage<TapeStock> result = includeReturnWarehouse != null ? 
+            stockService.getStockSummaryPage(current, size, materialCode, includeReturnWarehouse) : 
+            stockService.getStockSummaryPage(current, size, materialCode, true);  // 默认包含退货专仓
         Map<String, Object> data = new HashMap<>();
         data.put("records", result.getRecords());
         data.put("total", result.getTotal());
@@ -128,7 +136,7 @@ public class TapeStockController {
      */
     @GetMapping("/by-material/{materialCode}")
     public ResponseResult<?> getStockByMaterial(@PathVariable String materialCode) {
-        List<TapeStock> list = stockService.getStockByMaterialFIFO(materialCode);
+        List<TapeStock> list = stockService.searchStockByMaterialKeyword(materialCode);
         return ResponseResult.success("查询成功", list);
     }
 
@@ -139,8 +147,11 @@ public class TapeStockController {
     public ResponseResult<?> getStockByMaterialPage(
             @RequestParam String materialCode,
             @RequestParam(defaultValue = "1") int current,
-            @RequestParam(defaultValue = "20") int size) {
-        IPage<TapeStock> result = stockService.getStockByMaterialPage(current, size, materialCode);
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) Boolean includeReturnWarehouse) {
+        IPage<TapeStock> result = includeReturnWarehouse != null ? 
+            stockService.getStockByMaterialPage(current, size, materialCode, includeReturnWarehouse) : 
+            stockService.getStockByMaterialPage(current, size, materialCode, true);  // 默认包含退货专仓
         Map<String, Object> data = new HashMap<>();
         data.put("records", result.getRecords());
         data.put("total", result.getTotal());
@@ -167,14 +178,53 @@ public class TapeStockController {
     public ResponseResult<?> importExcel(@RequestParam("file") MultipartFile file) {
         try {
             Map<String, Object> result = stockService.importExcel(file);
-            if ((boolean) result.get("success")) {
-                return ResponseResult.success("导入成功", result);
-            } else {
-                return ResponseResult.error(50000, (String) result.get("message"));
-            }
+            Object successCount = result.getOrDefault("successCount", 0);
+            Object failCount = result.getOrDefault("failCount", 0);
+            String msg = "导入完成：成功" + successCount + "条，失败/跳过" + failCount + "条";
+            return ResponseResult.success(msg, result);
         } catch (Exception e) {
             return ResponseResult.error("导入失败: " + e.getMessage());
         }
+    }
+
+    /**
+     * 异步导入Excel库存数据（大文件推荐）
+     */
+    @PostMapping("/import/async")
+    @PreAuthorize("hasAnyAuthority('warehouse','admin')")
+    public ResponseResult<?> importExcelAsync(@RequestParam("file") MultipartFile file) {
+        try {
+            Map<String, Object> result = stockService.importExcelAsync(file);
+            return ResponseResult.success("异步导入任务已创建", result);
+        } catch (Exception e) {
+            return ResponseResult.error("创建异步导入任务失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 查询异步导入任务状态
+     */
+    @GetMapping("/import/task/{taskId}")
+    @PreAuthorize("hasAnyAuthority('warehouse','admin')")
+    public ResponseResult<?> getImportTaskStatus(@PathVariable String taskId) {
+        Map<String, Object> result = stockService.getImportTaskStatus(taskId);
+        return ResponseResult.success("查询成功", result);
+    }
+
+    /**
+     * 下载异步导入失败明细文件
+     */
+    @GetMapping("/import/task/{taskId}/failed.xlsx")
+    @PreAuthorize("hasAnyAuthority('warehouse','admin')")
+    public ResponseEntity<byte[]> downloadImportFailedFile(@PathVariable String taskId) {
+        byte[] content = stockService.getImportTaskFailedExcel(taskId);
+        if (content == null || content.length == 0) {
+            return ResponseEntity.notFound().build();
+        }
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"));
+        headers.set(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=tape_stock_import_failed.xlsx");
+        return ResponseEntity.ok().headers(headers).body(content);
     }
     
     /**
@@ -367,6 +417,20 @@ public class TapeStockController {
     @PreAuthorize("hasAnyAuthority('warehouse','admin','production')")    public ResponseResult<?> countPendingInbound() {
         int count = stockService.countPendingInbound();
         return ResponseResult.success("查询成功", count);
+    }
+
+    /**
+     * 历史分切成品库存聚合（一次性治理）
+     */
+    @PostMapping("/inbound/merge-historical-slitting")
+    @PreAuthorize("hasAnyAuthority('admin','warehouse')")
+    public ResponseResult<?> mergeHistoricalSlitting() {
+        try {
+            Map<String, Object> result = stockService.mergeHistoricalSlittingFinishedStock();
+            return ResponseResult.success("历史分切成品库存合并完成", result);
+        } catch (Exception e) {
+            return ResponseResult.error("历史分切成品库存合并失败: " + e.getMessage());
+        }
     }
     
     // ============= 出库申请 =============

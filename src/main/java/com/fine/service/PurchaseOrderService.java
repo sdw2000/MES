@@ -23,6 +23,8 @@ public interface PurchaseOrderService extends IService<PurchaseOrder> {
 
     ResponseResult<?> getReconciliationSummary(String orderNo);
 
+    ResponseResult<?> getRawSpecHistory(String supplier, String materialCode);
+
     void exportOrders(HttpServletResponse response);
 
     ResponseResult<?> importOrders(MultipartFile file, String username);

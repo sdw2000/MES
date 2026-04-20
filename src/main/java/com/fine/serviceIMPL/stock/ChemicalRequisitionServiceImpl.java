@@ -347,8 +347,8 @@ public class ChemicalRequisitionServiceImpl implements ChemicalRequisitionServic
         PurchaseOrder po = new PurchaseOrder();
         po.setOrderNo(generatePurchaseOrderNo());
         po.setSupplier("AUTO-CHEMICAL");
-        po.setOrderDate(Date.from(LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant()));
-        po.setDeliveryDate(Date.from(LocalDate.now().plusDays(7).atStartOfDay(ZoneId.systemDefault()).toInstant()));
+        po.setOrderDate(LocalDate.now());
+        po.setDeliveryDate(LocalDate.now().plusDays(7));
         po.setStatus("pending");
         po.setRemark("source=chemical_purchase_request;requestNo=" + requestNo);
         po.setCreatedBy("system");

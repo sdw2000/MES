@@ -24,4 +24,6 @@ public interface SalesReturnService extends IService<SalesReturn> {
     ResponseResult<?> getReturnableOrderItems(String orderNo, String excludeReturnNo);
 
     ResponseResult<?> getReturnAuditLogs(String returnNo, Integer pageNum, Integer pageSize);
+
+    ResponseResult<?> createInboundRequestsFromReturn(String returnNo);
 }

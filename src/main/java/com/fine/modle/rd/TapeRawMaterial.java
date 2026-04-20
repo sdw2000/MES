@@ -8,11 +8,15 @@ public class TapeRawMaterial {
     private Long id;
     private String materialCode;    // 物料代码
     private String materialName;    // 物料名称
+    private String supplierCode;    // 供应商代码（原始导入）
+    private String materialMajor;   // 物料大类（原始导入）
+    private String materialCategoryRaw; // 物料类别（原始导入）
     private String materialCategory; // 物料类别: film/chemical
     private String materialType;    // 物料类型: resin/solvent/additive/curing
     private String unit;            // 单位
     private String spec;            // 规格说明
     private String performanceParams; // 性能参数(JSON)
+    private String remark;          // 备注（原始导入）
     private Integer sortOrder;
     private Integer status;
 
@@ -25,6 +29,15 @@ public class TapeRawMaterial {
     
     public String getMaterialName() { return materialName; }
     public void setMaterialName(String materialName) { this.materialName = materialName; }
+
+    public String getSupplierCode() { return supplierCode; }
+    public void setSupplierCode(String supplierCode) { this.supplierCode = supplierCode; }
+
+    public String getMaterialMajor() { return materialMajor; }
+    public void setMaterialMajor(String materialMajor) { this.materialMajor = materialMajor; }
+
+    public String getMaterialCategoryRaw() { return materialCategoryRaw; }
+    public void setMaterialCategoryRaw(String materialCategoryRaw) { this.materialCategoryRaw = materialCategoryRaw; }
 
     public String getMaterialCategory() { return materialCategory; }
     public void setMaterialCategory(String materialCategory) { this.materialCategory = materialCategory; }
@@ -40,6 +53,9 @@ public class TapeRawMaterial {
 
     public String getPerformanceParams() { return performanceParams; }
     public void setPerformanceParams(String performanceParams) { this.performanceParams = performanceParams; }
+
+    public String getRemark() { return remark; }
+    public void setRemark(String remark) { this.remark = remark; }
     
     public Integer getSortOrder() { return sortOrder; }
     public void setSortOrder(Integer sortOrder) { this.sortOrder = sortOrder; }

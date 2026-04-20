@@ -24,12 +24,20 @@ public class ChemicalStockDetail {
     /** 关联chemical_stock表的ID */
     @TableField("stock_id")
     private Long chemicalStockId;
+
+    /** 物料编码（表必填） */
+    @TableField("material_code")
+    private String materialCode;
     
     /** 批次号 */
     private String batchNo;
     
     /** 桶号/包号 */
+    @TableField("barrel_no")
     private String containerNo;
+
+    /** 单位 */
+    private String unit;
     
     /** 重量(kg) */
     private BigDecimal weight;
@@ -42,6 +50,7 @@ public class ChemicalStockDetail {
     
     /** 入库日期 */
     @JsonFormat(pattern = "yyyy-MM-dd", timezone = "GMT+8")
+    @TableField("storage_date")
     private Date inboundDate;
     
     /** 有效期至 */

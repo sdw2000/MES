@@ -41,4 +41,21 @@ public interface DeliveryNoticeService extends IService<DeliveryNotice> {
      * @return 物流结果
      */
     Map<String, Object> queryLogistics(Long id);
+
+    /**
+     * 按送货单号追加批次号（逗号分隔、唯一值）
+     * @param noticeNo 送货单号
+     * @param batchNo 批次号
+     * @return 追加后的批次号串
+     */
+    String appendBatchNoByNoticeNo(String noticeNo, String batchNo);
+
+    /**
+     * 同步批次号到发货明细（按送货单号+料号匹配）
+     * @param noticeNo 送货单号
+     * @param materialCode 料号（可空）
+     * @param batchNo 批次号
+     * @return 更新明细条数
+     */
+    int syncItemBatchNoByNoticeNo(String noticeNo, String materialCode, String batchNo);
 }

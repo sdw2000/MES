@@ -696,18 +696,24 @@ public class LabelPrintTemplateConfigController {
                 item.setMaterialName(matched.getCustomerMaterialName().trim());
             }
             // 规格栏：客户规格
-            item.setSpec(buildSpecText(
-                    matched.getCustomerThickness() == null ? thickness : matched.getCustomerThickness(),
-                    matched.getCustomerWidth() == null ? width : matched.getCustomerWidth(),
-                    matched.getCustomerLength() == null ? length : matched.getCustomerLength(),
-                    item.getSpec()
-            ));
+            if (notBlank(matched.getCustomerSpec())) {
+                item.setSpec(matched.getCustomerSpec().trim());
+            } else {
+                item.setSpec(buildSpecText(
+                        matched.getCustomerThickness() == null ? thickness : matched.getCustomerThickness(),
+                        matched.getCustomerWidth() == null ? width : matched.getCustomerWidth(),
+                        matched.getCustomerLength() == null ? length : matched.getCustomerLength(),
+                        item.getSpec()
+                ));
+            }
             // 物料编号：客户物料编号
             if (notBlank(matched.getCustomerMaterialCode())) {
                 item.setCustomerMaterialNo(matched.getCustomerMaterialCode().trim());
             }
-            // 备注：优先订单明细备注；若为空再回退客户产品代码
-            if (!notBlank(item.getRemark()) && notBlank(matched.getCustomerMaterialCode())) {
+            // 备注：优先客户映射备注；为空时回退客户物料代码
+            if (notBlank(matched.getRemark())) {
+                item.setRemark(matched.getRemark().trim());
+            } else if (!notBlank(item.getRemark()) && notBlank(matched.getCustomerMaterialCode())) {
                 item.setRemark(matched.getCustomerMaterialCode().trim());
             }
         }

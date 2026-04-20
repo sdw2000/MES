@@ -10,4 +10,8 @@ public interface PurchaseReceiptService extends IService<PurchaseReceipt> {
     ResponseResult<?> create(PurchaseReceipt receipt);
     ResponseResult<?> updateReceipt(PurchaseReceipt receipt);
     ResponseResult<?> deleteReceipt(Long id);
+
+    ResponseResult<?> seedTestData(Integer count);
+
+    ResponseResult<?> cleanupTestData();
 }

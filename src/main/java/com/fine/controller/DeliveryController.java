@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -32,11 +33,16 @@ import com.fine.modle.Customer;
 import com.fine.modle.LoginUser;
 import com.fine.modle.SalesOrder;
 import com.fine.modle.SalesOrderItem;
+import com.fine.modle.stock.TapeOutboundRequest;
+import com.fine.modle.stock.TapeStock;
+import com.fine.service.stock.TapeStockService;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.util.Date;
 import com.fine.modle.DeliveryNoticeItem;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 @RestController
 @RequestMapping("/delivery")
@@ -57,6 +63,11 @@ public class DeliveryController {
 
     @Autowired
     private SalesOrderMapper salesOrderMapper;
+
+    @Autowired
+    private TapeStockService tapeStockService;
+
+    private static final String SLITTING_PENDING_OUTBOUND_LOCATION = "成品待出库区";
     
     /**
      * 分页查询发货通知
@@ -315,7 +326,14 @@ public class DeliveryController {
             }
             if (msg.contains("线下查询") || msg.contains("线下承运")) {
                 result.put("success", false);
-                result.put("status", result.getOrDefault("status", "线下承运"));
+                result.put("status", result.getOrDefault("status", "未识别承运公司"));
+                result.put("lastUpdate", result.getOrDefault("lastUpdate", "-"));
+                result.put("traces", result.getOrDefault("traces", java.util.Collections.emptyList()));
+                return ResponseResult.success(result);
+            }
+            if (msg.contains("不支持此快递公司") || msg.contains("未识别快递公司")) {
+                result.put("success", false);
+                result.put("status", result.getOrDefault("status", "未识别承运公司"));
                 result.put("lastUpdate", result.getOrDefault("lastUpdate", "-"));
                 result.put("traces", result.getOrDefault("traces", java.util.Collections.emptyList()));
                 return ResponseResult.success(result);
@@ -349,6 +367,9 @@ public class DeliveryController {
             if ("已发货".equals(notice.getStatus())) {
                 return ResponseResult.error(400, "该发货单已确认发货");
             }
+
+            // 分切成品（成品待出库区）自动出库，免人工审核；其他来源库存不受影响
+            autoOutboundSlittingStocksIfNeeded(notice, getCurrentUsername(loginUser));
             
             // 更新状态为已发货
             notice.setStatus("已发货");
@@ -365,6 +386,117 @@ public class DeliveryController {
         } catch (Exception e) {
             return ResponseResult.error(500, "确认发货失败: " + e.getMessage());
         }
+    }
+
+    private void autoOutboundSlittingStocksIfNeeded(DeliveryNotice notice, String operator) {
+        if (notice == null || notice.getId() == null) {
+            return;
+        }
+        List<DeliveryNoticeItem> items = deliveryNoticeItemMapper.selectByNoticeId(notice.getId());
+        if (items == null || items.isEmpty()) {
+            return;
+        }
+
+        Set<Long> usedStockIds = new LinkedHashSet<>();
+        for (DeliveryNoticeItem item : items) {
+            if (item == null) {
+                continue;
+            }
+            int needRolls = item.getQuantity() == null ? 0 : Math.max(item.getQuantity(), 0);
+            if (needRolls <= 0) {
+                continue;
+            }
+
+            String materialCode = item.getMaterialCode() == null ? "" : item.getMaterialCode().trim();
+            LinkedHashSet<Long> selected = new LinkedHashSet<>();
+
+            // 优先按发货明细批次号定位
+            for (String oneBatch : splitBatchNos(item.getBatchNo())) {
+                TapeStock stock = tapeStockService.getStockByBatchNo(oneBatch);
+                if (isSlittingPendingOutboundStock(stock, materialCode)
+                        && !usedStockIds.contains(stock.getId())
+                        && selected.add(stock.getId())
+                        && selected.size() >= needRolls) {
+                    break;
+                }
+            }
+
+            // 批次不足时按料号FIFO补足
+            if (selected.size() < needRolls && StringUtils.hasText(materialCode)) {
+                List<TapeStock> fifoStocks = tapeStockService.getStockByMaterialFIFO(materialCode);
+                for (TapeStock stock : fifoStocks) {
+                    if (isSlittingPendingOutboundStock(stock, materialCode)
+                            && !usedStockIds.contains(stock.getId())
+                            && selected.add(stock.getId())
+                            && selected.size() >= needRolls) {
+                        break;
+                    }
+                }
+            }
+
+            // 仅对“成品待出库区”的分切库存做自动出库，不应阻塞其他来源库存的正常发货。
+            // 因此这里采用“尽力处理”策略：
+            // - 匹配到0卷：直接跳过该明细
+            // - 匹配不足：按实际匹配到的卷数执行自动出库
+            if (selected.isEmpty()) {
+                continue;
+            }
+
+            int approved = 0;
+            for (Long stockId : selected) {
+                if (approved >= needRolls) {
+                    break;
+                }
+                TapeOutboundRequest outbound = new TapeOutboundRequest();
+                outbound.setStockId(stockId);
+                outbound.setRolls(1);
+                outbound.setApplicant(operator);
+                outbound.setApplyDept("销售发货");
+                outbound.setRemark("发货单" + notice.getNoticeNo() + "自动出库");
+                TapeOutboundRequest created = tapeStockService.createOutboundRequest(outbound);
+
+                TapeStock stock = tapeStockService.getStockById(stockId);
+                String scanCode = stock == null ? "" : (StringUtils.hasText(stock.getBatchNo()) ? stock.getBatchNo() : stock.getQrCode());
+                tapeStockService.approveOutbound(created.getId(), true, operator, "销售发货自动出库（分切成品）", scanCode);
+                usedStockIds.add(stockId);
+                approved++;
+            }
+        }
+    }
+
+    private boolean isSlittingPendingOutboundStock(TapeStock stock, String expectedMaterialCode) {
+        if (stock == null || stock.getId() == null) {
+            return false;
+        }
+        if (stock.getStatus() == null || stock.getStatus() != 1) {
+            return false;
+        }
+        if (stock.getTotalRolls() == null || stock.getTotalRolls() <= 0) {
+            return false;
+        }
+        if (StringUtils.hasText(expectedMaterialCode)) {
+            String materialCode = stock.getMaterialCode() == null ? "" : stock.getMaterialCode().trim();
+            if (!expectedMaterialCode.equalsIgnoreCase(materialCode)) {
+                return false;
+            }
+        }
+        String location = stock.getLocation() == null ? "" : stock.getLocation().trim();
+        return SLITTING_PENDING_OUTBOUND_LOCATION.equals(location);
+    }
+
+    private List<String> splitBatchNos(String batchNoText) {
+        List<String> result = new ArrayList<>();
+        if (!StringUtils.hasText(batchNoText)) {
+            return result;
+        }
+        String[] parts = batchNoText.split("[,，]");
+        for (String part : parts) {
+            String one = part == null ? "" : part.trim();
+            if (StringUtils.hasText(one)) {
+                result.add(one);
+            }
+        }
+        return result;
     }
 
     private void syncSalesOrderItemsDeliveryProgress(Long orderId) {
@@ -556,6 +688,62 @@ public class DeliveryController {
             return ResponseResult.success("更新成功");
         } catch (Exception e) {
             return ResponseResult.error(500, "更新失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 标签打印时：按送货单号追加批次号（逗号分隔、唯一值）
+     */
+    @PostMapping("/append-batch-no")
+    public ResponseResult<?> appendBatchNo(@RequestBody Map<String, Object> body) {
+        String noticeNo = body == null ? "" : String.valueOf(body.getOrDefault("noticeNo", "")).trim();
+        String batchNo = body == null ? "" : String.valueOf(body.getOrDefault("batchNo", "")).trim();
+        String materialCode = body == null ? "" : String.valueOf(body.getOrDefault("materialCode", "")).trim();
+        return doAppendBatchNo(noticeNo, batchNo, materialCode);
+    }
+
+    /**
+     * 兼容入口：支持 query 参数调用，避免客户端方法不一致导致 405。
+     */
+    @GetMapping("/append-batch-no")
+    public ResponseResult<?> appendBatchNoGet(@RequestParam String noticeNo,
+                                              @RequestParam String batchNo,
+                                              @RequestParam(required = false) String materialCode) {
+        return doAppendBatchNo(
+                noticeNo == null ? "" : noticeNo.trim(),
+                batchNo == null ? "" : batchNo.trim(),
+                materialCode == null ? "" : materialCode.trim()
+        );
+    }
+
+    private ResponseResult<?> doAppendBatchNo(String noticeNo, String batchNo, String materialCode) {
+        try {
+            if (noticeNo.isEmpty()) {
+                return ResponseResult.error(400, "送货单号不能为空");
+            }
+            if (batchNo.isEmpty()) {
+                return ResponseResult.error(400, "批次号不能为空");
+            }
+
+            DeliveryNotice notice = deliveryNoticeService.getOne(
+                    new QueryWrapper<DeliveryNotice>().eq("notice_no", noticeNo).eq("is_deleted", 0).last("LIMIT 1")
+            );
+            if (notice == null) {
+                return ResponseResult.error(404, "未找到送货单：" + noticeNo);
+            }
+            if (!canAccessNotice(getLoginUser(), notice)) {
+                return ResponseResult.error(403, "无权限操作该发货单");
+            }
+
+            String merged = deliveryNoticeService.appendBatchNoByNoticeNo(noticeNo, batchNo);
+            int itemUpdated = deliveryNoticeService.syncItemBatchNoByNoticeNo(noticeNo, materialCode, batchNo);
+            Map<String, Object> data = new HashMap<>();
+            data.put("noticeNo", noticeNo);
+            data.put("batchNos", merged);
+            data.put("itemUpdated", itemUpdated);
+            return ResponseResult.success(data);
+        } catch (Exception e) {
+            return ResponseResult.error(500, "保存批次号失败: " + e.getMessage());
         }
     }
 

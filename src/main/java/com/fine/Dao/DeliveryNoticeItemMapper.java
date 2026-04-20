@@ -12,7 +12,7 @@ import com.fine.modle.DeliveryNoticeItem;
 @Mapper
 public interface DeliveryNoticeItemMapper extends BaseMapper<DeliveryNoticeItem> {
     
-        @Select("SELECT dni.id, dni.notice_id, dni.order_item_id, dni.material_code, " +
+                @Select("SELECT dni.id, dni.notice_id, dni.order_item_id, dni.material_code, dni.batch_no, " +
             "COALESCE(ts.product_name, '') AS material_name, " +
             "COALESCE(NULLIF(dni.spec, ''), CONCAT(" +
             "TRIM(TRAILING '.' FROM TRIM(TRAILING '0' FROM CAST(COALESCE(soi.thickness, 0) AS CHAR))), 'μm*', " +
@@ -26,7 +26,7 @@ public interface DeliveryNoticeItemMapper extends BaseMapper<DeliveryNoticeItem>
     List<DeliveryNoticeItem> selectByNoticeId(@Param("noticeId") Long noticeId);
 
     @Select({"<script>",
-            "SELECT dni.id, dni.notice_id, dni.order_item_id, dni.material_code, ",
+            "SELECT dni.id, dni.notice_id, dni.order_item_id, dni.material_code, dni.batch_no, ",
             "COALESCE(ts.product_name, '') AS material_name, ",
             "COALESCE(NULLIF(dni.spec, ''), CONCAT(",
             "TRIM(TRAILING '.' FROM TRIM(TRAILING '0' FROM CAST(COALESCE(soi.thickness, 0) AS CHAR))), 'μm*', ",

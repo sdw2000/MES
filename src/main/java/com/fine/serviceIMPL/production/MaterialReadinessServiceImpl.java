@@ -143,7 +143,7 @@ public class MaterialReadinessServiceImpl implements MaterialReadinessService {
                     if (poi != null && poi.getOrderId() != null) {
                         PurchaseOrder po = purchaseOrderMapper.selectById(poi.getOrderId());
                         if (po != null && po.getDeliveryDate() != null) {
-                            LocalDate eta = po.getDeliveryDate().toInstant().atZone(ZoneId.systemDefault()).toLocalDate();
+                            LocalDate eta = po.getDeliveryDate();
                             if (agg.earliestEta == null || eta.isBefore(agg.earliestEta)) {
                                 agg.earliestEta = eta;
                             }

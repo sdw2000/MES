@@ -18,14 +18,14 @@ public class QualityInspectionController {
     private QualityInspectionService inspectionService;
 
     @GetMapping({"/incoming", "/process", "/outbound"})
-    public ResponseResult<?> list(@RequestParam(defaultValue = "1") Integer pageNum,
-                                  @RequestParam(defaultValue = "10") Integer pageSize,
-                                  @RequestParam(required = false) String inspectionNo,
-                                  @RequestParam(required = false) String batchNo,
-                                  @RequestParam(required = false) String rollCode,
-                                  @RequestParam(required = false) String result,
-                                  @RequestParam(required = false) String startDate,
-                                  @RequestParam(required = false) String endDate) {
+    public ResponseResult<?> list(@RequestParam(value = "pageNum", defaultValue = "1") Integer pageNum,
+                                  @RequestParam(value = "pageSize", defaultValue = "10") Integer pageSize,
+                                  @RequestParam(value = "inspectionNo", required = false) String inspectionNo,
+                                  @RequestParam(value = "batchNo", required = false) String batchNo,
+                                  @RequestParam(value = "rollCode", required = false) String rollCode,
+                                  @RequestParam(value = "result", required = false) String result,
+                                  @RequestParam(value = "startDate", required = false) String startDate,
+                                  @RequestParam(value = "endDate", required = false) String endDate) {
         String inspectionType = resolveType();
         Page<QualityInspectionRecord> page = new Page<>(pageNum, pageSize);
         IPage<QualityInspectionRecord> data = inspectionService.list(page, inspectionType, inspectionNo, batchNo, rollCode, result, startDate, endDate);
@@ -33,7 +33,7 @@ public class QualityInspectionController {
     }
 
     @GetMapping({"/incoming/{id}", "/process/{id}", "/outbound/{id}"})
-    public ResponseResult<?> detail(@PathVariable Long id) {
+    public ResponseResult<?> detail(@PathVariable("id") Long id) {
         QualityInspectionRecord record = inspectionService.detail(id);
         return ResponseResult.success(record);
     }
@@ -51,22 +51,22 @@ public class QualityInspectionController {
     }
 
     @DeleteMapping({"/incoming/{id}", "/process/{id}", "/outbound/{id}"})
-    public ResponseResult<?> delete(@PathVariable Long id) {
+    public ResponseResult<?> delete(@PathVariable("id") Long id) {
         inspectionService.deleteRecord(id);
         return ResponseResult.success();
     }
 
     // 兼容旧版接口：/api/quality/inspection/**
     @GetMapping("/inspection/list")
-    public ResponseResult<?> listLegacy(@RequestParam(defaultValue = "1") Integer pageNum,
-                                        @RequestParam(defaultValue = "10") Integer pageSize,
-                                        @RequestParam(required = false) String inspectionType,
-                                        @RequestParam(required = false) String inspectionNo,
-                                        @RequestParam(required = false) String batchNo,
-                                        @RequestParam(required = false) String rollCode,
-                                        @RequestParam(required = false) String result,
-                                        @RequestParam(required = false) String startDate,
-                                        @RequestParam(required = false) String endDate) {
+    public ResponseResult<?> listLegacy(@RequestParam(value = "pageNum", defaultValue = "1") Integer pageNum,
+                                        @RequestParam(value = "pageSize", defaultValue = "10") Integer pageSize,
+                                        @RequestParam(value = "inspectionType", required = false) String inspectionType,
+                                        @RequestParam(value = "inspectionNo", required = false) String inspectionNo,
+                                        @RequestParam(value = "batchNo", required = false) String batchNo,
+                                        @RequestParam(value = "rollCode", required = false) String rollCode,
+                                        @RequestParam(value = "result", required = false) String result,
+                                        @RequestParam(value = "startDate", required = false) String startDate,
+                                        @RequestParam(value = "endDate", required = false) String endDate) {
         String type = (inspectionType == null || inspectionType.isEmpty()) ? "incoming" : inspectionType;
         Page<QualityInspectionRecord> page = new Page<>(pageNum, pageSize);
         IPage<QualityInspectionRecord> data = inspectionService.list(page, type, inspectionNo, batchNo, rollCode, result, startDate, endDate);
@@ -74,7 +74,7 @@ public class QualityInspectionController {
     }
 
     @GetMapping("/inspection/{id}")
-    public ResponseResult<?> detailLegacy(@PathVariable Long id) {
+    public ResponseResult<?> detailLegacy(@PathVariable("id") Long id) {
         return ResponseResult.success(inspectionService.detail(id));
     }
 
@@ -93,7 +93,7 @@ public class QualityInspectionController {
     }
 
     @DeleteMapping("/inspection/{id}")
-    public ResponseResult<?> deleteLegacy(@PathVariable Long id) {
+    public ResponseResult<?> deleteLegacy(@PathVariable("id") Long id) {
         inspectionService.deleteRecord(id);
         return ResponseResult.success();
     }
