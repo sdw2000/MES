@@ -124,8 +124,10 @@ public class TapeSpecController {
     @GetMapping("/dict/color/list")
     @PreAuthorize("hasAnyAuthority('admin','rd')")
     public ResponseResult<?> getColorDictList(@RequestParam(required = false) String keyword,
-                                              @RequestParam(required = false) Integer status) {
-        return tapeSpecService.getColorDictList(keyword, status);
+                                              @RequestParam(required = false) Integer status,
+                                              @RequestParam(defaultValue = "1") int page,
+                                              @RequestParam(defaultValue = "20") int size) {
+        return tapeSpecService.getColorDictList(keyword, status, page, size);
     }
 
     /**

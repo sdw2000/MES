@@ -7,6 +7,7 @@ import com.fine.Dao.rd.TapeFormulaMapper;
 import com.fine.Dao.stock.ChemicalStockMapper;
 import com.fine.Dao.stock.ChemicalStockDetailMapper;
 import com.fine.Dao.stock.ChemicalStockOutMapper;
+import com.fine.Dao.stock.StockFlowLogMapper;
 import com.fine.modle.rd.TapeRawMaterial;
 import com.fine.model.stock.ChemicalStock;
 import com.fine.model.stock.ChemicalStockDetail;
@@ -29,9 +30,13 @@ import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 化工原料库存服务实现类
@@ -55,6 +60,9 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
 
     @Autowired
     private TapeFormulaMapper tapeFormulaMapper;
+
+    @Autowired
+    private StockFlowLogMapper stockFlowLogMapper;
     
     @Override
     public List<ChemicalStock> getByType(String chemicalType) {
@@ -73,18 +81,164 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
     }
 
     @Override
-    public IPage<ChemicalStock> getChemicalStockPage(long current, long size, String chemicalType) {
+    public IPage<ChemicalStock> getChemicalStockPage(long current,
+                                                     long size,
+                                                     String chemicalType,
+                                                     String materialCode,
+                                                     String sortField,
+                                                     String sortOrder) {
         Page<ChemicalStock> page = new Page<>(current, size);
         QueryWrapper<ChemicalStock> wrapper = new QueryWrapper<>();
         wrapper.eq(StringUtils.hasText(chemicalType), "chemical_type", chemicalType);
-        wrapper.orderByDesc("create_time");
+        if (StringUtils.hasText(materialCode)) {
+            wrapper.like("material_code", materialCode.trim());
+        }
+
+        String sortColumn = resolveChemicalStockSortColumn(sortField);
+        boolean asc = "ascending".equalsIgnoreCase(sortOrder) || "asc".equalsIgnoreCase(sortOrder);
+        wrapper.orderBy(true, asc, sortColumn);
+        wrapper.orderBy(true, asc, "id");
         IPage<ChemicalStock> result = chemicalStockMapper.selectPage(page, wrapper);
         fillBucketCount(result.getRecords());
         return result;
     }
+
+    @Override
+    public Map<String, Object> getChemicalStockStatistics(String chemicalType, String materialCode) {
+        QueryWrapper<ChemicalStock> wrapper = new QueryWrapper<>();
+        wrapper.select(
+                "COUNT(1) AS totalTypes",
+                "COALESCE(SUM(total_quantity), 0) AS totalQuantity",
+                "COALESCE(SUM(available_quantity), 0) AS availableQuantity",
+                "COALESCE(SUM(locked_quantity), 0) AS lockedQuantity"
+        );
+        wrapper.eq(StringUtils.hasText(chemicalType), "chemical_type", chemicalType);
+        if (StringUtils.hasText(materialCode)) {
+            wrapper.like("material_code", materialCode.trim());
+        }
+
+        List<Map<String, Object>> rows = chemicalStockMapper.selectMaps(wrapper);
+        Map<String, Object> first = (rows == null || rows.isEmpty()) ? new HashMap<>() : rows.get(0);
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("totalTypes", toIntValue(first.get("totalTypes")));
+        result.put("totalQuantity", toIntValue(first.get("totalQuantity")));
+        result.put("availableQuantity", toIntValue(first.get("availableQuantity")));
+        result.put("lockedQuantity", toIntValue(first.get("lockedQuantity")));
+        return result;
+    }
+
+    private String resolveChemicalStockSortColumn(String sortField) {
+        if (!StringUtils.hasText(sortField)) {
+            return "create_time";
+        }
+        switch (sortField.trim()) {
+            case "materialCode":
+                return "material_code";
+            case "materialName":
+                return "material_name";
+            case "chemicalType":
+                return "chemical_type";
+            case "unitWeight":
+                return "unit_weight";
+            case "totalQuantity":
+                return "total_quantity";
+            case "availableQuantity":
+                return "available_quantity";
+            case "bucketCount":
+                return "bucket_count";
+            case "lockedQuantity":
+                return "locked_quantity";
+            case "safetyStock":
+                return "safety_stock";
+            case "status":
+                return "status";
+            case "updateTime":
+                return "update_time";
+            case "createTime":
+                return "create_time";
+            default:
+                return "create_time";
+        }
+    }
+
+    private Integer toIntValue(Object value) {
+        if (value == null) {
+            return 0;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).intValue();
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value));
+        } catch (Exception ignore) {
+            return 0;
+        }
+    }
     
     @Override
     public ChemicalStock getById(Long id) {
+        return chemicalStockMapper.selectById(id);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ChemicalStock updateStock(Long id, ChemicalStock stock) {
+        ChemicalStock existed = chemicalStockMapper.selectById(id);
+        if (existed == null) {
+            throw new RuntimeException("化工库存不存在，ID: " + id);
+        }
+
+        if (StringUtils.hasText(stock.getMaterialName())) {
+            existed.setMaterialName(stock.getMaterialName().trim());
+        }
+        if (StringUtils.hasText(stock.getChemicalType())) {
+            existed.setChemicalType(stock.getChemicalType().trim());
+        }
+        if (StringUtils.hasText(stock.getUnit())) {
+            existed.setUnit(stock.getUnit().trim());
+        }
+
+        if (stock.getUnitWeight() != null) {
+            existed.setUnitWeight(stock.getUnitWeight().compareTo(BigDecimal.ZERO) < 0 ? BigDecimal.ZERO : stock.getUnitWeight());
+        }
+
+        Integer available = stock.getAvailableQuantity();
+        Integer locked = stock.getLockedQuantity();
+        Integer total = stock.getTotalQuantity();
+
+        if (available != null) {
+            existed.setAvailableQuantity(Math.max(available, 0));
+        }
+        if (locked != null) {
+            existed.setLockedQuantity(Math.max(locked, 0));
+        }
+        if (total != null) {
+            existed.setTotalQuantity(Math.max(total, 0));
+        }
+
+        Integer finalAvailable = existed.getAvailableQuantity() == null ? 0 : existed.getAvailableQuantity();
+        Integer finalLocked = existed.getLockedQuantity() == null ? 0 : existed.getLockedQuantity();
+        if (total == null) {
+            existed.setTotalQuantity(finalAvailable + finalLocked);
+        }
+
+        if (stock.getBucketCount() != null) {
+            existed.setBucketCount(Math.max(stock.getBucketCount(), 0));
+        } else if (stock.getAvailableQuantity() != null || stock.getLockedQuantity() != null || stock.getTotalQuantity() != null) {
+            existed.setBucketCount(existed.getTotalQuantity() == null ? 0 : existed.getTotalQuantity());
+        }
+
+        if (stock.getSafetyStock() != null) {
+            existed.setSafetyStock(Math.max(stock.getSafetyStock(), 0));
+        }
+        if (StringUtils.hasText(stock.getStatus())) {
+            existed.setStatus(stock.getStatus().trim());
+        }
+        existed.setRemark(stock.getRemark());
+        existed.setUpdateTime(new Date());
+
+        chemicalStockMapper.updateById(existed);
         return chemicalStockMapper.selectById(id);
     }
     
@@ -115,6 +269,14 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
         row.setUnit(StringUtils.hasText(detail.getUnit()) ? detail.getUnit().trim() :
                 (StringUtils.hasText(stock.getUnit()) ? stock.getUnit().trim() : "桶"));
         row.setWeight(detail.getWeight() != null ? detail.getWeight() : BigDecimal.ZERO);
+        String resolvedPackUom = StringUtils.hasText(detail.getPackUom()) ? detail.getPackUom().trim() : row.getUnit();
+        BigDecimal resolvedStdQtyPerPack = detail.getStdQtyPerPack() != null && detail.getStdQtyPerPack().compareTo(BigDecimal.ZERO) > 0
+            ? detail.getStdQtyPerPack()
+            : (row.getWeight() != null && row.getWeight().compareTo(BigDecimal.ZERO) > 0 ? row.getWeight() : BigDecimal.ONE);
+        row.setPackUom(resolvedPackUom);
+        row.setPackCount(detail.getPackCount() != null && detail.getPackCount() > 0 ? detail.getPackCount() : 1);
+        row.setStdUom(StringUtils.hasText(detail.getStdUom()) ? detail.getStdUom().trim() : "kg");
+        row.setStdQtyPerPack(resolvedStdQtyPerPack);
         row.setLocation(detail.getLocation());
         row.setSupplier(detail.getSupplier());
         row.setInboundDate(detail.getInboundDate() != null ? detail.getInboundDate() : now);
@@ -148,6 +310,12 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
             existed.setUnit(detail.getUnit().trim());
         }
         existed.setWeight(detail.getWeight() != null ? detail.getWeight() : BigDecimal.ZERO);
+        existed.setPackUom(StringUtils.hasText(detail.getPackUom()) ? detail.getPackUom().trim() : existed.getUnit());
+        existed.setPackCount(detail.getPackCount() != null && detail.getPackCount() > 0 ? detail.getPackCount() : 1);
+        existed.setStdUom(StringUtils.hasText(detail.getStdUom()) ? detail.getStdUom().trim() : "kg");
+        existed.setStdQtyPerPack(detail.getStdQtyPerPack() != null && detail.getStdQtyPerPack().compareTo(BigDecimal.ZERO) > 0
+            ? detail.getStdQtyPerPack()
+            : (existed.getWeight() != null && existed.getWeight().compareTo(BigDecimal.ZERO) > 0 ? existed.getWeight() : BigDecimal.ONE));
         existed.setLocation(detail.getLocation());
         existed.setSupplier(detail.getSupplier());
         existed.setInboundDate(detail.getInboundDate());
@@ -199,6 +367,8 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
             if (detailRows != detailIds.size()) {
                 throw new RuntimeException("部分明细锁定失败");
             }
+            // 明细发生变化后，主表必须按明细重算，避免出现数量不一致
+            refreshStockSummaryByDetails(chemicalStockId);
         }
         
         return true;
@@ -219,6 +389,8 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
             if (detailRows != detailIds.size()) {
                 throw new RuntimeException("部分明细解锁失败");
             }
+            // 明细发生变化后，主表必须按明细重算，避免出现数量不一致
+            refreshStockSummaryByDetails(chemicalStockId);
         }
         
         return true;
@@ -233,7 +405,7 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
             chemicalStockOut.getOutQuantity()
         );
         if (rows == 0) {
-            throw new RuntimeException("出库失败，锁定库存不足");
+            throw new RuntimeException("出库失败，可用库存和锁定库存都不足");
         }
         
         // 2. 更新明细状态为已使用
@@ -242,6 +414,8 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
             if (detailRows != detailIds.size()) {
                 throw new RuntimeException("部分明细更新失败");
             }
+            // 出库改变了明细状态，必须同步重算主表，确保可用数量与明细一致
+            refreshStockSummaryByDetails(chemicalStockOut.getChemicalStockId());
         }
         
         // 3. 创建出库记录（兼容新表字段）
@@ -279,14 +453,20 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
             }
         }
 
+        ChemicalStockDetail firstDetail = null;
         if (!StringUtils.hasText(chemicalStockOut.getBatchNo())
             && chemicalStockOut.getChemicalDetailId() != null
             && chemicalStockOut.getChemicalDetailId() > 0) {
-            ChemicalStockDetail firstDetail = chemicalStockDetailMapper.selectById(chemicalStockOut.getChemicalDetailId());
+            firstDetail = chemicalStockDetailMapper.selectById(chemicalStockOut.getChemicalDetailId());
             if (firstDetail != null && StringUtils.hasText(firstDetail.getBatchNo())) {
                 chemicalStockOut.setBatchNo(firstDetail.getBatchNo());
             }
+        } else if (chemicalStockOut.getChemicalDetailId() != null && chemicalStockOut.getChemicalDetailId() > 0) {
+            firstDetail = chemicalStockDetailMapper.selectById(chemicalStockOut.getChemicalDetailId());
         }
+
+        String stockSpecSnapshot = resolveChemicalStockSpecSnapshot(stock, firstDetail);
+        chemicalStockOut.setRemark(appendRemarkTokenIfMissing(chemicalStockOut.getRemark(), "stockSpec", stockSpecSnapshot));
 
         chemicalStockOutMapper.insert(chemicalStockOut);
 
@@ -311,7 +491,9 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
                 _unit,
                 _before,
                 _after,
-                chemicalStockOut.getScheduleId() != null ? chemicalStockOut.getScheduleId().toString() : "MANUAL_OUT",
+                StringUtils.hasText(chemicalStockOut.getOutboundNo())
+                    ? chemicalStockOut.getOutboundNo()
+                    : (chemicalStockOut.getScheduleId() != null ? chemicalStockOut.getScheduleId().toString() : "MANUAL_OUT"),
                 chemicalStockOut.getOutboundBy() != null ? chemicalStockOut.getOutboundBy() : "SYSTEM",
                 "化工原料出库"
             );
@@ -328,12 +510,15 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> importExcel(MultipartFile file) {
-        Map<String, Object> result = new HashMap<>();
-        int successCount = 0;
-        int skipCount = 0;
-        java.util.List<String> errors = new java.util.ArrayList<>();
-        List<Map<String, Object>> skippedData = new ArrayList<>();
+        return importExcel(file, false);
+    }
 
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> importExcel(MultipartFile file, boolean clearBeforeImport) {
+        if (clearBeforeImport) {
+            clearForReimport(true);
+        }
         try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
             Sheet sheet = workbook.getSheetAt(0);
             Map<String, Integer> headerIndex = new HashMap<>();
@@ -347,145 +532,281 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
                 }
             }
 
-            for (int i = 1; i <= sheet.getLastRowNum(); i++) {
-                Row row = sheet.getRow(i);
-                if (row == null) {
-                    continue;
-                }
-                try {
-                    String originalMaterialCode = getCellValue(getCellByHeader(row, headerIndex,
-                            new String[]{"物料编号", "物料编码", "料号", "material_code"}, 0));
-                    if (!StringUtils.hasText(originalMaterialCode)) {
-                        throw new RuntimeException("物料编号不能为空");
-                    }
-
-                    // 保留料号格式（仅去首尾空白）
-                    String cleanedMaterialCode = originalMaterialCode.replace("\u00A0", " ").trim();
-
-                    // 物料名称、化工类型统一从原材料表获取
-                    TapeRawMaterial rawMaterial = tapeFormulaMapper.selectRawMaterialByCode(cleanedMaterialCode);
-                    if (rawMaterial == null || !StringUtils.hasText(rawMaterial.getMaterialName())) {
-                        skipCount++;
-                        Map<String, Object> skippedRow = new HashMap<>();
-                        skippedRow.put("行号", i + 1);
-                        skippedRow.put("原始物料编号", originalMaterialCode);
-                        skippedRow.put("清理后物料编号", cleanedMaterialCode);
-                        skippedRow.put("原因", "原材料表中未找到该料号或物料名称为空");
-                        // 添加其他字段用于参考
-                        skippedRow.put("物料名称", getCellValue(getCellByHeader(row, headerIndex,
-                                new String[]{"物料名称", "material_name", "名称"}, 1)));
-                        skippedRow.put("化工类型", getCellValue(getCellByHeader(row, headerIndex,
-                                new String[]{"化工类型", "chemical_type", "类型"}, 2)));
-                        skippedRow.put("单位", getCellValue(getCellByHeader(row, headerIndex,
-                                new String[]{"单位", "unit"}, 3)));
-                        skippedData.add(skippedRow);
-                        continue;
-                    }
-
-                        String materialName = rawMaterial.getMaterialName().trim();
-
-                        String chemicalType = resolveChemicalType(rawMaterial);
-                    String unit = getCellValue(getCellByHeader(row, headerIndex,
-                            new String[]{"单位", "unit"}, 3));
-                    BigDecimal unitWeight = getDecimalCellValue(getCellByHeader(row, headerIndex,
-                            new String[]{"单桶重量", "单桶重量(kg)", "unit_weight"}, 4));
-
-                    Integer totalQuantity = defaultInt(getIntCellValue(getCellByHeader(row, headerIndex,
-                            new String[]{"总数量", "总重量", "total_quantity", "total_weight"}, 5)));
-                    Integer availableQuantity = getIntCellValue(getCellByHeader(row, headerIndex,
-                            new String[]{"可用数量", "available_quantity"}, 6));
-                        Integer bucketCount = getIntCellValue(getCellByHeader(row, headerIndex,
-                            new String[]{"桶数", "总桶数", "bucket_count", "container_count"}, -1));
-                    Integer lockedQuantity = getIntCellValue(getCellByHeader(row, headerIndex,
-                            new String[]{"锁定数量", "locked_quantity"}, 7));
-                    Integer safetyStock = getIntCellValue(getCellByHeader(row, headerIndex,
-                            new String[]{"安全库存", "safety_stock"}, 8));
-                    String status = getCellValue(getCellByHeader(row, headerIndex,
-                            new String[]{"状态", "status"}, 9));
-                    String remark = getCellValue(getCellByHeader(row, headerIndex,
-                            new String[]{"备注", "remark"}, 10));
-
-                    if (availableQuantity == null) {
-                        availableQuantity = totalQuantity;
-                    }
-                    if (lockedQuantity == null) {
-                        lockedQuantity = 0;
-                    }
-                    if (!StringUtils.hasText(unit)) {
-                        unit = StringUtils.hasText(rawMaterial.getUnit()) ? rawMaterial.getUnit().trim() : "Kg";
-                    }
-                    if (!StringUtils.hasText(status)) {
-                        status = "active";
-                    }
-                    if (bucketCount == null || bucketCount < 0) {
-                        bucketCount = inferBucketCount(totalQuantity, unitWeight);
-                    }
-
-                    com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<ChemicalStock> qw = new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<>();
-                    qw.eq("material_code", cleanedMaterialCode);
-                    ChemicalStock exist = chemicalStockMapper.selectOne(qw);
-
-                    ChemicalStock stock = exist == null ? new ChemicalStock() : exist;
-                    stock.setMaterialCode(cleanedMaterialCode);
-                    stock.setMaterialName(materialName);
-                    stock.setChemicalType(chemicalType);
-                    stock.setUnit(unit);
-                    stock.setUnitWeight(unitWeight);
-                    stock.setBucketCount(bucketCount);
-                    stock.setTotalQuantity(totalQuantity);
-                    stock.setAvailableQuantity(availableQuantity);
-                    stock.setLockedQuantity(lockedQuantity);
-                    stock.setSafetyStock(safetyStock);
-                    stock.setStatus(status);
-                    stock.setRemark(remark);
-                    stock.setUpdateBy("import");
-
-                    if (exist == null) {
-                        stock.setCreateBy("import");
-                        chemicalStockMapper.insert(stock);
-
-                        // 记录统一流水 - Excel导入
-                        String _unit_imp = (stock.getUnit() != null && !stock.getUnit().isEmpty()) ? stock.getUnit() : "桶";
-                        BigDecimal _inQty = stock.getTotalQuantity() != null
-                                ? BigDecimal.valueOf(stock.getTotalQuantity())
-                                : BigDecimal.ZERO;
-                        stockFlowLogService.logStockChange(
-                            StockFlowLog.StockType.CHEMICAL.name(),
-                            stock.getId(),
-                            stock.getMaterialCode(),
-                            stock.getMaterialCode(),
-                            stock.getMaterialName(),
-                            StockFlowLog.OperationType.IN.name(),
-                            _inQty,
-                            _unit_imp,
-                            BigDecimal.ZERO,
-                            _inQty,
-                            "EXCEL_IMPORT",
-                            "SYSTEM",
-                            "化学品Excel导入"
-                        );
-                    } else {
-                        chemicalStockMapper.updateById(stock);
-                    }
-
-                    rebuildImportDetails(stock, bucketCount, totalQuantity, availableQuantity, lockedQuantity, unitWeight);
-                    successCount++;
-                } catch (Exception ex) {
-                    skipCount++;
-                    Map<String, Object> skippedRow = new HashMap<>();
-                    skippedRow.put("行号", i + 1);
-                    skippedRow.put("原始物料编号", getCellValue(getCellByHeader(row, headerIndex,
-                            new String[]{"物料编号", "物料编码", "料号", "material_code"}, 0)));
-                    skippedRow.put("清理后物料编号", "");
-                    skippedRow.put("原因", "数据格式错误: " + ex.getMessage());
-                    skippedData.add(skippedRow);
-                }
+            if (!isDetailImportMode(headerIndex)) {
+                throw new RuntimeException("化工库存仅支持明细导入。请使用【化工库存导入模板-明细.xlsx】，至少包含：物料编号、批次号、桶号/包号、重量(kg)");
             }
+            return importExcelByDetails(sheet, headerIndex);
         } catch (Exception ex) {
             throw new RuntimeException("导入化工库存失败: " + ex.getMessage(), ex);
         }
+    }
 
-        // 生成跳过数据的Excel
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> clearForReimport(boolean clearOutboundRecords) {
+        Map<String, Object> result = new HashMap<>();
+
+        int detailDeleted = chemicalStockDetailMapper.delete(new QueryWrapper<>());
+
+        int outboundDeleted = 0;
+        if (clearOutboundRecords) {
+            outboundDeleted = chemicalStockOutMapper.delete(new QueryWrapper<>());
+        }
+
+        int stockDeleted = chemicalStockMapper.delete(new QueryWrapper<>());
+
+        if (clearOutboundRecords) {
+            QueryWrapper<StockFlowLog> flowQw = new QueryWrapper<>();
+            flowQw.eq("stock_type", "CHEMICAL");
+            stockFlowLogMapper.delete(flowQw);
+        }
+
+        result.put("detailDeleted", detailDeleted);
+        result.put("outboundDeleted", outboundDeleted);
+        result.put("stockDeleted", stockDeleted);
+        result.put("clearOutboundRecords", clearOutboundRecords);
+        return result;
+    }
+
+    private boolean isDetailImportMode(Map<String, Integer> headerIndex) {
+        if (headerIndex == null || headerIndex.isEmpty()) {
+            return false;
+        }
+        return containsHeader(headerIndex, "桶号/包号", "barrel_no", "containerNo")
+                || containsHeader(headerIndex, "批次号", "batch_no", "batchNo")
+                || containsHeader(headerIndex, "重量(kg)", "weight");
+    }
+
+    private boolean containsHeader(Map<String, Integer> headerIndex, String... names) {
+        if (headerIndex == null || names == null) {
+            return false;
+        }
+        for (String name : names) {
+            if (headerIndex.containsKey(name)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private Map<String, Object> importExcelByDetails(Sheet sheet, Map<String, Integer> headerIndex) {
+        Map<String, Object> result = new HashMap<>();
+        int successCount = 0;
+        int skipCount = 0;
+        List<String> errors = new ArrayList<>();
+        List<Map<String, Object>> skippedData = new ArrayList<>();
+
+        List<Map<String, Object>> parsedRows = new ArrayList<>();
+        Set<String> materialCodes = new LinkedHashSet<>();
+        Set<String> dedupKeys = new HashSet<>();
+        Map<String, TapeRawMaterial> normalizedRawMaterialMap = buildNormalizedRawMaterialMap();
+
+        for (int i = 1; i <= sheet.getLastRowNum(); i++) {
+            Row row = sheet.getRow(i);
+            if (row == null) {
+                continue;
+            }
+            try {
+                String originalMaterialCode = getCellValue(getCellByHeader(row, headerIndex,
+                        new String[]{"物料编号", "物料编码", "料号", "material_code"}, 0));
+                if (!StringUtils.hasText(originalMaterialCode)) {
+                    throw new RuntimeException("物料编号不能为空");
+                }
+                String materialCode = cleanMaterialCode(originalMaterialCode);
+
+                TapeRawMaterial rawMaterial = resolveRawMaterialByCode(materialCode, normalizedRawMaterialMap);
+                if (rawMaterial == null || !StringUtils.hasText(rawMaterial.getMaterialName())) {
+                    throw new RuntimeException("原材料表中未找到该料号");
+                }
+                materialCode = cleanMaterialCode(rawMaterial.getMaterialCode());
+
+                String batchNo = getCellValue(getCellByHeader(row, headerIndex,
+                        new String[]{"批次号", "batch_no", "batchNo"}, 1));
+                String containerNo = getCellValue(getCellByHeader(row, headerIndex,
+                        new String[]{"桶号/包号", "barrel_no", "containerNo"}, 2));
+                String unit = getCellValue(getCellByHeader(row, headerIndex,
+                        new String[]{"单位", "unit"}, 3));
+                BigDecimal weight = getDecimalCellValue(getCellByHeader(row, headerIndex,
+                        new String[]{"重量(kg)", "重量", "weight"}, 4));
+                String packUom = getCellValue(getCellByHeader(row, headerIndex,
+                    new String[]{"包装单位", "pack_uom", "packUom"}, 5));
+                Integer packCount = getIntCellValue(getCellByHeader(row, headerIndex,
+                    new String[]{"包装数量", "pack_count", "packCount"}, 6));
+                String stdUom = getCellValue(getCellByHeader(row, headerIndex,
+                    new String[]{"标准单位", "std_uom", "stdUom"}, 7));
+                BigDecimal stdQtyPerPack = getDecimalCellValue(getCellByHeader(row, headerIndex,
+                    new String[]{"每包装标准量", "std_qty_per_pack", "stdQtyPerPack"}, 8));
+                String location = getCellValue(getCellByHeader(row, headerIndex,
+                    new String[]{"库位", "location"}, 9));
+                String supplier = getCellValue(getCellByHeader(row, headerIndex,
+                    new String[]{"供应商", "supplier"}, 10));
+                String inboundDateText = getCellValue(getCellByHeader(row, headerIndex,
+                    new String[]{"入库日期", "storage_date", "inboundDate"}, 11));
+                String expiryDateText = getCellValue(getCellByHeader(row, headerIndex,
+                    new String[]{"有效期至", "expiry_date", "expiryDate"}, 12));
+                String openedText = getCellValue(getCellByHeader(row, headerIndex,
+                    new String[]{"是否开封", "is_opened", "isOpened"}, 13));
+                Integer dangerLevel = getIntCellValue(getCellByHeader(row, headerIndex,
+                    new String[]{"危险等级", "danger_level", "dangerLevel"}, 14));
+                String status = getCellValue(getCellByHeader(row, headerIndex,
+                    new String[]{"状态", "status"}, 15));
+                String remark = getCellValue(getCellByHeader(row, headerIndex,
+                    new String[]{"备注", "remark"}, 16));
+
+                if (weight == null || weight.compareTo(BigDecimal.ZERO) <= 0) {
+                    throw new RuntimeException("重量必须大于0");
+                }
+                if (!StringUtils.hasText(batchNo)) {
+                    batchNo = "IMP-" + materialCode;
+                }
+                if (!StringUtils.hasText(containerNo)) {
+                    containerNo = materialCode + "-" + (i + 1);
+                }
+                String dedupKey = materialCode + "|" + batchNo + "|" + containerNo;
+                if (!dedupKeys.add(dedupKey)) {
+                    throw new RuntimeException("文件内存在重复明细(料号+批次+桶号): " + dedupKey);
+                }
+
+                Map<String, Object> parsed = new HashMap<>();
+                parsed.put("materialCode", materialCode);
+                parsed.put("materialName", rawMaterial.getMaterialName().trim());
+                parsed.put("batchNo", batchNo.trim());
+                parsed.put("containerNo", containerNo.trim());
+                String resolvedUnit = StringUtils.hasText(unit) ? unit.trim() : (StringUtils.hasText(rawMaterial.getUnit()) ? rawMaterial.getUnit().trim() : "Kg");
+                parsed.put("unit", resolvedUnit);
+                parsed.put("weight", weight);
+                parsed.put("packUom", StringUtils.hasText(packUom) ? packUom.trim() : resolvedUnit);
+                parsed.put("packCount", packCount != null && packCount > 0 ? packCount : 1);
+                parsed.put("stdUom", StringUtils.hasText(stdUom) ? stdUom.trim() : "kg");
+                parsed.put("stdQtyPerPack", stdQtyPerPack != null && stdQtyPerPack.compareTo(BigDecimal.ZERO) > 0 ? stdQtyPerPack : weight);
+                parsed.put("location", location);
+                parsed.put("supplier", supplier);
+                parsed.put("inboundDate", parseDateCell(inboundDateText));
+                parsed.put("expiryDate", parseDateCell(expiryDateText));
+                parsed.put("isOpened", parseBoolean(openedText));
+                parsed.put("dangerLevel", dangerLevel == null ? 1 : dangerLevel);
+                parsed.put("status", StringUtils.hasText(status) ? status.trim() : "available");
+                parsed.put("remark", remark);
+                parsedRows.add(parsed);
+                materialCodes.add(materialCode);
+            } catch (Exception ex) {
+                skipCount++;
+                Map<String, Object> skippedRow = new HashMap<>();
+                String originalMaterialCode = getCellValue(getCellByHeader(row, headerIndex,
+                    new String[]{"物料编号", "物料编码", "料号", "material_code"}, 0));
+                skippedRow.put("行号", i + 1);
+                skippedRow.put("原始物料编号", originalMaterialCode);
+                skippedRow.put("清理后物料编号", cleanMaterialCode(originalMaterialCode));
+                skippedRow.put("原因", "数据格式错误: " + ex.getMessage());
+                skippedData.add(skippedRow);
+            }
+        }
+
+        if (!parsedRows.isEmpty()) {
+            Map<String, ChemicalStock> stockByCode = new HashMap<>();
+            int mergedDuplicateStockCount = 0;
+            for (String materialCode : materialCodes) {
+                QueryWrapper<ChemicalStock> qw = new QueryWrapper<>();
+                qw.eq("material_code", materialCode);
+                qw.orderByAsc("id");
+                List<ChemicalStock> existedStocks = chemicalStockMapper.selectList(qw);
+
+                ChemicalStock stock = null;
+                if (existedStocks != null && !existedStocks.isEmpty()) {
+                    stock = existedStocks.get(0);
+                    if (existedStocks.size() > 1) {
+                        List<Long> duplicateStockIds = new ArrayList<>();
+                        for (int idx = 1; idx < existedStocks.size(); idx++) {
+                            ChemicalStock duplicate = existedStocks.get(idx);
+                            if (duplicate != null && duplicate.getId() != null) {
+                                duplicateStockIds.add(duplicate.getId());
+                            }
+                        }
+                        if (!duplicateStockIds.isEmpty()) {
+                            QueryWrapper<ChemicalStockDetail> dupDetailQw = new QueryWrapper<>();
+                            dupDetailQw.in("stock_id", duplicateStockIds);
+                            chemicalStockDetailMapper.delete(dupDetailQw);
+
+                            QueryWrapper<ChemicalStockOut> dupOutQw = new QueryWrapper<>();
+                            dupOutQw.in("chemical_stock_id", duplicateStockIds);
+                            chemicalStockOutMapper.delete(dupOutQw);
+
+                            QueryWrapper<ChemicalStock> dupStockQw = new QueryWrapper<>();
+                            dupStockQw.in("id", duplicateStockIds);
+                            chemicalStockMapper.delete(dupStockQw);
+
+                            mergedDuplicateStockCount += duplicateStockIds.size();
+                        }
+                    }
+                }
+
+                if (stock == null) {
+                    TapeRawMaterial rawMaterial = resolveRawMaterialByCode(materialCode, normalizedRawMaterialMap);
+                    ChemicalStock created = new ChemicalStock();
+                    created.setMaterialCode(materialCode);
+                    created.setMaterialName(findMaterialName(parsedRows, materialCode));
+                    created.setChemicalType(resolveChemicalType(rawMaterial));
+                    created.setUnit(findMaterialUnit(parsedRows, materialCode));
+                    created.setUnitWeight(findMaterialUnitWeight(parsedRows, materialCode));
+                    created.setStatus("active");
+                    created.setCreateBy("import");
+                    created.setUpdateBy("import");
+                    chemicalStockMapper.insert(created);
+                    stock = created;
+                }
+                stockByCode.put(materialCode, stock);
+            }
+
+            List<Long> stockIds = new ArrayList<>();
+            for (ChemicalStock stock : stockByCode.values()) {
+                stockIds.add(stock.getId());
+            }
+            if (!stockIds.isEmpty()) {
+                QueryWrapper<ChemicalStockDetail> delQw = new QueryWrapper<>();
+                delQw.in("stock_id", stockIds);
+                chemicalStockDetailMapper.delete(delQw);
+            }
+
+            for (Map<String, Object> parsed : parsedRows) {
+                String materialCode = String.valueOf(parsed.get("materialCode"));
+                ChemicalStock stock = stockByCode.get(materialCode);
+                if (stock == null || stock.getId() == null) {
+                    continue;
+                }
+
+                ChemicalStockDetail detail = new ChemicalStockDetail();
+                detail.setChemicalStockId(stock.getId());
+                detail.setMaterialCode(materialCode);
+                detail.setBatchNo((String) parsed.get("batchNo"));
+                detail.setContainerNo((String) parsed.get("containerNo"));
+                detail.setUnit((String) parsed.get("unit"));
+                detail.setWeight((BigDecimal) parsed.get("weight"));
+                detail.setPackUom((String) parsed.get("packUom"));
+                detail.setPackCount((Integer) parsed.get("packCount"));
+                detail.setStdUom((String) parsed.get("stdUom"));
+                detail.setStdQtyPerPack((BigDecimal) parsed.get("stdQtyPerPack"));
+                detail.setLocation((String) parsed.get("location"));
+                detail.setSupplier((String) parsed.get("supplier"));
+                detail.setInboundDate((Date) parsed.get("inboundDate"));
+                detail.setExpiryDate((Date) parsed.get("expiryDate"));
+                detail.setIsOpened((Boolean) parsed.get("isOpened"));
+                detail.setDangerLevel((Integer) parsed.get("dangerLevel"));
+                detail.setStatus((String) parsed.get("status"));
+                detail.setRemark((String) parsed.get("remark"));
+                detail.setCreateTime(new Date());
+                detail.setUpdateTime(new Date());
+                chemicalStockDetailMapper.insert(detail);
+                successCount++;
+            }
+
+            for (ChemicalStock stock : stockByCode.values()) {
+                refreshStockSummaryByDetails(stock.getId());
+            }
+            if (mergedDuplicateStockCount > 0) {
+                errors.add("导入前自动清理重复化工主档 " + mergedDuplicateStockCount + " 条（按料号保留最早一条）");
+            }
+        }
+
         byte[] skippedExcel = null;
         if (!skippedData.isEmpty()) {
             skippedExcel = generateSkippedDataExcel(skippedData);
@@ -497,6 +818,139 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
         result.put("errors", errors);
         result.put("skippedExcel", skippedExcel != null ? java.util.Base64.getEncoder().encodeToString(skippedExcel) : null);
         return result;
+    }
+
+    private Map<String, TapeRawMaterial> buildNormalizedRawMaterialMap() {
+        Map<String, TapeRawMaterial> map = new HashMap<>();
+        List<TapeRawMaterial> raws = tapeFormulaMapper.selectAllRawMaterialsIncludingDisabled();
+        if (raws == null) {
+            return map;
+        }
+        for (TapeRawMaterial raw : raws) {
+            if (raw == null || !StringUtils.hasText(raw.getMaterialCode())) {
+                continue;
+            }
+            String key = normalizeMaterialCode(raw.getMaterialCode());
+            if (!StringUtils.hasText(key)) {
+                continue;
+            }
+            map.putIfAbsent(key, raw);
+        }
+        return map;
+    }
+
+    private TapeRawMaterial resolveRawMaterialByCode(String materialCode,
+                                                     Map<String, TapeRawMaterial> normalizedRawMaterialMap) {
+        String cleaned = cleanMaterialCode(materialCode);
+        if (!StringUtils.hasText(cleaned)) {
+            return null;
+        }
+
+        TapeRawMaterial exact = tapeFormulaMapper.selectRawMaterialByCode(cleaned);
+        if (exact != null && StringUtils.hasText(exact.getMaterialName())) {
+            return exact;
+        }
+
+        String noSpace = cleaned.replaceAll("\\s+", "");
+        if (!noSpace.equals(cleaned)) {
+            TapeRawMaterial noSpaceMatch = tapeFormulaMapper.selectRawMaterialByCode(noSpace);
+            if (noSpaceMatch != null && StringUtils.hasText(noSpaceMatch.getMaterialName())) {
+                return noSpaceMatch;
+            }
+        }
+
+        String normalized = normalizeMaterialCode(cleaned);
+        TapeRawMaterial normalizedMatch = normalizedRawMaterialMap.get(normalized);
+        if (normalizedMatch != null && StringUtils.hasText(normalizedMatch.getMaterialName())) {
+            return normalizedMatch;
+        }
+        return null;
+    }
+
+    private String cleanMaterialCode(String materialCode) {
+        if (!StringUtils.hasText(materialCode)) {
+            return "";
+        }
+        return materialCode
+                .replace('\u00A0', ' ')
+                .replace('\u3000', ' ')
+                .trim();
+    }
+
+    private String normalizeMaterialCode(String materialCode) {
+        String cleaned = cleanMaterialCode(materialCode);
+        if (!StringUtils.hasText(cleaned)) {
+            return "";
+        }
+        return cleaned
+                .replaceAll("[‐‑‒–—―−－]", "-")
+                .replaceAll("[：﹕∶]", ":")
+                .replaceAll("[／]", "/")
+                .replaceAll("\\s+", "")
+                .toUpperCase(Locale.ROOT);
+    }
+
+    private String findMaterialName(List<Map<String, Object>> parsedRows, String materialCode) {
+        for (Map<String, Object> row : parsedRows) {
+            if (materialCode.equals(row.get("materialCode"))) {
+                Object name = row.get("materialName");
+                return name == null ? materialCode : String.valueOf(name);
+            }
+        }
+        return materialCode;
+    }
+
+    private String findMaterialUnit(List<Map<String, Object>> parsedRows, String materialCode) {
+        for (Map<String, Object> row : parsedRows) {
+            if (materialCode.equals(row.get("materialCode"))) {
+                Object unit = row.get("unit");
+                return unit == null ? "Kg" : String.valueOf(unit);
+            }
+        }
+        return "Kg";
+    }
+
+    private BigDecimal findMaterialUnitWeight(List<Map<String, Object>> parsedRows, String materialCode) {
+        for (Map<String, Object> row : parsedRows) {
+            if (materialCode.equals(row.get("materialCode"))) {
+                Object weight = row.get("weight");
+                if (weight instanceof BigDecimal) {
+                    BigDecimal v = (BigDecimal) weight;
+                    return v.compareTo(BigDecimal.ZERO) > 0 ? v : null;
+                }
+                if (weight != null) {
+                    try {
+                        BigDecimal v = new BigDecimal(String.valueOf(weight));
+                        return v.compareTo(BigDecimal.ZERO) > 0 ? v : null;
+                    } catch (Exception ignore) {
+                        // ignore parse error
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    private Date parseDateCell(String text) {
+        if (!StringUtils.hasText(text)) {
+            return null;
+        }
+        String t = text.trim();
+        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd");
+        sdf.setLenient(false);
+        try {
+            return sdf.parse(t);
+        } catch (Exception ignore) {
+            return null;
+        }
+    }
+
+    private Boolean parseBoolean(String text) {
+        if (!StringUtils.hasText(text)) {
+            return false;
+        }
+        String t = text.trim().toLowerCase();
+        return "1".equals(t) || "true".equals(t) || "是".equals(t) || "y".equals(t);
     }
 
     private byte[] generateSkippedDataExcel(List<Map<String, Object>> skippedData) {
@@ -586,6 +1040,7 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
         return new BigDecimal(value);
     }
 
+    @SuppressWarnings("unused")
     private Integer defaultInt(Integer value) {
         return value == null ? 0 : value;
     }
@@ -665,10 +1120,7 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
         int availableQty = stock.getAvailableQuantity() == null ? 0 : stock.getAvailableQuantity();
         int lockedQty = stock.getLockedQuantity() == null ? 0 : stock.getLockedQuantity();
         BigDecimal perBucketWeight = stock.getUnitWeight() == null ? BigDecimal.ZERO : stock.getUnitWeight();
-        int lockedBuckets = 0;
-        if (perBucketWeight.compareTo(BigDecimal.ZERO) > 0 && lockedQty > 0) {
-            lockedBuckets = BigDecimal.valueOf(lockedQty).divide(perBucketWeight, 0, BigDecimal.ROUND_HALF_UP).intValue();
-        }
+        int lockedBuckets = Math.max(lockedQty, 0);
         if (lockedBuckets < 0) {
             lockedBuckets = 0;
         }
@@ -690,6 +1142,10 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
             detail.setBatchNo("INIT-" + code);
             detail.setContainerNo(String.format("%s-%03d", code, i));
             detail.setUnit(StringUtils.hasText(stock.getUnit()) ? stock.getUnit().trim() : "桶");
+            detail.setPackUom(detail.getUnit());
+            detail.setPackCount(1);
+            detail.setStdUom("kg");
+            detail.setStdQtyPerPack(perBucketWeight);
             detail.setWeight(perBucketWeight);
             detail.setInboundDate(now);
             detail.setIsOpened(false);
@@ -703,14 +1159,14 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
     }
 
     private Integer inferBucketCount(Integer totalQuantity, BigDecimal unitWeight) {
-        if (totalQuantity == null || totalQuantity <= 0 || unitWeight == null || unitWeight.compareTo(BigDecimal.ZERO) <= 0) {
+        if (totalQuantity == null || totalQuantity <= 0) {
             return 0;
         }
-        return BigDecimal.valueOf(totalQuantity)
-                .divide(unitWeight, 0, BigDecimal.ROUND_HALF_UP)
-                .intValue();
+        // 2026-05: 化工库存汇总数量字段统一按“包装数量（桶/包）”语义维护
+        return totalQuantity;
     }
 
+    @SuppressWarnings("unused")
     private void rebuildImportDetails(ChemicalStock stock,
                                       Integer bucketCount,
                                       Integer totalQuantity,
@@ -738,10 +1194,7 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
 
         int aq = availableQuantity == null ? 0 : availableQuantity;
         int lq = lockedQuantity == null ? 0 : lockedQuantity;
-        int lockedBuckets = 0;
-        if (perBucketWeight.compareTo(BigDecimal.ZERO) > 0 && lq > 0) {
-            lockedBuckets = BigDecimal.valueOf(lq).divide(perBucketWeight, 0, BigDecimal.ROUND_HALF_UP).intValue();
-        }
+        int lockedBuckets = Math.max(lq, 0);
         if (lockedBuckets < 0) {
             lockedBuckets = 0;
         }
@@ -763,6 +1216,10 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
             detail.setBatchNo("IMP-" + code);
             detail.setContainerNo(String.format("%s-%03d", code, i));
             detail.setUnit(StringUtils.hasText(stock.getUnit()) ? stock.getUnit().trim() : "桶");
+            detail.setPackUom(detail.getUnit());
+            detail.setPackCount(1);
+            detail.setStdUom("kg");
+            detail.setStdQtyPerPack(perBucketWeight);
             detail.setWeight(perBucketWeight);
             detail.setInboundDate(now);
             detail.setIsOpened(false);
@@ -782,8 +1239,10 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
         }
 
         List<ChemicalStockDetail> details = chemicalStockDetailMapper.selectByChemicalStockId(chemicalStockId);
-        BigDecimal availableWeight = BigDecimal.ZERO;
-        BigDecimal lockedWeight = BigDecimal.ZERO;
+        int availableCount = 0;
+        int lockedCount = 0;
+        BigDecimal sampleWeightSum = BigDecimal.ZERO;
+        int sampleWeightCount = 0;
         int bucketCount = 0;
 
         if (details != null) {
@@ -796,24 +1255,41 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
                     continue;
                 }
 
-                BigDecimal weight = d.getWeight() == null ? BigDecimal.ZERO : d.getWeight();
                 if ("locked".equals(status)) {
-                    lockedWeight = lockedWeight.add(weight);
+                    lockedCount++;
                 } else {
-                    availableWeight = availableWeight.add(weight);
+                    availableCount++;
+                }
+
+                BigDecimal weight = d.getWeight() == null ? BigDecimal.ZERO : d.getWeight();
+                if (weight.compareTo(BigDecimal.ZERO) > 0) {
+                    sampleWeightSum = sampleWeightSum.add(weight);
+                    sampleWeightCount++;
                 }
                 bucketCount++;
             }
         }
 
-        int availableQty = availableWeight.setScale(0, BigDecimal.ROUND_HALF_UP).intValue();
-        int lockedQty = lockedWeight.setScale(0, BigDecimal.ROUND_HALF_UP).intValue();
+        int availableQty = availableCount;
+        int lockedQty = lockedCount;
         int totalQty = availableQty + lockedQty;
+
+        BigDecimal resolvedUnitWeight = null;
+        if (sampleWeightCount > 0) {
+            resolvedUnitWeight = sampleWeightSum
+                    .divide(BigDecimal.valueOf(sampleWeightCount), 2, BigDecimal.ROUND_HALF_UP);
+        }
 
         stock.setAvailableQuantity(availableQty);
         stock.setLockedQuantity(lockedQty);
         stock.setTotalQuantity(totalQty);
+        stock.setAvailablePackCount(availableQty);
+        stock.setLockedPackCount(lockedQty);
+        stock.setTotalPackCount(totalQty);
         stock.setBucketCount(bucketCount);
+        if (resolvedUnitWeight != null && resolvedUnitWeight.compareTo(BigDecimal.ZERO) > 0) {
+            stock.setUnitWeight(resolvedUnitWeight);
+        }
 
         Integer safetyStock = stock.getSafetyStock();
         if (availableQty <= 0) {
@@ -826,5 +1302,35 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
 
         stock.setUpdateTime(new Date());
         chemicalStockMapper.updateById(stock);
+    }
+
+    private String resolveChemicalStockSpecSnapshot(ChemicalStock stock, ChemicalStockDetail detail) {
+        if (detail != null && StringUtils.hasText(detail.getRemark())) {
+            return detail.getRemark().trim();
+        }
+        if (detail != null && detail.getWeight() != null && detail.getWeight().compareTo(BigDecimal.ZERO) > 0) {
+            String unit = StringUtils.hasText(detail.getUnit()) ? detail.getUnit().trim() : "桶";
+            return detail.getWeight().setScale(2, BigDecimal.ROUND_HALF_UP).toPlainString() + "kg/" + unit;
+        }
+        if (stock != null && stock.getUnitWeight() != null && stock.getUnitWeight().compareTo(BigDecimal.ZERO) > 0) {
+            String unit = StringUtils.hasText(stock.getUnit()) ? stock.getUnit().trim() : "桶";
+            return stock.getUnitWeight().setScale(2, BigDecimal.ROUND_HALF_UP).toPlainString() + "kg/" + unit;
+        }
+        return null;
+    }
+
+    private String appendRemarkTokenIfMissing(String baseRemark, String key, String value) {
+        if (!StringUtils.hasText(key) || !StringUtils.hasText(value)) {
+            return baseRemark;
+        }
+        String base = StringUtils.hasText(baseRemark) ? baseRemark.trim() : "";
+        String token = key.trim() + "=" + value.trim();
+        if (!StringUtils.hasText(base)) {
+            return token;
+        }
+        if (base.contains(token)) {
+            return base;
+        }
+        return base + ";" + token;
     }
 }

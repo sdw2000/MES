@@ -105,6 +105,17 @@ public interface ProductionStaffMapper extends BaseMapper<ProductionStaff> {
     ProductionStaff selectStaffById(@Param("id") Long id);
 
     /**
+     * 根据姓名查询在职人员（精确匹配，取最新一条）
+     */
+    @Select("SELECT s.*, t.team_name, w.workshop_name " +
+            "FROM production_staff s " +
+            "LEFT JOIN production_team t ON s.team_id = t.id " +
+            "LEFT JOIN workshop w ON s.workshop_id = w.id " +
+            "WHERE s.staff_name = #{staffName} AND s.is_deleted = 0 " +
+            "ORDER BY s.id DESC LIMIT 1")
+    ProductionStaff selectActiveByStaffName(@Param("staffName") String staffName);
+
+    /**
      * 检查工号是否已存在
      */
         @Select("SELECT COUNT(1) FROM production_staff WHERE staff_code = #{staffCode} AND id != #{excludeId}")

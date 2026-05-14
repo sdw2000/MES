@@ -38,6 +38,9 @@ public class CustomerMaterialMapping {
     /** 客户宽度(mm) */
     private BigDecimal customerWidth;
 
+    /** 宽度公差(mm) */
+    private BigDecimal widthTolerance;
+
     /** 客户长度(m) */
     private BigDecimal customerLength;
 

@@ -30,6 +30,17 @@ public class SalesReconciliationController {
         return salesReconciliationService.getStatement(customerCode, month);
     }
 
+    @GetMapping("/overview")
+    public ResponseResult<?> getOverview(@RequestParam String month,
+                                         @RequestParam(value = "customerCode", required = false) String customerCode,
+                                         @RequestParam(value = "reconciledStatus", required = false) String reconciledStatus,
+                                         @RequestParam(value = "current", required = false) Integer current,
+                                         @RequestParam(value = "size", required = false) Integer size,
+                                         @RequestParam(value = "sortProp", required = false) String sortProp,
+                                         @RequestParam(value = "sortOrder", required = false) String sortOrder) {
+        return salesReconciliationService.getStatementOverview(month, customerCode, reconciledStatus, current, size, sortProp, sortOrder);
+    }
+
     @GetMapping("/history")
     public ResponseResult<?> getHistory(@RequestParam String customerCode) {
         return salesReconciliationService.getHistory(customerCode);
@@ -50,14 +61,48 @@ public class SalesReconciliationController {
         return salesReconciliationService.confirmStatementDetails(request);
     }
 
+    @GetMapping("/unreconciled-candidates")
+    public ResponseResult<?> queryUnreconciledCandidates(@RequestParam String customerCode,
+                                                         @RequestParam String month,
+                                                         @RequestParam(required = false) String orderNo) {
+        return salesReconciliationService.queryUnreconciledCandidates(customerCode, month, orderNo);
+    }
+
+    @PostMapping("/append-unreconciled")
+    public ResponseResult<?> appendUnreconciled(@RequestParam String customerCode,
+                                                @RequestParam String month) {
+        return salesReconciliationService.appendUnreconciledDetails(customerCode, month);
+    }
+
+    @DeleteMapping("/statement/detail/{detailId}")
+    public ResponseResult<?> removeStatementDetail(@PathVariable Long detailId,
+                                                   @RequestParam String customerCode,
+                                                   @RequestParam String month,
+                                                   @RequestParam(required = false) String bizType) {
+        return salesReconciliationService.removeStatementDetail(customerCode, month, detailId, bizType);
+    }
+
     @PostMapping("/migrate-legacy-receipt-status")
     @PreAuthorize("hasAnyAuthority('admin', 'finance')")
     public ResponseResult<?> migrateLegacyReceiptStatus(@RequestParam(value = "cutoffDate", required = false) String cutoffDate) {
         return salesReconciliationService.migrateLegacyReceiptStatus(cutoffDate);
     }
 
+    @PostMapping("/admin/clear-overview-cache")
+    @PreAuthorize("hasAuthority('admin')")
+    public ResponseResult<?> clearOverviewCache() {
+        return salesReconciliationService.adminClearOverviewCache();
+    }
+
+    @GetMapping("/admin/diagnose-deleted-confirms")
+    @PreAuthorize("hasAuthority('admin')")
+    public ResponseResult<?> diagnoseDeletedConfirms(@RequestParam(value = "ids", required = false) String idsCsv) {
+        return salesReconciliationService.adminDiagnoseDeletedConfirms(idsCsv);
+    }
+
     @PostMapping("/history/import")
-    public ResponseResult<?> importHistory(@RequestParam String customerCode, @RequestParam("file") MultipartFile file) {
+    public ResponseResult<?> importHistory(@RequestParam(required = false) String customerCode,
+                                           @RequestParam("file") MultipartFile file) {
         return salesReconciliationService.importHistory(customerCode, file);
     }
 

@@ -20,8 +20,11 @@ public class PurchaseReceiptController {
                                   @RequestParam(defaultValue = "20") Integer size,
                                   @RequestParam(required = false) String supplier,
                                   @RequestParam(required = false) String status,
-                                  @RequestParam(required = false) String reconciliationStatus) {
-        return receiptService.list(page, size, supplier, status, reconciliationStatus);
+                                  @RequestParam(required = false) String reconciliationStatus,
+                                  @RequestParam(required = false) Boolean includeReceived,
+                                  @RequestParam(required = false) String sortField,
+                                  @RequestParam(required = false) String sortOrder) {
+        return receiptService.list(page, size, supplier, status, reconciliationStatus, includeReceived, sortField, sortOrder);
     }
 
     @GetMapping("/{id}")
@@ -52,5 +55,10 @@ public class PurchaseReceiptController {
     @DeleteMapping("/test-data/cleanup")
     public ResponseResult<?> cleanupTestData() {
         return receiptService.cleanupTestData();
+    }
+
+    @PostMapping("/sync-inbound-all")
+    public ResponseResult<?> syncInboundAll() {
+        return receiptService.syncInboundRequestsForAllActiveReceipts();
     }
 }

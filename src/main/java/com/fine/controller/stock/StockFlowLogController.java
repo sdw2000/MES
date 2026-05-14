@@ -2,7 +2,6 @@ package com.fine.controller.stock;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.fine.Utils.ResponseResult;
-import com.fine.model.stock.StockFlowLog;
 import com.fine.service.stock.StockFlowLogService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -33,10 +32,12 @@ public class StockFlowLogController {
             @RequestParam(required = false) String type,
             @RequestParam(required = false) String refNo,
             @RequestParam(required = false) String beginTime,
-            @RequestParam(required = false) String endTime) {
+            @RequestParam(required = false) String endTime,
+            @RequestParam(required = false) String sortField,
+            @RequestParam(required = false) String sortOrder) {
 
         IPage<?> result = stockFlowLogService.getStockFlowPage(current, size, stockType,
-                materialCode, batchNo, type, refNo, beginTime, endTime);
+                materialCode, batchNo, type, refNo, beginTime, endTime, sortField, sortOrder);
 
         Map<String, Object> data = new HashMap<>();
         data.put("records", result.getRecords());

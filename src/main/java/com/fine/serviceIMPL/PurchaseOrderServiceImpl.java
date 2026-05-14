@@ -9,6 +9,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.time.LocalDateTime;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.Authentication;
@@ -182,6 +183,9 @@ public class PurchaseOrderServiceImpl extends ServiceImpl<PurchaseOrderMapper, P
                 }
             }
 
+            // 按业务要求：采购订单更新后不再自动同步到收货通知明细
+            // 如需同步，改为由人工在收货通知页维护。
+
             Map<String, Object> data = new HashMap<>();
             data.put("data", purchaseOrder);
             return new ResponseResult<>(200, "更新采购订单成功", data);
@@ -340,6 +344,199 @@ public class PurchaseOrderServiceImpl extends ServiceImpl<PurchaseOrderMapper, P
             for (PurchaseOrderItem item : purchaseOrder.getItems()) {
                 item.setReconciliationStatus("UNRECONCILED");
             }
+        }
+    }
+
+    @SuppressWarnings("unused")
+    private void syncReceiptItemsFromOrder(PurchaseOrder purchaseOrder, String username) {
+        if (purchaseOrder == null || purchaseOrder.getId() == null || purchaseOrder.getOrderNo() == null || purchaseOrder.getOrderNo().trim().isEmpty()) {
+            return;
+        }
+
+        LambdaQueryWrapper<PurchaseReceipt> receiptQuery = new LambdaQueryWrapper<>();
+        receiptQuery.eq(PurchaseReceipt::getPurchaseOrderNo, purchaseOrder.getOrderNo().trim())
+                .eq(PurchaseReceipt::getIsDeleted, 0)
+                .and(q -> q.eq(PurchaseReceipt::getStatus, "planned")
+                        .or()
+                        .eq(PurchaseReceipt::getStatus, "receiving"));
+        List<PurchaseReceipt> receipts = purchaseReceiptMapper.selectList(receiptQuery);
+        if (receipts == null || receipts.isEmpty()) {
+            return;
+        }
+
+        List<PurchaseOrderItem> orderItems = purchaseOrderItemMapper.selectList(
+                new LambdaQueryWrapper<PurchaseOrderItem>()
+                        .eq(PurchaseOrderItem::getOrderId, purchaseOrder.getId())
+                        .eq(PurchaseOrderItem::getIsDeleted, 0)
+        );
+        if (orderItems == null) {
+            orderItems = new java.util.ArrayList<>();
+        }
+
+        Map<String, PurchaseOrderItem> orderItemByCode = new HashMap<>();
+        for (PurchaseOrderItem orderItem : orderItems) {
+            if (orderItem == null || orderItem.getMaterialCode() == null || orderItem.getMaterialCode().trim().isEmpty()) {
+                continue;
+            }
+            String codeKey = buildReceiptSyncKey(orderItem.getMaterialCode(), resolveOrderItemSpec(orderItem, null));
+            if (!orderItemByCode.containsKey(codeKey)) {
+                orderItemByCode.put(codeKey, orderItem);
+            }
+        }
+
+        for (PurchaseReceipt receipt : receipts) {
+            if (receipt == null || receipt.getId() == null) {
+                continue;
+            }
+            List<PurchaseReceiptItem> receiptItems = purchaseReceiptItemMapper.selectByReceiptId(receipt.getId());
+            Map<String, PurchaseReceiptItem> receiptItemByCode = new HashMap<>();
+            if (receiptItems != null) {
+                for (PurchaseReceiptItem receiptItem : receiptItems) {
+                    if (receiptItem == null || receiptItem.getMaterialCode() == null || receiptItem.getMaterialCode().trim().isEmpty()) {
+                        continue;
+                    }
+                    String receiptKey = buildReceiptSyncKey(receiptItem.getMaterialCode(), receiptItem.getSpecification());
+                    if (!receiptItemByCode.containsKey(receiptKey)) {
+                        receiptItemByCode.put(receiptKey, receiptItem);
+                    }
+                }
+            }
+
+            for (Map.Entry<String, PurchaseOrderItem> entry : orderItemByCode.entrySet()) {
+                String materialCode = entry.getKey();
+                PurchaseOrderItem orderItem = entry.getValue();
+                PurchaseReceiptItem receiptItem = receiptItemByCode.get(materialCode);
+
+                if (receiptItem == null) {
+                    PurchaseReceiptItem newItem = buildReceiptItemFromOrderItem(receipt, orderItem, username);
+                    purchaseReceiptItemMapper.insert(newItem);
+                } else {
+                    applyOrderItemToReceiptItem(receiptItem, orderItem, receipt, username);
+                    purchaseReceiptItemMapper.updateById(receiptItem);
+                }
+            }
+
+            if (receiptItems != null && !receiptItems.isEmpty()) {
+                for (PurchaseReceiptItem receiptItem : receiptItems) {
+                    if (receiptItem == null || receiptItem.getId() == null) {
+                        continue;
+                    }
+                    String materialCode = buildReceiptSyncKey(receiptItem.getMaterialCode(), receiptItem.getSpecification());
+                    if (!materialCode.isEmpty() && !orderItemByCode.containsKey(materialCode)) {
+                        PurchaseReceiptItem toDelete = new PurchaseReceiptItem();
+                        toDelete.setId(receiptItem.getId());
+                        toDelete.setIsDeleted(1);
+                        toDelete.setUpdatedAt(LocalDateTime.now());
+                        purchaseReceiptItemMapper.updateById(toDelete);
+                    }
+                }
+            }
+        }
+    }
+
+    private String buildReceiptSyncKey(String materialCode, String specification) {
+        String code = materialCode == null ? "" : materialCode.trim();
+        String spec = specification == null ? "" : specification.trim();
+        if (code.isEmpty() && spec.isEmpty()) {
+            return "";
+        }
+        return code + "||" + spec;
+    }
+
+    private PurchaseReceiptItem buildReceiptItemFromOrderItem(PurchaseReceipt receipt, PurchaseOrderItem orderItem, String username) {
+        PurchaseReceiptItem receiptItem = new PurchaseReceiptItem();
+        receiptItem.setReceiptId(receipt.getId());
+        receiptItem.setPurchaseOrderNo(receipt.getPurchaseOrderNo());
+        receiptItem.setCreatedAt(LocalDateTime.now());
+        receiptItem.setUpdatedAt(LocalDateTime.now());
+        receiptItem.setIsDeleted(0);
+        applyOrderItemToReceiptItem(receiptItem, orderItem, receipt, username);
+        return receiptItem;
+    }
+
+    private void applyOrderItemToReceiptItem(PurchaseReceiptItem receiptItem,
+                                             PurchaseOrderItem orderItem,
+                                             PurchaseReceipt receipt,
+                                             String username) {
+        if (receiptItem == null || orderItem == null) {
+            return;
+        }
+        receiptItem.setPurchaseOrderNo(receipt == null ? receiptItem.getPurchaseOrderNo() : receipt.getPurchaseOrderNo());
+        receiptItem.setMaterialCode(orderItem.getMaterialCode());
+        receiptItem.setMaterialName(orderItem.getMaterialName());
+        receiptItem.setSpecification(resolveOrderItemSpec(orderItem, receiptItem.getSpecification()));
+        receiptItem.setPurchaseQty(orderItem.getPurchaseQty());
+        receiptItem.setPurchaseUomCode(orderItem.getPurchaseUomCode());
+        receiptItem.setPriceQty(orderItem.getPriceQty());
+        receiptItem.setPriceUomCode(orderItem.getPriceUomCode());
+        receiptItem.setStockQty(orderItem.getStockQty() != null ? orderItem.getStockQty() : orderItem.getSqm());
+        receiptItem.setStockUomCode(orderItem.getStockUomCode());
+        receiptItem.setConversionRate(orderItem.getConversionRate());
+        receiptItem.setExpectedQty(toIntValue(orderItem.getPurchaseQty()));
+        if (receipt != null && "planned".equalsIgnoreCase(receipt.getStatus())) {
+            receiptItem.setReceivedQty(toIntValue(orderItem.getPurchaseQty()));
+        }
+        receiptItem.setUnit(resolveDisplayUnit(orderItem));
+        receiptItem.setUnitPrice(orderItem.getUnitPrice());
+        receiptItem.setAmount(orderItem.getAmount());
+        receiptItem.setUpdatedAt(LocalDateTime.now());
+        if (username != null && !username.trim().isEmpty()) {
+            String patchRemark = "[AUTO_SYNC_FROM_PURCHASE_ORDER]";
+            String originalRemark = receiptItem.getRemark() == null ? "" : receiptItem.getRemark();
+            if (!originalRemark.contains(patchRemark)) {
+                receiptItem.setRemark((originalRemark + " " + patchRemark).trim());
+            }
+        }
+    }
+
+    private String resolveOrderItemSpec(PurchaseOrderItem orderItem, String fallback) {
+        if (orderItem == null) {
+            return fallback;
+        }
+        if (orderItem.getFilmSpecRaw() != null && !orderItem.getFilmSpecRaw().trim().isEmpty()) {
+            return orderItem.getFilmSpecRaw().trim();
+        }
+        if (orderItem.getRawSpec() != null && !orderItem.getRawSpec().trim().isEmpty()) {
+            return orderItem.getRawSpec().trim();
+        }
+        return fallback;
+    }
+
+    private Integer toIntValue(BigDecimal value) {
+        if (value == null) {
+            return 0;
+        }
+        return value.setScale(0, BigDecimal.ROUND_HALF_UP).intValue();
+    }
+
+    private String resolveDisplayUnit(PurchaseOrderItem orderItem) {
+        if (orderItem == null) {
+            return "";
+        }
+        String code = orderItem.getPurchaseUomCode();
+        if (code == null || code.trim().isEmpty()) {
+            code = orderItem.getStockUomCode();
+        }
+        if (code == null) {
+            return "";
+        }
+        String normalized = code.trim().toUpperCase();
+        switch (normalized) {
+            case "DRUM":
+            case "DRUN":
+                return "桶";
+            case "KG":
+                return "kg";
+            case "M2":
+                return "㎡";
+            case "ROLL":
+                return "卷";
+            case "PCS":
+            case "EA":
+            case "PC":
+                return "支";
+            default:
+                return code;
         }
     }
 

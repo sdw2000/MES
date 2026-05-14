@@ -7,6 +7,7 @@ import com.fine.Dao.rd.TapeFormulaMapper;
 import com.fine.Dao.stock.FilmStockMapper;
 import com.fine.Dao.stock.FilmStockDetailMapper;
 import com.fine.Dao.stock.FilmStockOutMapper;
+import com.fine.Dao.stock.StockFlowLogMapper;
 import com.fine.modle.rd.TapeRawMaterial;
 import com.fine.model.stock.FilmStock;
 import com.fine.model.stock.FilmStockDetail;
@@ -52,6 +53,9 @@ public class FilmStockServiceImpl implements FilmStockService {
 
     @Autowired
     private TapeFormulaMapper tapeFormulaMapper;
+
+    @Autowired
+    private StockFlowLogMapper stockFlowLogMapper;
     
     @Override
     public List<FilmStock> getBySpec(Integer thickness, Integer width) {
@@ -67,13 +71,101 @@ public class FilmStockServiceImpl implements FilmStockService {
     }
 
     @Override
-    public IPage<FilmStock> getFilmStockPage(long current, long size, Integer thickness) {
+    public IPage<FilmStock> getFilmStockPage(long current,
+                                             long size,
+                                             Integer thickness,
+                                             String materialCode,
+                                             String sortField,
+                                             String sortOrder) {
         Page<FilmStock> page = new Page<>(current, size);
         QueryWrapper<FilmStock> wrapper = new QueryWrapper<>();
         wrapper.eq("is_deleted", 0);
         wrapper.eq(thickness != null, "thickness", thickness);
-        wrapper.orderByDesc("create_time");
+        if (StringUtils.hasText(materialCode)) {
+            wrapper.like("material_code", materialCode.trim());
+        }
+
+        String sortColumn = resolveFilmStockSortColumn(sortField);
+        boolean asc = "ascending".equalsIgnoreCase(sortOrder) || "asc".equalsIgnoreCase(sortOrder);
+        wrapper.orderBy(true, asc, sortColumn);
+        wrapper.orderBy(true, asc, "id");
         return filmStockMapper.selectPage(page, wrapper);
+    }
+
+    @Override
+    public Map<String, Object> getFilmStockStatistics(Integer thickness, String materialCode) {
+        QueryWrapper<FilmStock> wrapper = new QueryWrapper<>();
+        wrapper.eq("is_deleted", 0);
+        wrapper.eq(thickness != null, "thickness", thickness);
+        if (StringUtils.hasText(materialCode)) {
+            wrapper.like("material_code", materialCode.trim());
+        }
+
+        List<FilmStock> list = filmStockMapper.selectList(wrapper);
+        BigDecimal totalArea = BigDecimal.ZERO;
+        BigDecimal availableArea = BigDecimal.ZERO;
+        BigDecimal lockedArea = BigDecimal.ZERO;
+        for (FilmStock item : list) {
+            if (item == null || isPipeLikeStock(item)) {
+                continue;
+            }
+            totalArea = totalArea.add(item.getTotalArea() == null ? BigDecimal.ZERO : item.getTotalArea());
+            availableArea = availableArea.add(item.getAvailableArea() == null ? BigDecimal.ZERO : item.getAvailableArea());
+            lockedArea = lockedArea.add(item.getLockedArea() == null ? BigDecimal.ZERO : item.getLockedArea());
+        }
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("totalTypes", list == null ? 0 : list.size());
+        result.put("totalArea", totalArea.setScale(2, BigDecimal.ROUND_HALF_UP));
+        result.put("availableArea", availableArea.setScale(2, BigDecimal.ROUND_HALF_UP));
+        result.put("lockedArea", lockedArea.setScale(2, BigDecimal.ROUND_HALF_UP));
+        return result;
+    }
+
+    private boolean isPipeLikeStock(FilmStock stock) {
+        if (stock == null) {
+            return false;
+        }
+        String code = stock.getMaterialCode() == null ? "" : stock.getMaterialCode().trim().toUpperCase();
+        String name = stock.getMaterialName() == null ? "" : stock.getMaterialName().trim().toUpperCase();
+        String spec = stock.getSpecDesc() == null ? "" : stock.getSpecDesc().trim().toUpperCase();
+        return code.startsWith("PEG") || name.contains("管") || spec.contains("管");
+    }
+
+    private String resolveFilmStockSortColumn(String sortField) {
+        if (!StringUtils.hasText(sortField)) {
+            return "create_time";
+        }
+        switch (sortField.trim()) {
+            case "materialCode":
+                return "material_code";
+            case "materialName":
+                return "material_name";
+            case "thickness":
+                return "thickness";
+            case "totalArea":
+                return "total_area";
+            case "availableArea":
+                return "available_area";
+            case "lockedArea":
+                return "locked_area";
+            case "totalRolls":
+                return "total_rolls";
+            case "availableRolls":
+                return "available_rolls";
+            case "lockedRolls":
+                return "locked_rolls";
+            case "safetyStock":
+                return "safety_stock";
+            case "status":
+                return "status";
+            case "updateTime":
+                return "update_time";
+            case "createTime":
+                return "create_time";
+            default:
+                return "create_time";
+        }
     }
     
     @Override
@@ -109,6 +201,12 @@ public class FilmStockServiceImpl implements FilmStockService {
         row.setWidth(detail.getWidth() != null ? detail.getWidth() : stock.getWidth());
         row.setLength(detail.getLength());
         row.setArea(detail.getArea() != null ? detail.getArea() : BigDecimal.ZERO);
+        row.setPackUom(StringUtils.hasText(detail.getPackUom()) ? detail.getPackUom().trim() : "卷");
+        row.setPackCount(detail.getPackCount() != null && detail.getPackCount() > 0 ? detail.getPackCount() : 1);
+        row.setStdUom(StringUtils.hasText(detail.getStdUom()) ? detail.getStdUom().trim() : "㎡");
+        row.setStdQtyPerPack(detail.getStdQtyPerPack() != null && detail.getStdQtyPerPack().compareTo(BigDecimal.ZERO) > 0
+            ? detail.getStdQtyPerPack()
+            : row.getArea());
         row.setQcStatus(StringUtils.hasText(detail.getQcStatus()) ? detail.getQcStatus().trim() : "qualified");
         row.setLocation(detail.getLocation());
         row.setSupplier(detail.getSupplier());
@@ -143,6 +241,16 @@ public class FilmStockServiceImpl implements FilmStockService {
         existed.setWidth(detail.getWidth());
         existed.setLength(detail.getLength());
         existed.setArea(detail.getArea() != null ? detail.getArea() : BigDecimal.ZERO);
+        existed.setPackUom(StringUtils.hasText(detail.getPackUom()) ? detail.getPackUom().trim()
+            : (StringUtils.hasText(existed.getPackUom()) ? existed.getPackUom() : "卷"));
+        existed.setPackCount(detail.getPackCount() != null && detail.getPackCount() > 0
+            ? detail.getPackCount()
+            : (existed.getPackCount() != null && existed.getPackCount() > 0 ? existed.getPackCount() : 1));
+        existed.setStdUom(StringUtils.hasText(detail.getStdUom()) ? detail.getStdUom().trim()
+            : (StringUtils.hasText(existed.getStdUom()) ? existed.getStdUom() : "㎡"));
+        existed.setStdQtyPerPack(detail.getStdQtyPerPack() != null && detail.getStdQtyPerPack().compareTo(BigDecimal.ZERO) > 0
+            ? detail.getStdQtyPerPack()
+            : existed.getArea());
         existed.setQcStatus(StringUtils.hasText(detail.getQcStatus()) ? detail.getQcStatus().trim() : "pending");
         existed.setLocation(detail.getLocation());
         existed.setSupplier(detail.getSupplier());
@@ -234,7 +342,7 @@ public class FilmStockServiceImpl implements FilmStockService {
             filmStockOut.getOutRolls()
         );
         if (rows == 0) {
-            throw new RuntimeException("出库失败，锁定库存不足");
+            throw new RuntimeException("出库失败，可用库存和锁定库存都不足");
         }
         
         // 2. 更新明细状态为已使用
@@ -318,7 +426,9 @@ public class FilmStockServiceImpl implements FilmStockService {
                 _unit,
                 _before, // before
                 _after, // after
-                filmStockOut.getScheduleId() != null ? filmStockOut.getScheduleId().toString() : "MANUAL_OUT",
+                StringUtils.hasText(filmStockOut.getOutboundNo())
+                    ? filmStockOut.getOutboundNo()
+                    : (filmStockOut.getScheduleId() != null ? filmStockOut.getScheduleId().toString() : "MANUAL_OUT"),
                 filmStockOut.getOutboundBy() != null ? filmStockOut.getOutboundBy() : "SYSTEM",
                 "薄膜出库"
             );
@@ -458,11 +568,21 @@ public class FilmStockServiceImpl implements FilmStockService {
             @Override
             @Transactional(rollbackFor = Exception.class)
             public Map<String, Object> importExcel(MultipartFile file) {
+                return importExcel(file, false);
+            }
+
+            @Override
+            @Transactional(rollbackFor = Exception.class)
+            public Map<String, Object> importExcel(MultipartFile file, boolean clearBeforeImport) {
+                if (clearBeforeImport) {
+                    clearForReimport(true);
+                }
                 Map<String, Object> result = new HashMap<>();
                 int successCount = 0;
                 int skipCount = 0;
                 List<String> errors = new ArrayList<>();
                 List<Map<String, Object>> skippedData = new ArrayList<>();
+                Map<String, TapeRawMaterial> normalizedRawMaterialMap = buildNormalizedRawMaterialMap();
 
                 try (Workbook workbook = new XSSFWorkbook(file.getInputStream())) {
                     Sheet sheet = workbook.getSheetAt(0);
@@ -477,6 +597,10 @@ public class FilmStockServiceImpl implements FilmStockService {
                         }
                     }
 
+                    if (isDetailImportMode(headerIndex)) {
+                        return importExcelByDetails(sheet, headerIndex);
+                    }
+
                     for (int i = 1; i <= sheet.getLastRowNum(); i++) {
                         Row row = sheet.getRow(i);
                         if (row == null) {
@@ -489,11 +613,11 @@ public class FilmStockServiceImpl implements FilmStockService {
                                 throw new RuntimeException("物料编号不能为空");
                             }
 
-                            // 严格按原材料代码表入库：保留原始料号格式（仅去首尾空白）
-                            String cleanedMaterialCode = originalMaterialCode.replace("\u00A0", " ").trim();
+                            // 按原材料代码表入库：支持常见格式差异（空白/全角横杠等）
+                            String cleanedMaterialCode = cleanMaterialCode(originalMaterialCode);
 
-                            // 从原材料代码表获取标准物料名称
-                            TapeRawMaterial rawMaterial = tapeFormulaMapper.selectRawMaterialByCode(cleanedMaterialCode);
+                            // 从原材料代码表获取标准物料
+                            TapeRawMaterial rawMaterial = resolveRawMaterialByCode(cleanedMaterialCode, normalizedRawMaterialMap);
                             if (rawMaterial == null || !StringUtils.hasText(rawMaterial.getMaterialName())) {
                                 skipCount++;
                                 Map<String, Object> skippedRow = new HashMap<>();
@@ -513,6 +637,7 @@ public class FilmStockServiceImpl implements FilmStockService {
                             }
 
                             String materialName = rawMaterial.getMaterialName().trim();
+                            cleanedMaterialCode = cleanMaterialCode(rawMaterial.getMaterialCode());
 
                             BigDecimal thickness = getDecimalCellValue(getCellByHeader(row, headerIndex,
                                     new String[]{"厚度", "厚度(μm)", "thickness"}, 2));
@@ -520,6 +645,7 @@ public class FilmStockServiceImpl implements FilmStockService {
                                     new String[]{"宽度", "宽度(mm)", "width"}, 3));
                             String specDesc = getCellValue(getCellByHeader(row, headerIndex,
                                     new String[]{"规格描述", "spec_desc"}, 4));
+                                specDesc = normalizeFilmSpecDesc(specDesc, thickness, width);
 
                             BigDecimal totalArea = defaultDecimal(getDecimalCellValue(getCellByHeader(row, headerIndex,
                                     new String[]{"总面积", "总面积(㎡)", "total_area"}, 5)));
@@ -557,17 +683,60 @@ public class FilmStockServiceImpl implements FilmStockService {
                             if (!StringUtils.hasText(status)) {
                                 status = "active";
                             }
+                            status = normalizeStockStatus(status);
 
                             QueryWrapper<FilmStock> qw = new QueryWrapper<>();
                             qw.eq("material_code", cleanedMaterialCode);
-                            FilmStock exist = filmStockMapper.selectOne(qw);
+                            qw.orderByAsc("id");
+                            List<FilmStock> existedStocks = filmStockMapper.selectList(qw);
+                            FilmStock exist = null;
+                            if (existedStocks != null && !existedStocks.isEmpty()) {
+                                exist = existedStocks.get(0);
+                                if (existedStocks.size() > 1) {
+                                    List<Long> duplicateStockIds = new ArrayList<>();
+                                    for (int idx = 1; idx < existedStocks.size(); idx++) {
+                                        FilmStock duplicate = existedStocks.get(idx);
+                                        if (duplicate != null && duplicate.getId() != null) {
+                                            duplicateStockIds.add(duplicate.getId());
+                                        }
+                                    }
+                                    if (!duplicateStockIds.isEmpty()) {
+                                        QueryWrapper<FilmStockDetail> dupDetailQw = new QueryWrapper<>();
+                                        dupDetailQw.in("stock_id", duplicateStockIds);
+                                        filmStockDetailMapper.delete(dupDetailQw);
+
+                                        QueryWrapper<FilmStockOut> dupOutQw = new QueryWrapper<>();
+                                        dupOutQw.in("stock_id", duplicateStockIds);
+                                        filmStockOutMapper.delete(dupOutQw);
+
+                                        QueryWrapper<FilmStock> dupStockQw = new QueryWrapper<>();
+                                        dupStockQw.in("id", duplicateStockIds);
+                                        filmStockMapper.delete(dupStockQw);
+
+                                        errors.add("导入前自动清理重复薄膜主档 " + duplicateStockIds.size() + " 条（料号=" + cleanedMaterialCode + "）");
+                                    }
+                                }
+                            }
 
                             FilmStock stock = exist == null ? new FilmStock() : exist;
                             stock.setMaterialCode(cleanedMaterialCode);
                             stock.setMaterialName(materialName);
-                            stock.setThickness(thickness);
-                            stock.setWidth(width);
-                            stock.setSpecDesc(StringUtils.hasText(specDesc) ? specDesc.trim() : null);
+                            if (exist == null) {
+                                stock.setThickness(thickness);
+                                stock.setWidth(width);
+                                stock.setSpecDesc(StringUtils.hasText(specDesc) ? specDesc.trim() : null);
+                            } else {
+                                // 同料号多行导入时，后续空值不覆盖历史有效规格，避免“规格被清空”
+                                if (thickness != null && thickness.compareTo(BigDecimal.ZERO) > 0) {
+                                    stock.setThickness(thickness);
+                                }
+                                if (width != null && width > 0) {
+                                    stock.setWidth(width);
+                                }
+                                if (StringUtils.hasText(specDesc)) {
+                                    stock.setSpecDesc(specDesc.trim());
+                                }
+                            }
                             if (exist == null) {
                                 stock.setTotalArea(totalArea);
                                 stock.setAvailableArea(availableArea);
@@ -634,6 +803,7 @@ public class FilmStockServiceImpl implements FilmStockService {
                 byte[] skippedExcel = null;
                 if (!skippedData.isEmpty()) {
                     skippedExcel = generateSkippedDataExcel(skippedData);
+                    errors.addAll(buildSkipReasonSummary(skippedData, 10));
                 }
 
                 result.put("success", skipCount == 0);
@@ -642,6 +812,509 @@ public class FilmStockServiceImpl implements FilmStockService {
                 result.put("errors", errors);
                 result.put("skippedExcel", skippedExcel != null ? java.util.Base64.getEncoder().encodeToString(skippedExcel) : null);
                 return result;
+            }
+
+            @Override
+            @Transactional(rollbackFor = Exception.class)
+            public Map<String, Object> clearForReimport(boolean clearOutboundRecords) {
+                Map<String, Object> result = new HashMap<>();
+
+                int detailDeleted = filmStockDetailMapper.delete(new QueryWrapper<>());
+
+                int outboundDeleted = 0;
+                if (clearOutboundRecords) {
+                    outboundDeleted = filmStockOutMapper.delete(new QueryWrapper<>());
+                }
+
+                int stockDeleted = filmStockMapper.delete(new QueryWrapper<>());
+
+                if (clearOutboundRecords) {
+                    QueryWrapper<StockFlowLog> flowQw = new QueryWrapper<>();
+                    flowQw.eq("stock_type", "FILM");
+                    stockFlowLogMapper.delete(flowQw);
+                }
+
+                result.put("detailDeleted", detailDeleted);
+                result.put("outboundDeleted", outboundDeleted);
+                result.put("stockDeleted", stockDeleted);
+                result.put("clearOutboundRecords", clearOutboundRecords);
+                return result;
+            }
+
+            private boolean isDetailImportMode(Map<String, Integer> headerIndex) {
+                if (headerIndex == null || headerIndex.isEmpty()) {
+                    return false;
+                }
+                return containsHeader(headerIndex, "卷号", "roll_no", "rollNo")
+                        || containsHeader(headerIndex, "长度(m)", "长度", "length")
+                        || containsHeader(headerIndex, "批次号", "batch_no", "batchNo");
+            }
+
+            private boolean containsHeader(Map<String, Integer> headerIndex, String... names) {
+                if (headerIndex == null || names == null) {
+                    return false;
+                }
+                for (String name : names) {
+                    if (headerIndex.containsKey(name)) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            private Map<String, Object> importExcelByDetails(Sheet sheet, Map<String, Integer> headerIndex) {
+                Map<String, Object> result = new HashMap<>();
+                int successCount = 0;
+                int skipCount = 0;
+                List<String> errors = new ArrayList<>();
+                List<Map<String, Object>> skippedData = new ArrayList<>();
+                Map<String, TapeRawMaterial> normalizedRawMaterialMap = buildNormalizedRawMaterialMap();
+
+                List<Map<String, Object>> parsedRows = new ArrayList<>();
+                Set<String> materialCodes = new LinkedHashSet<>();
+
+                for (int i = 1; i <= sheet.getLastRowNum(); i++) {
+                    Row row = sheet.getRow(i);
+                    if (row == null) {
+                        continue;
+                    }
+                    try {
+                        String originalMaterialCode = getCellValue(getCellByHeader(row, headerIndex,
+                                new String[]{"物料编号", "物料编码", "料号", "material_code"}, 0));
+                        if (!StringUtils.hasText(originalMaterialCode)) {
+                            throw new RuntimeException("物料编号不能为空");
+                        }
+                        String materialCode = cleanMaterialCode(originalMaterialCode);
+
+                        TapeRawMaterial rawMaterial = resolveRawMaterialByCode(materialCode, normalizedRawMaterialMap);
+                        if (rawMaterial == null || !StringUtils.hasText(rawMaterial.getMaterialName())) {
+                            throw new RuntimeException("原材料代码表中未找到该料号");
+                        }
+                        materialCode = cleanMaterialCode(rawMaterial.getMaterialCode());
+
+                        String batchNo = getCellValue(getCellByHeader(row, headerIndex,
+                                new String[]{"批次号", "batch_no", "batchNo"}, 1));
+                        String rollNo = getCellValue(getCellByHeader(row, headerIndex,
+                                new String[]{"卷号", "roll_no", "rollNo"}, 2));
+                        BigDecimal thickness = getDecimalCellValue(getCellByHeader(row, headerIndex,
+                                new String[]{"厚度", "厚度(μm)", "thickness"}, 3));
+                        Integer width = getIntCellValue(getCellByHeader(row, headerIndex,
+                                new String[]{"宽度", "宽度(mm)", "width"}, 4));
+                        Integer length = getIntCellValue(getCellByHeader(row, headerIndex,
+                                new String[]{"长度", "长度(m)", "length"}, 5));
+                        BigDecimal area = getDecimalCellValue(getCellByHeader(row, headerIndex,
+                                new String[]{"面积", "面积(㎡)", "area"}, 6));
+                        String packUom = getCellValue(getCellByHeader(row, headerIndex,
+                            new String[]{"包装单位", "pack_uom", "packUom"}, 7));
+                        Integer packCount = getIntCellValue(getCellByHeader(row, headerIndex,
+                            new String[]{"包装数量", "pack_count", "packCount"}, 8));
+                        String stdUom = getCellValue(getCellByHeader(row, headerIndex,
+                            new String[]{"标准单位", "std_uom", "stdUom"}, 9));
+                        BigDecimal stdQtyPerPack = getDecimalCellValue(getCellByHeader(row, headerIndex,
+                            new String[]{"每包装标准量", "std_qty_per_pack", "stdQtyPerPack"}, 10));
+                        String qcStatus = getCellValue(getCellByHeader(row, headerIndex,
+                            new String[]{"质检状态", "quality_status", "qcStatus"}, 11));
+                        String location = getCellValue(getCellByHeader(row, headerIndex,
+                            new String[]{"库位", "location"}, 12));
+                        String supplier = getCellValue(getCellByHeader(row, headerIndex,
+                            new String[]{"供应商", "supplier"}, 13));
+                        String inboundDateText = getCellValue(getCellByHeader(row, headerIndex,
+                            new String[]{"入库日期", "storage_date", "inboundDate"}, 14));
+                        String status = getCellValue(getCellByHeader(row, headerIndex,
+                            new String[]{"状态", "status"}, 15));
+                        String remark = getCellValue(getCellByHeader(row, headerIndex,
+                            new String[]{"备注", "remark"}, 16));
+
+                        if (area == null && width != null && width > 0 && length != null && length > 0) {
+                            area = BigDecimal.valueOf(width)
+                                    .divide(BigDecimal.valueOf(1000), 6, BigDecimal.ROUND_HALF_UP)
+                                    .multiply(BigDecimal.valueOf(length))
+                                    .setScale(2, BigDecimal.ROUND_HALF_UP);
+                        }
+                        if (area == null) {
+                            area = BigDecimal.ZERO;
+                        }
+
+                        if (!StringUtils.hasText(batchNo)) {
+                            batchNo = "IMP-" + materialCode;
+                        }
+                        if (!StringUtils.hasText(rollNo)) {
+                            rollNo = "IMP-" + materialCode + "-" + (i + 1);
+                        }
+                        // 允许文件内出现重复卷号：在真正入库时通过 ensureUniqueRollNo() 自动改写为全局唯一卷号
+
+                        Date inboundDate = parseDateCell(inboundDateText);
+
+                        Map<String, Object> parsed = new HashMap<>();
+                        parsed.put("materialCode", materialCode);
+                        parsed.put("materialName", rawMaterial.getMaterialName().trim());
+                        parsed.put("batchNo", batchNo.trim());
+                        parsed.put("rollNo", rollNo.trim());
+                        parsed.put("thickness", thickness);
+                        parsed.put("width", width);
+                        parsed.put("length", length);
+                        parsed.put("area", area);
+                        parsed.put("packUom", StringUtils.hasText(packUom) ? packUom.trim() : "卷");
+                        parsed.put("packCount", packCount != null && packCount > 0 ? packCount : 1);
+                        parsed.put("stdUom", StringUtils.hasText(stdUom) ? stdUom.trim() : "㎡");
+                        parsed.put("stdQtyPerPack", stdQtyPerPack != null && stdQtyPerPack.compareTo(BigDecimal.ZERO) > 0 ? stdQtyPerPack : area);
+                        parsed.put("qcStatus", StringUtils.hasText(qcStatus) ? qcStatus.trim() : "qualified");
+                        parsed.put("location", location);
+                        parsed.put("supplier", supplier);
+                        parsed.put("inboundDate", inboundDate == null ? new Date() : inboundDate);
+                        parsed.put("status", normalizeDetailStatus(status));
+                        parsed.put("remark", remark);
+                        parsedRows.add(parsed);
+                        materialCodes.add(materialCode);
+                    } catch (Exception ex) {
+                        skipCount++;
+                        Map<String, Object> skippedRow = new HashMap<>();
+                        String originalMaterialCode = getCellValue(getCellByHeader(row, headerIndex,
+                                new String[]{"物料编号", "物料编码", "料号", "material_code"}, 0));
+                        skippedRow.put("行号", i + 1);
+                        skippedRow.put("原始物料编号", originalMaterialCode);
+                        skippedRow.put("清理后物料编号", cleanMaterialCode(originalMaterialCode));
+                        skippedRow.put("原因", "数据格式错误: " + ex.getMessage());
+                        skippedData.add(skippedRow);
+                    }
+                }
+
+                if (!parsedRows.isEmpty()) {
+                    Map<String, FilmStock> stockByCode = new HashMap<>();
+                    int mergedDuplicateStockCount = 0;
+                    for (String materialCode : materialCodes) {
+                        QueryWrapper<FilmStock> qw = new QueryWrapper<>();
+                        qw.eq("material_code", materialCode);
+                        qw.orderByAsc("id");
+                        List<FilmStock> existedStocks = filmStockMapper.selectList(qw);
+                        FilmStock stock = null;
+                        if (existedStocks != null && !existedStocks.isEmpty()) {
+                            stock = existedStocks.get(0);
+                            if (existedStocks.size() > 1) {
+                                List<Long> duplicateStockIds = new ArrayList<>();
+                                for (int idx = 1; idx < existedStocks.size(); idx++) {
+                                    FilmStock duplicate = existedStocks.get(idx);
+                                    if (duplicate != null && duplicate.getId() != null) {
+                                        duplicateStockIds.add(duplicate.getId());
+                                    }
+                                }
+                                if (!duplicateStockIds.isEmpty()) {
+                                    QueryWrapper<FilmStockDetail> dupDetailQw = new QueryWrapper<>();
+                                    dupDetailQw.in("stock_id", duplicateStockIds);
+                                    filmStockDetailMapper.delete(dupDetailQw);
+
+                                    QueryWrapper<FilmStockOut> dupOutQw = new QueryWrapper<>();
+                                    dupOutQw.in("stock_id", duplicateStockIds);
+                                    filmStockOutMapper.delete(dupOutQw);
+
+                                    QueryWrapper<FilmStock> dupStockQw = new QueryWrapper<>();
+                                    dupStockQw.in("id", duplicateStockIds);
+                                    filmStockMapper.delete(dupStockQw);
+
+                                    mergedDuplicateStockCount += duplicateStockIds.size();
+                                }
+                            }
+                        }
+                        if (stock == null) {
+                            FilmStock created = new FilmStock();
+                            created.setMaterialCode(materialCode);
+                            created.setMaterialName(findMaterialName(parsedRows, materialCode));
+                            created.setStatus("active");
+                            created.setCreateBy("import");
+                            created.setUpdateBy("import");
+                            filmStockMapper.insert(created);
+                            stock = created;
+                        }
+                        stockByCode.put(materialCode, stock);
+                    }
+
+                    List<Long> stockIds = new ArrayList<>();
+                    for (FilmStock stock : stockByCode.values()) {
+                        stockIds.add(stock.getId());
+                    }
+                    if (!stockIds.isEmpty()) {
+                        QueryWrapper<FilmStockDetail> delQw = new QueryWrapper<>();
+                        delQw.in("stock_id", stockIds);
+                        filmStockDetailMapper.delete(delQw);
+                    }
+
+                    Set<String> reservedRollNos = new HashSet<>();
+                    int rollSeq = 1;
+
+                    for (Map<String, Object> parsed : parsedRows) {
+                        String materialCode = String.valueOf(parsed.get("materialCode"));
+                        FilmStock stock = stockByCode.get(materialCode);
+                        if (stock == null || stock.getId() == null) {
+                            continue;
+                        }
+
+                        FilmStockDetail detail = new FilmStockDetail();
+                        detail.setFilmStockId(stock.getId());
+                        detail.setMaterialCode(materialCode);
+                        detail.setBatchNo((String) parsed.get("batchNo"));
+                        String incomingRollNo = (String) parsed.get("rollNo");
+                        detail.setRollNo(ensureUniqueRollNo(incomingRollNo, stock.getId(), rollSeq++, reservedRollNos));
+                        detail.setThickness((BigDecimal) parsed.get("thickness"));
+                        detail.setWidth((Integer) parsed.get("width"));
+                        detail.setLength((Integer) parsed.get("length"));
+                        detail.setArea((BigDecimal) parsed.get("area"));
+                        detail.setPackUom((String) parsed.get("packUom"));
+                        detail.setPackCount((Integer) parsed.get("packCount"));
+                        detail.setStdUom((String) parsed.get("stdUom"));
+                        detail.setStdQtyPerPack((BigDecimal) parsed.get("stdQtyPerPack"));
+                        detail.setQcStatus((String) parsed.get("qcStatus"));
+                        detail.setLocation((String) parsed.get("location"));
+                        detail.setSupplier((String) parsed.get("supplier"));
+                        detail.setInboundDate((Date) parsed.get("inboundDate"));
+                        detail.setStatus((String) parsed.get("status"));
+                        detail.setRemark((String) parsed.get("remark"));
+                        detail.setCreateBy("import");
+                        detail.setCreateTime(new Date());
+                        detail.setUpdateBy("import");
+                        detail.setUpdateTime(new Date());
+                        detail.setIsDeleted(0);
+                        filmStockDetailMapper.insert(detail);
+                        successCount++;
+                    }
+
+                    for (FilmStock stock : stockByCode.values()) {
+                        refreshStockSummaryByDetails(stock.getId());
+                    }
+                    if (mergedDuplicateStockCount > 0) {
+                        errors.add("导入前自动清理重复薄膜主档 " + mergedDuplicateStockCount + " 条（按料号保留最早一条）");
+                    }
+                }
+
+                byte[] skippedExcel = null;
+                if (!skippedData.isEmpty()) {
+                    skippedExcel = generateSkippedDataExcel(skippedData);
+                    errors.addAll(buildSkipReasonSummary(skippedData, 10));
+                }
+
+                result.put("success", skipCount == 0);
+                result.put("successCount", successCount);
+                result.put("skipCount", skipCount);
+                result.put("errors", errors);
+                result.put("skippedExcel", skippedExcel != null ? java.util.Base64.getEncoder().encodeToString(skippedExcel) : null);
+                return result;
+            }
+
+            private String findMaterialName(List<Map<String, Object>> parsedRows, String materialCode) {
+                for (Map<String, Object> row : parsedRows) {
+                    if (materialCode.equals(row.get("materialCode"))) {
+                        Object name = row.get("materialName");
+                        return name == null ? materialCode : String.valueOf(name);
+                    }
+                }
+                return materialCode;
+            }
+
+            private String ensureUniqueRollNo(String preferredRollNo,
+                                              Long stockId,
+                                              int sequence,
+                                              Set<String> reservedRollNos) {
+                String base = StringUtils.hasText(preferredRollNo)
+                        ? preferredRollNo.trim()
+                        : String.format("IMP-%d-%03d", stockId, sequence);
+
+                String candidate = base;
+                int suffix = 1;
+                while (isRollNoUsed(candidate, reservedRollNos)) {
+                    candidate = base + "-" + suffix;
+                    suffix++;
+                }
+
+                reservedRollNos.add(candidate.toLowerCase(Locale.ROOT));
+                return candidate;
+            }
+
+            private boolean isRollNoUsed(String rollNo, Set<String> reservedRollNos) {
+                if (!StringUtils.hasText(rollNo)) {
+                    return true;
+                }
+                String normalized = rollNo.trim();
+                String key = normalized.toLowerCase(Locale.ROOT);
+                if (reservedRollNos.contains(key)) {
+                    return true;
+                }
+                FilmStockDetail existed = filmStockDetailMapper.selectOneByRollNoIncludingDeleted(normalized);
+                return existed != null;
+            }
+
+            private Map<String, TapeRawMaterial> buildNormalizedRawMaterialMap() {
+                Map<String, TapeRawMaterial> map = new HashMap<>();
+                List<TapeRawMaterial> raws = tapeFormulaMapper.selectAllRawMaterialsIncludingDisabled();
+                if (raws == null) {
+                    return map;
+                }
+                for (TapeRawMaterial raw : raws) {
+                    if (raw == null || !StringUtils.hasText(raw.getMaterialCode())) {
+                        continue;
+                    }
+                    String key = normalizeMaterialCode(raw.getMaterialCode());
+                    if (!StringUtils.hasText(key)) {
+                        continue;
+                    }
+                    map.putIfAbsent(key, raw);
+                }
+                return map;
+            }
+
+            private TapeRawMaterial resolveRawMaterialByCode(String materialCode,
+                                                             Map<String, TapeRawMaterial> normalizedRawMaterialMap) {
+                String cleaned = cleanMaterialCode(materialCode);
+                if (!StringUtils.hasText(cleaned)) {
+                    return null;
+                }
+
+                TapeRawMaterial exact = tapeFormulaMapper.selectRawMaterialByCode(cleaned);
+                if (exact != null && StringUtils.hasText(exact.getMaterialName())) {
+                    return exact;
+                }
+
+                String noSpace = cleaned.replaceAll("\\s+", "");
+                if (!noSpace.equals(cleaned)) {
+                    TapeRawMaterial noSpaceMatch = tapeFormulaMapper.selectRawMaterialByCode(noSpace);
+                    if (noSpaceMatch != null && StringUtils.hasText(noSpaceMatch.getMaterialName())) {
+                        return noSpaceMatch;
+                    }
+                }
+
+                String normalized = normalizeMaterialCode(cleaned);
+                TapeRawMaterial normalizedMatch = normalizedRawMaterialMap.get(normalized);
+                if (normalizedMatch != null && StringUtils.hasText(normalizedMatch.getMaterialName())) {
+                    return normalizedMatch;
+                }
+                return null;
+            }
+
+            private String cleanMaterialCode(String materialCode) {
+                if (!StringUtils.hasText(materialCode)) {
+                    return "";
+                }
+                return materialCode
+                        .replace('\u00A0', ' ')
+                        .replace('\u3000', ' ')
+                        .trim();
+            }
+
+            private String normalizeMaterialCode(String materialCode) {
+                String cleaned = cleanMaterialCode(materialCode);
+                if (!StringUtils.hasText(cleaned)) {
+                    return "";
+                }
+                String normalized = cleaned
+                        .replaceAll("[‐‑‒–—―−－]", "-")
+                    .replaceAll("[：﹕∶]", ":")
+                    .replaceAll("[／]", "/")
+                        .replaceAll("\\s+", "")
+                        .toUpperCase(Locale.ROOT);
+                return normalized;
+            }
+
+            private Date parseDateCell(String text) {
+                if (!StringUtils.hasText(text)) {
+                    return null;
+                }
+                String t = text.trim();
+                java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd");
+                sdf.setLenient(false);
+                try {
+                    return sdf.parse(t);
+                } catch (Exception ignore) {
+                    return null;
+                }
+            }
+
+            private String normalizeDetailStatus(String rawStatus) {
+                if (!StringUtils.hasText(rawStatus)) {
+                    return "available";
+                }
+                String s = rawStatus.trim().toLowerCase(Locale.ROOT);
+                if ("available".equals(s)
+                        || "可用".equals(s)
+                        || "可使用".equals(s)
+                        || "可领用".equals(s)
+                        || "在库".equals(s)) {
+                    return "available";
+                }
+                if ("locked".equals(s)
+                        || "锁定".equals(s)
+                        || "已锁定".equals(s)) {
+                    return "locked";
+                }
+                if ("used".equals(s)
+                        || "已使用".equals(s)
+                        || "用完".equals(s)
+                        || "用完了".equals(s)
+                        || "已用完".equals(s)
+                        || "耗尽".equals(s)
+                        || "无库存".equals(s)) {
+                    return "used";
+                }
+                return "available";
+            }
+
+            private String normalizeStockStatus(String rawStatus) {
+                if (!StringUtils.hasText(rawStatus)) {
+                    return "active";
+                }
+                String s = rawStatus.trim().toLowerCase(Locale.ROOT);
+                if ("active".equals(s)
+                        || "可用".equals(s)
+                        || "可使用".equals(s)
+                        || "在库".equals(s)
+                        || "正常".equals(s)) {
+                    return "active";
+                }
+                if ("low_stock".equals(s)
+                        || "库存不足".equals(s)
+                        || "低库存".equals(s)
+                        || "不足".equals(s)) {
+                    return "low_stock";
+                }
+                if ("out_of_stock".equals(s)
+                        || "用完".equals(s)
+                        || "用完了".equals(s)
+                        || "已用完".equals(s)
+                        || "无库存".equals(s)
+                        || "耗尽".equals(s)) {
+                    return "out_of_stock";
+                }
+                return "active";
+            }
+
+            private List<String> buildSkipReasonSummary(List<Map<String, Object>> skippedData, int limit) {
+                List<String> summary = new ArrayList<>();
+                if (skippedData == null || skippedData.isEmpty()) {
+                    return summary;
+                }
+                Map<String, Integer> reasonCount = new LinkedHashMap<>();
+                for (Map<String, Object> row : skippedData) {
+                    if (row == null) {
+                        continue;
+                    }
+                    Object reasonObj = row.get("原因");
+                    String reason = reasonObj == null ? "未知原因" : String.valueOf(reasonObj).trim();
+                    if (!StringUtils.hasText(reason)) {
+                        reason = "未知原因";
+                    }
+                    reasonCount.put(reason, reasonCount.getOrDefault(reason, 0) + 1);
+                }
+
+                summary.add("本次导入跳过 " + skippedData.size() + " 条，原因汇总如下：");
+                int idx = 0;
+                for (Map.Entry<String, Integer> entry : reasonCount.entrySet()) {
+                    summary.add("- " + entry.getKey() + "（" + entry.getValue() + "条）");
+                    idx++;
+                    if (idx >= limit) {
+                        break;
+                    }
+                }
+                if (reasonCount.size() > limit) {
+                    summary.add("- 其余 " + (reasonCount.size() - limit) + " 类原因请下载跳过数据Excel查看");
+                }
+                return summary;
             }
 
             private void appendImportDetailsByRoll(FilmStock stock,
@@ -665,6 +1338,7 @@ public class FilmStockServiceImpl implements FilmStockService {
                 allQw.eq("stock_id", stock.getId());
                 List<FilmStockDetail> existedAll = filmStockDetailMapper.selectList(allQw);
                 int startIndex = existedAll == null ? 1 : existedAll.size() + 1;
+                Set<String> reservedRollNos = new HashSet<>();
 
                 Date now = new Date();
                 BigDecimal acc = BigDecimal.ZERO;
@@ -679,7 +1353,8 @@ public class FilmStockServiceImpl implements FilmStockService {
                     detail.setFilmStockId(stock.getId());
                     detail.setMaterialCode(stock.getMaterialCode());
                     detail.setBatchNo("IMP-" + stock.getId());
-                    detail.setRollNo(String.format("IMP-%d-%03d", stock.getId(), startIndex + i - 1));
+                    String baseRollNo = String.format("IMP-%d-%03d", stock.getId(), startIndex + i - 1);
+                    detail.setRollNo(ensureUniqueRollNo(baseRollNo, stock.getId(), startIndex + i - 1, reservedRollNos));
                     detail.setThickness(thickness != null ? thickness : stock.getThickness());
                     detail.setWidth(width != null ? width : stock.getWidth());
                     if (detail.getWidth() != null && detail.getWidth() > 0 && area.compareTo(BigDecimal.ZERO) > 0) {
@@ -687,6 +1362,10 @@ public class FilmStockServiceImpl implements FilmStockService {
                         detail.setLength(length.intValue());
                     }
                     detail.setArea(area);
+                    detail.setPackUom("卷");
+                    detail.setPackCount(1);
+                    detail.setStdUom("㎡");
+                    detail.setStdQtyPerPack(area);
                     detail.setStatus("available");
                     detail.setQcStatus("qualified");
                     detail.setInboundDate(now);
@@ -706,7 +1385,9 @@ public class FilmStockServiceImpl implements FilmStockService {
                     return;
                 }
 
-                List<FilmStockDetail> details = filmStockDetailMapper.selectByFilmStockId(filmStockId);
+                QueryWrapper<FilmStockDetail> detailQw = new QueryWrapper<>();
+                detailQw.eq("stock_id", filmStockId).eq("is_deleted", 0);
+                List<FilmStockDetail> details = filmStockDetailMapper.selectList(detailQw);
                 BigDecimal totalArea = BigDecimal.ZERO;
                 BigDecimal availableArea = BigDecimal.ZERO;
                 BigDecimal lockedArea = BigDecimal.ZERO;
@@ -719,16 +1400,17 @@ public class FilmStockServiceImpl implements FilmStockService {
                         continue;
                     }
                     BigDecimal area = item.getArea() == null ? BigDecimal.ZERO : item.getArea();
+                    int packCount = item.getPackCount() != null && item.getPackCount() > 0 ? item.getPackCount() : 1;
                     totalArea = totalArea.add(area);
-                    totalRolls++;
+                    totalRolls += packCount;
 
                     String status = item.getStatus() == null ? "" : item.getStatus().trim().toLowerCase();
                     if ("locked".equals(status)) {
                         lockedArea = lockedArea.add(area);
-                        lockedRolls++;
+                        lockedRolls += packCount;
                     } else if ("available".equals(status)) {
                         availableArea = availableArea.add(area);
-                        availableRolls++;
+                        availableRolls += packCount;
                     }
                 }
 
@@ -738,6 +1420,9 @@ public class FilmStockServiceImpl implements FilmStockService {
                 stock.setTotalRolls(totalRolls);
                 stock.setAvailableRolls(availableRolls);
                 stock.setLockedRolls(lockedRolls);
+                stock.setAvailablePackCount(availableRolls);
+                stock.setLockedPackCount(lockedRolls);
+                stock.setTotalPackCount(totalRolls);
 
                 if (availableArea.compareTo(BigDecimal.ZERO) <= 0) {
                     stock.setStatus("out_of_stock");
@@ -854,5 +1539,49 @@ public class FilmStockServiceImpl implements FilmStockService {
 
             private int nzi(Integer value) {
                 return value == null ? 0 : value;
+            }
+
+            private String normalizeFilmSpecDesc(String specDesc, BigDecimal thickness, Integer width) {
+                String raw = specDesc == null ? "" : specDesc.trim();
+                String t = formatSpecNumber(thickness);
+                String w = width == null || width <= 0 ? "" : String.valueOf(width);
+
+                if (StringUtils.hasText(raw)) {
+                    String unified = raw.replace('×', '*').replace('X', '*').replace('x', '*');
+                    // 已带单位：仅统一符号
+                    if (unified.matches(".*(?i)(μm|um|mm|\\bm\\b).*")) {
+                        return unified;
+                    }
+                    java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("\\d+(?:\\.\\d+)?").matcher(unified);
+                    java.util.List<String> numbers = new java.util.ArrayList<>();
+                    while (matcher.find()) {
+                        numbers.add(formatSpecNumber(new BigDecimal(matcher.group())));
+                    }
+                    if (numbers.size() >= 3) {
+                        return numbers.get(0) + "μm*" + numbers.get(1) + "mm*" + numbers.get(2) + "m";
+                    }
+                    if (numbers.size() == 2) {
+                        return numbers.get(0) + "μm*" + numbers.get(1) + "mm";
+                    }
+                }
+
+                if (StringUtils.hasText(t) && StringUtils.hasText(w)) {
+                    return t + "μm*" + w + "mm";
+                }
+                if (StringUtils.hasText(t)) {
+                    return t + "μm";
+                }
+                return StringUtils.hasText(raw) ? raw : null;
+            }
+
+            private String formatSpecNumber(BigDecimal value) {
+                if (value == null) {
+                    return "";
+                }
+                BigDecimal normalized = value.stripTrailingZeros();
+                if (normalized.scale() < 0) {
+                    normalized = normalized.setScale(0);
+                }
+                return normalized.toPlainString();
             }
 }

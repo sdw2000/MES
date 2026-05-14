@@ -2,6 +2,7 @@ package com.fine.model.stock;
 
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import lombok.Data;
@@ -49,12 +50,24 @@ public class FilmStock {
     
     /** 可用卷数 */
     private Integer availableRolls;
+
+    /** 可用包装数 */
+    @TableField("available_pack_count")
+    private Integer availablePackCount;
     
     /** 锁定卷数 */
     private Integer lockedRolls;
+
+    /** 锁定包装数 */
+    @TableField("locked_pack_count")
+    private Integer lockedPackCount;
     
     /** 安全库存(㎡) */
     private BigDecimal safetyStock;
+
+    /** 总包装数 */
+    @TableField("total_pack_count")
+    private Integer totalPackCount;
     
     /** 状态：active-正常，low_stock-库存不足，out_of_stock-缺货 */
     private String status;

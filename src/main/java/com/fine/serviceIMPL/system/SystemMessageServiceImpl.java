@@ -107,7 +107,7 @@ public class SystemMessageServiceImpl implements SystemMessageService {
         String sql = "SELECT COUNT(1) FROM system_message_notice m "
                 + "WHERE m.is_deleted = 0 AND " + roleClause + " "
                 + "AND NOT EXISTS (SELECT 1 FROM system_message_read r WHERE r.message_id = m.id AND r.reader = ?)";
-        Long count = jdbcTemplate.queryForObject(sql, args.toArray(), Long.class);
+        Long count = jdbcTemplate.queryForObject(sql, Long.class, args.toArray());
         return count == null ? 0L : count;
     }
 
@@ -138,7 +138,7 @@ public class SystemMessageServiceImpl implements SystemMessageService {
         }
 
         String countSql = "SELECT COUNT(1) FROM system_message_notice m " + where;
-        Long total = jdbcTemplate.queryForObject(countSql, args.toArray(), Long.class);
+        Long total = jdbcTemplate.queryForObject(countSql, Long.class, args.toArray());
 
         List<Object> pageArgs = new ArrayList<>();
         pageArgs.add(user);

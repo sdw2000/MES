@@ -199,7 +199,14 @@ public class EquipmentScheduleConfigServiceImpl extends ServiceImpl<EquipmentSch
         if (flag(config.getWeekendRest()) && dayOfWeek == DayOfWeek.SATURDAY) {
             return nextWorkingStart(candidate, config);
         }
-        if ((flag(config.getWeekendRest()) || flag(config.getSundayDisabled())) && dayOfWeek == DayOfWeek.SUNDAY) {
+        if (isInSundayBlockedWindow(candidate, config)) {
+            LocalTime weekStart = parseLocalTime(config.getNextWeekStartTime());
+            if (dayOfWeek == DayOfWeek.SUNDAY) {
+                return candidate.plusDays(1).with(weekStart);
+            }
+            if (dayOfWeek == DayOfWeek.MONDAY) {
+                return candidate.with(weekStart);
+            }
             return nextWorkingStart(candidate, config);
         }
         return candidate;
@@ -214,16 +221,46 @@ public class EquipmentScheduleConfigServiceImpl extends ServiceImpl<EquipmentSch
                 cursor = cursor.plusDays(2).with(weekStart);
                 continue;
             }
-            if ((flag(config.getWeekendRest()) || flag(config.getSundayDisabled())) && dayOfWeek == DayOfWeek.SUNDAY) {
-                cursor = cursor.plusDays(1).with(weekStart);
+            if (isInSundayBlockedWindow(cursor, config)) {
+                if (dayOfWeek == DayOfWeek.SUNDAY) {
+                    cursor = cursor.plusDays(1).with(weekStart);
+                } else if (dayOfWeek == DayOfWeek.MONDAY) {
+                    cursor = cursor.with(weekStart);
+                } else {
+                    cursor = cursor.plusDays(1).with(weekStart);
+                }
                 continue;
             }
-            if (dayOfWeek == DayOfWeek.MONDAY && cursor.toLocalTime().isBefore(weekStart)) {
+            if ((flag(config.getWeekendRest()) || flag(config.getSundayDisabled()))
+                    && dayOfWeek == DayOfWeek.MONDAY
+                    && cursor.toLocalTime().isBefore(weekStart)) {
                 cursor = cursor.with(weekStart);
             }
             return cursor;
         }
         return cursor.with(weekStart);
+    }
+
+    private boolean isInSundayBlockedWindow(LocalDateTime candidate, EquipmentScheduleConfig config) {
+        if (candidate == null) {
+            return false;
+        }
+        if (flag(config.getWeekendRest()) && candidate.getDayOfWeek() == DayOfWeek.SUNDAY) {
+            return true;
+        }
+        if (!flag(config.getSundayDisabled()) && !flag(config.getWeekendRest())) {
+            return false;
+        }
+        LocalTime weekStart = parseLocalTime(config.getNextWeekStartTime());
+        DayOfWeek dayOfWeek = candidate.getDayOfWeek();
+        LocalTime time = candidate.toLocalTime();
+        if (dayOfWeek == DayOfWeek.SUNDAY) {
+            return !time.isBefore(weekStart);
+        }
+        if (dayOfWeek == DayOfWeek.MONDAY) {
+            return time.isBefore(weekStart);
+        }
+        return false;
     }
 
     private LocalTime parseLocalTime(String value) {

@@ -22,6 +22,21 @@ public class TapeOutboundRequest {
     
     /** 料号 */
     private String materialCode;
+
+    /** 关联订单号（结构化字段） */
+    private String orderNo;
+
+    /** 关联订单明细ID（结构化字段） */
+    private Long orderItemId;
+
+    /** 关联发货通知ID（结构化字段） */
+    private Long deliveryNoticeId;
+
+    /** 关联发货通知单号（结构化字段） */
+    private String deliveryNoticeNo;
+
+    /** 出库业务类型（MANUAL/SALES_AUTO/SALES_REPAIR） */
+    private String bizType;
     
     /** 产品名称 */
     private String productName;
@@ -31,6 +46,10 @@ public class TapeOutboundRequest {
     
     /** 规格描述 */
     private String specDesc;
+
+    /** 数字号（来源于关联库存sequence_no，仅用于展示） */
+    @TableField(exist = false)
+    private Integer sequenceNo;
     
     /** 出库卷数 */
     private Integer rolls;
@@ -73,4 +92,9 @@ public class TapeOutboundRequest {
     public static final int STATUS_APPROVED = 1;   // 已通过
     public static final int STATUS_REJECTED = 2;   // 已拒绝
     public static final int STATUS_CANCELLED = 3;  // 已取消
+
+    // 业务类型常量
+    public static final String BIZ_TYPE_MANUAL = "MANUAL";
+    public static final String BIZ_TYPE_SALES_AUTO = "SALES_AUTO";
+    public static final String BIZ_TYPE_SALES_REPAIR = "SALES_REPAIR";
 }

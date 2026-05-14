@@ -1,0 +1,5 @@
+INSERT INTO material_qc_rule (material_code, item_code, item_name, unit, judge_mode, min, max, standard_value, sort, is_active) VALUES ('FT-001', 'thickness', '厚度', 'um', 'range', 38, 42, NULL, 1, 1);
+INSERT INTO material_qc_rule (material_code, item_code, item_name, unit, judge_mode, min, max, standard_value, sort, is_active) VALUES ('FT-001', 'width', '宽度', 'mm', 'range', 980, 1020, NULL, 2, 1);
+INSERT INTO material_qc_rule (material_code, item_code, item_name, unit, judge_mode, min, max, standard_value, sort, is_active) VALUES ('FT-001', 'tensile', '拉伸强度', 'N_25mm', 'min', 120, NULL, NULL, 3, 1);
+INSERT INTO material_qc_rule (material_code, item_code, item_name, unit, judge_mode, min, max, standard_value, sort, is_active) VALUES ('FT-001', 'peel', '剥离力', 'N_25mm', 'range', 18, 22, NULL, 4, 1);
+INSERT INTO material_qc_rule (material_code, item_code, item_name, unit, judge_mode, min, max, standard_value, sort, is_active) VALUES ('FT-001', 'appearance', '外观', NULL, 'eq', NULL, NULL, '无明显缺陷', 5, 1);

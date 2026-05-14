@@ -24,9 +24,11 @@ import com.alibaba.fastjson.JSON;
 import com.fine.Utils.JwtUtil;
 import com.fine.Utils.RedisCache;
 import com.fine.Utils.ResponseResult;
+import com.fine.Dao.production.ProductionStaffMapper;
 import com.fine.modle.LoginUser;
 import com.fine.modle.Order2;
 import com.fine.modle.User;
+import com.fine.model.production.ProductionStaff;
 import com.fine.service.LoginServcie;
 import com.fine.service.RoleService;
 
@@ -41,7 +43,12 @@ public class LoginServiceImpl implements LoginServcie {
     @Lazy
     private RedisCache redisCache;
     @Autowired
-    private RoleService roleService;@Override
+    private RoleService roleService;
+
+    @Autowired
+    private ProductionStaffMapper productionStaffMapper;
+
+    @Override
     public ResponseResult<?> login(User user) {
         if (user == null || !StringUtils.hasText(user.getUsername()) || !StringUtils.hasText(user.getPassword())) {
             return new ResponseResult<>(400, "用户名和密码不能为空");
@@ -138,6 +145,31 @@ public class LoginServiceImpl implements LoginServcie {
         map.put("name", nameString);
         map.put("realName", realName != null ? realName : "");
         map.put("id", id);
+
+        // 补充班组信息，避免前端默认A班
+        ProductionStaff staff = null;
+        Long staffId = loginUser.getUser().getStaffId();
+        if (staffId != null) {
+            staff = productionStaffMapper.selectStaffById(staffId);
+        }
+        String safeRealName = realName == null ? "" : realName.trim();
+        if (staff == null && StringUtils.hasText(safeRealName)) {
+            staff = productionStaffMapper.selectActiveByStaffName(safeRealName);
+        }
+        if (staff != null) {
+            String teamName = staff.getTeamName();
+            String workshopName = staff.getWorkshopName();
+            String workGroup = "";
+            if (StringUtils.hasText(teamName)) {
+                workGroup = teamName.trim().replaceAll("班$", "").replaceAll("[^A-Za-z0-9]", "");
+            }
+            map.put("staffId", staff.getId());
+            map.put("teamId", staff.getTeamId());
+            map.put("teamName", teamName);
+            map.put("workshopId", staff.getWorkshopId());
+            map.put("workshopName", workshopName);
+            map.put("workGroup", workGroup);
+        }
           
         return new ResponseResult<>(20000, "登陆成功", map);
     }
@@ -153,6 +185,9 @@ public class LoginServiceImpl implements LoginServcie {
                 String lower = role.toLowerCase(Locale.ROOT);
                 normalized.add(lower);
 
+                // 标准角色别名映射（数据库可能存中文/缩写）
+                normalized.addAll(resolveRoleAliases(role, lower));
+
                 // 兼容“涂布”岗位别名：coating 同时具备 production
                 if ("涂布".equals(role) || "coating".equals(lower)) {
                     normalized.add("coating");
@@ -161,6 +196,32 @@ public class LoginServiceImpl implements LoginServcie {
             }
         }
         return new ArrayList<>(normalized);
+    }
+
+    private Set<String> resolveRoleAliases(String original, String lower) {
+        Set<String> aliases = new LinkedHashSet<>();
+        String compact = lower == null ? "" : lower.replaceAll("\\s+", "");
+
+        // 研发角色兼容：研发 / 研发管理 / r&d / rd / research_and_development
+        if (compact.contains("研发")
+                || compact.equals("rd")
+                || compact.equals("r&d")
+                || compact.equals("research&development")
+                || compact.equals("research_development")
+                || compact.equals("researchanddevelopment")) {
+            aliases.add("rd");
+        }
+
+        // 常见中文角色映射（避免中文角色名导致前端路由匹配不到）
+        if (compact.contains("销售")) aliases.add("sales");
+        if (compact.contains("仓库") || compact.contains("仓管") || compact.contains("库存")) aliases.add("warehouse");
+        if (compact.contains("生产")) aliases.add("production");
+        if (compact.contains("财务")) aliases.add("finance");
+        if (compact.contains("采购")) aliases.add("purchase");
+        if (compact.contains("质检") || compact.contains("品质") || compact.contains("质量")) aliases.add("quality");
+        if (compact.contains("管理") && compact.contains("员") && compact.contains("系统")) aliases.add("admin");
+
+        return aliases;
     }
     
     @Override

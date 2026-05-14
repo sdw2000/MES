@@ -21,6 +21,8 @@
         UPDATE chemical_stock
         SET available_quantity = available_quantity - #{lockQuantity},
             locked_quantity = locked_quantity + #{lockQuantity},
+            available_pack_count = GREATEST(COALESCE(available_pack_count, available_quantity, 0) - #{lockQuantity}, 0),
+            locked_pack_count = COALESCE(locked_pack_count, locked_quantity) + #{lockQuantity},
             update_time = NOW()
         WHERE id = #{id}
           AND available_quantity >= #{lockQuantity}
@@ -30,7 +32,9 @@
     <update id="unlockStock">
         UPDATE chemical_stock
         SET available_quantity = available_quantity + #{unlockQuantity},
-            locked_quantity = locked_quantity - #{unlockQuantity},
+            locked_quantity = GREATEST(locked_quantity - #{unlockQuantity}, 0),
+            available_pack_count = COALESCE(available_pack_count, available_quantity) + #{unlockQuantity},
+            locked_pack_count = GREATEST(COALESCE(locked_pack_count, locked_quantity, 0) - #{unlockQuantity}, 0),
             update_time = NOW()
         WHERE id = #{id}
           AND locked_quantity >= #{unlockQuantity}
@@ -39,11 +43,28 @@
     <!-- 扣减库存（出库） -->
     <update id="deductStock">
         UPDATE chemical_stock
-        SET total_quantity = total_quantity - #{outQuantity},
-            locked_quantity = locked_quantity - #{outQuantity},
+        SET total_quantity = GREATEST(total_quantity - #{outQuantity}, 0),
+            total_pack_count = GREATEST(COALESCE(total_pack_count, total_quantity, 0) - #{outQuantity}, 0),
+            locked_quantity = CASE
+                WHEN locked_quantity >= #{outQuantity} THEN locked_quantity - #{outQuantity}
+                ELSE locked_quantity
+            END,
+            locked_pack_count = CASE
+                WHEN locked_quantity >= #{outQuantity} THEN GREATEST(COALESCE(locked_pack_count, locked_quantity, 0) - #{outQuantity}, 0)
+                ELSE GREATEST(COALESCE(locked_pack_count, locked_quantity, 0), 0)
+            END,
+            available_quantity = CASE
+                WHEN locked_quantity >= #{outQuantity} THEN available_quantity
+                ELSE GREATEST(available_quantity - #{outQuantity}, 0)
+            END,
+            available_pack_count = CASE
+                WHEN locked_quantity >= #{outQuantity} THEN GREATEST(COALESCE(available_pack_count, available_quantity, 0), 0)
+                ELSE GREATEST(COALESCE(available_pack_count, available_quantity, 0) - #{outQuantity}, 0)
+            END,
             update_time = NOW()
         WHERE id = #{id}
-          AND locked_quantity >= #{outQuantity}
+          AND (locked_quantity >= #{outQuantity}
+               OR available_quantity >= #{outQuantity})
     </update>
 
     <!-- 到货入库：增加库存 -->
@@ -51,6 +72,8 @@
         UPDATE chemical_stock
         SET total_quantity = COALESCE(total_quantity, 0) + #{inQuantity},
             available_quantity = COALESCE(available_quantity, 0) + #{inQuantity},
+            total_pack_count = GREATEST(COALESCE(total_pack_count, COALESCE(total_quantity, 0), 0), 0) + #{inQuantity},
+            available_pack_count = GREATEST(COALESCE(available_pack_count, COALESCE(available_quantity, 0), 0), 0) + #{inQuantity},
             last_in_date = CURDATE(),
             status = CASE
                 WHEN COALESCE(available_quantity, 0) + #{inQuantity} &lt;= 0 THEN 'out_of_stock'

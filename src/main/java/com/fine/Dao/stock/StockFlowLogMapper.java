@@ -27,7 +27,24 @@ public interface StockFlowLogMapper extends BaseMapper<StockFlowLog> {
             "<if test='refNo != null and refNo != \"\"'> AND ref_no LIKE CONCAT('%', #{refNo}, '%') </if> " +
             "<if test='beginTime != null and beginTime != \"\"'> AND create_time &gt;= #{beginTime} </if> " +
             "<if test='endTime != null and endTime != \"\"'> AND create_time &lt;= #{endTime} </if> " +
-            "ORDER BY create_time DESC " +
+            "<choose>" +
+            "  <when test='sortField == \"stockType\"'>ORDER BY stock_type </when>" +
+            "  <when test='sortField == \"type\"'>ORDER BY type </when>" +
+            "  <when test='sortField == \"materialCode\"'>ORDER BY material_code </when>" +
+            "  <when test='sortField == \"productName\"'>ORDER BY product_name </when>" +
+            "  <when test='sortField == \"batchNo\"'>ORDER BY batch_no </when>" +
+            "  <when test='sortField == \"changeQuantity\"'>ORDER BY change_quantity </when>" +
+            "  <when test='sortField == \"stdChangeQuantity\"'>ORDER BY std_change_quantity </when>" +
+            "  <when test='sortField == \"beforeQuantity\"'>ORDER BY before_quantity </when>" +
+            "  <when test='sortField == \"afterQuantity\"'>ORDER BY after_quantity </when>" +
+            "  <when test='sortField == \"refNo\"'>ORDER BY ref_no </when>" +
+            "  <when test='sortField == \"operator\"'>ORDER BY operator </when>" +
+            "  <otherwise>ORDER BY create_time </otherwise>" +
+            "</choose>" +
+            "<choose>" +
+            "  <when test='sortOrder == \"ascending\" or sortOrder == \"asc\"'> ASC </when>" +
+            "  <otherwise> DESC </otherwise>" +
+            "</choose>" +
             "</script>")
     IPage<StockFlowLog> selectPage(Page<StockFlowLog> page,
                                    @Param("stockType") String stockType,
@@ -36,7 +53,48 @@ public interface StockFlowLogMapper extends BaseMapper<StockFlowLog> {
                                    @Param("type") String type,
                        @Param("refNo") String refNo,
                        @Param("beginTime") String beginTime,
-                       @Param("endTime") String endTime);
+                   @Param("endTime") String endTime,
+                   @Param("sortField") String sortField,
+                   @Param("sortOrder") String sortOrder);
+
+        @Select("<script>" +
+            "SELECT * FROM stock_flow_log WHERE 1=1 " +
+            "<if test='stockType != null and stockType != \"\"'> AND stock_type = #{stockType} </if> " +
+            "<if test='materialCode != null and materialCode != \"\"'> AND material_code LIKE CONCAT('%', #{materialCode}, '%') </if> " +
+            "<if test='batchNo != null and batchNo != \"\"'> AND batch_no LIKE CONCAT('%', #{batchNo}, '%') </if> " +
+            "<if test='type != null and type != \"\"'> AND type = #{type} </if> " +
+            "<if test='refNo != null and refNo != \"\"'> AND ref_no LIKE CONCAT('%', #{refNo}, '%') </if> " +
+            "<if test='beginTime != null and beginTime != \"\"'> AND create_time &gt;= #{beginTime} </if> " +
+            "<if test='endTime != null and endTime != \"\"'> AND create_time &lt;= #{endTime} </if> " +
+            "<choose>" +
+            "  <when test='sortField == \"stockType\"'>ORDER BY stock_type </when>" +
+            "  <when test='sortField == \"type\"'>ORDER BY type </when>" +
+            "  <when test='sortField == \"materialCode\"'>ORDER BY material_code </when>" +
+            "  <when test='sortField == \"productName\"'>ORDER BY product_name </when>" +
+            "  <when test='sortField == \"batchNo\"'>ORDER BY batch_no </when>" +
+            "  <when test='sortField == \"changeQuantity\"'>ORDER BY change_quantity </when>" +
+            "  <when test='sortField == \"stdChangeQuantity\"'>ORDER BY std_change_quantity </when>" +
+            "  <when test='sortField == \"beforeQuantity\"'>ORDER BY before_quantity </when>" +
+            "  <when test='sortField == \"afterQuantity\"'>ORDER BY after_quantity </when>" +
+            "  <when test='sortField == \"refNo\"'>ORDER BY ref_no </when>" +
+            "  <when test='sortField == \"operator\"'>ORDER BY operator </when>" +
+            "  <otherwise>ORDER BY create_time </otherwise>" +
+            "</choose>" +
+            "<choose>" +
+            "  <when test='sortOrder == \"ascending\" or sortOrder == \"asc\"'> ASC </when>" +
+            "  <otherwise> DESC </otherwise>" +
+            "</choose>" +
+            "LIMIT 5000 " +
+            "</script>")
+        List<StockFlowLog> selectListByFilter(@Param("stockType") String stockType,
+                          @Param("materialCode") String materialCode,
+                          @Param("batchNo") String batchNo,
+                          @Param("type") String type,
+                          @Param("refNo") String refNo,
+                          @Param("beginTime") String beginTime,
+                          @Param("endTime") String endTime,
+                          @Param("sortField") String sortField,
+                          @Param("sortOrder") String sortOrder);
 
     /**
      * 根据库存ID查询流水

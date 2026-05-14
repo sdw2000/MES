@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.fine.Utils.ResponseResult;
 import com.fine.modle.stock.*;
 import com.fine.service.stock.TapeStockService;
+import com.fine.service.purchase.PurchaseReceiptService;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,6 +13,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -33,6 +35,9 @@ public class TapeStockController {
     
     @Autowired
     private TapeStockService stockService;
+
+    @Autowired
+    private PurchaseReceiptService purchaseReceiptService;
     
     // ============= 库存管理 =============
     
@@ -136,7 +141,7 @@ public class TapeStockController {
      */
     @GetMapping("/by-material/{materialCode}")
     public ResponseResult<?> getStockByMaterial(@PathVariable String materialCode) {
-        List<TapeStock> list = stockService.searchStockByMaterialKeyword(materialCode);
+        List<TapeStock> list = stockService.getStockByMaterialFIFO(materialCode == null ? null : materialCode.trim());
         return ResponseResult.success("查询成功", list);
     }
 
@@ -148,10 +153,12 @@ public class TapeStockController {
             @RequestParam String materialCode,
             @RequestParam(defaultValue = "1") int current,
             @RequestParam(defaultValue = "20") int size,
-            @RequestParam(required = false) Boolean includeReturnWarehouse) {
+            @RequestParam(required = false) Boolean includeReturnWarehouse,
+            @RequestParam(required = false) String sortField,
+            @RequestParam(required = false) String sortOrder) {
         IPage<TapeStock> result = includeReturnWarehouse != null ? 
-            stockService.getStockByMaterialPage(current, size, materialCode, includeReturnWarehouse) : 
-            stockService.getStockByMaterialPage(current, size, materialCode, true);  // 默认包含退货专仓
+            stockService.getStockByMaterialPage(current, size, materialCode, includeReturnWarehouse, sortField, sortOrder) : 
+            stockService.getStockByMaterialPage(current, size, materialCode, true, sortField, sortOrder);  // 默认包含退货专仓
         Map<String, Object> data = new HashMap<>();
         data.put("records", result.getRecords());
         data.put("total", result.getTotal());
@@ -168,6 +175,26 @@ public class TapeStockController {
     public ResponseResult<?> getStockById(@PathVariable Long id) {
         TapeStock stock = stockService.getStockById(id);
         return ResponseResult.success("查询成功", stock);
+    }
+
+    /**
+     * 物料盘点
+     */
+    @PostMapping("/{id}/stocktake")
+    @PreAuthorize("hasAnyAuthority('warehouse','admin')")
+    public ResponseResult<?> stocktake(@PathVariable Long id, @RequestBody TapeStocktakeRequest request) {
+        try {
+            TapeStock result = stockService.stocktake(
+                    id,
+                    request == null ? null : request.getActualRolls(),
+                    request == null ? null : request.getActualSqm(),
+                    request == null ? null : request.getOperator(),
+                    request == null ? null : request.getReason()
+            );
+            return ResponseResult.success("盘点成功", result);
+        } catch (Exception e) {
+            return ResponseResult.error("盘点失败: " + e.getMessage());
+        }
     }
     
     /**
@@ -329,13 +356,78 @@ public class TapeStockController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) Integer status,
-            @RequestParam(required = false) String materialCode) {        IPage<TapeInboundRequest> result = stockService.getInboundPage(page, size, status, materialCode);
+            @RequestParam(required = false) String materialCode,
+            @RequestParam(required = false) String sourceType,
+            @RequestParam(required = false) Long receiptId,
+            @RequestParam(required = false) Long itemId,
+            @RequestParam(required = false) String keyword) {
+        if (StringUtils.hasText(sourceType) && "PURCHASE_RECEIVING".equalsIgnoreCase(sourceType.trim())) {
+            try {
+                purchaseReceiptService.syncInboundRequestsForAllActiveReceipts();
+            } catch (Exception ignored) {
+                // 自动同步失败不影响列表查询
+            }
+        }
+        IPage<TapeInboundRequest> result = stockService.getInboundPage(page, size, status, materialCode, sourceType, receiptId, itemId, keyword);
         Map<String, Object> data = new HashMap<>();
         data.put("records", result.getRecords());
         data.put("total", result.getTotal());
         data.put("current", result.getCurrent());
         data.put("size", result.getSize());
         return ResponseResult.success("查询成功", data);
+    }
+
+    /**
+     * 扫码入仓：待扫描单据列表（小程序）
+     */
+    @GetMapping("/inbound/scan/documents")
+    @PreAuthorize("hasAnyAuthority('warehouse','admin')")
+    public ResponseResult<?> listScanInboundDocuments(
+            @RequestParam(defaultValue = "1") Integer page,
+            @RequestParam(defaultValue = "20") Integer size,
+            @RequestParam(required = false) String keyword) {
+        return purchaseReceiptService.listScanInboundDocuments(page, size, keyword);
+    }
+
+    /**
+     * 扫码入仓：按收货单查询基础信息（小程序）
+     */
+    @GetMapping("/inbound/scan/document")
+    @PreAuthorize("hasAnyAuthority('warehouse','admin')")
+    public ResponseResult<?> getScanInboundDocument(
+            @RequestParam(required = false) String scanCode,
+            @RequestParam(required = false) String receiptNo,
+            @RequestParam(required = false) Long receiptId) {
+        String lookupCode = StringUtils.hasText(scanCode) ? scanCode : receiptNo;
+        return purchaseReceiptService.getScanInboundDocument(lookupCode, receiptId);
+    }
+
+    /**
+     * 扫码入仓：提交入仓（小程序）
+     */
+    @PostMapping("/inbound/scan/submit")
+    @PreAuthorize("hasAnyAuthority('warehouse','admin')")
+    public ResponseResult<?> submitScanInbound(@RequestBody Map<String, Object> params) {
+        String receiptNo = params.get("receiptNo") == null ? null : String.valueOf(params.get("receiptNo"));
+        Long receiptId = null;
+        try {
+            if (params.get("receiptId") != null) {
+                receiptId = Long.valueOf(String.valueOf(params.get("receiptId")));
+            }
+        } catch (Exception ignored) {
+        }
+        String scannedLocation = params.get("scannedLocation") == null ? null : String.valueOf(params.get("scannedLocation"));
+        String operator = params.get("operator") == null ? null : String.valueOf(params.get("operator"));
+        List<String> scanCodes = new java.util.ArrayList<>();
+        Object codesObj = params.get("scanCodes");
+        if (codesObj instanceof List) {
+            for (Object row : (List<?>) codesObj) {
+                if (row != null) {
+                    scanCodes.add(String.valueOf(row));
+                }
+            }
+        }
+        return purchaseReceiptService.submitScanInbound(receiptNo, receiptId, scanCodes, scannedLocation, operator);
     }
     
     /**
@@ -409,6 +501,25 @@ public class TapeStockController {
             return ResponseResult.error("取消失败: " + e.getMessage());
         }
     }
+
+    /**
+     * 采购收货标签打印前置：生成打印数据与二维码（日期+日流水）
+     */
+    @PostMapping("/inbound/{id}/purchase-label/prepare")
+    @PreAuthorize("hasAnyAuthority('warehouse','admin','production')")
+    public ResponseResult<?> preparePurchaseInboundLabel(
+            @PathVariable Long id,
+            @RequestBody(required = false) Map<String, Object> payload) {
+        try {
+            String operator = payload != null && payload.get("operator") != null
+                    ? String.valueOf(payload.get("operator"))
+                    : "";
+            Map<String, Object> result = stockService.preparePurchaseInboundLabelPrint(id, payload, operator);
+            return ResponseResult.success("标签数据生成成功", result);
+        } catch (Exception e) {
+            return ResponseResult.error("标签数据生成失败: " + e.getMessage());
+        }
+    }
     
     /**
     * 待审批入库数量
@@ -432,6 +543,21 @@ public class TapeStockController {
             return ResponseResult.error("历史分切成品库存合并失败: " + e.getMessage());
         }
     }
+
+    /**
+     * 历史采购入库纠偏（化工/薄膜误入胶带仓迁移）
+     */
+    @PostMapping("/inbound/migrate-misrouted-purchase")
+    @PreAuthorize("hasAnyAuthority('admin','warehouse')")
+    public ResponseResult<?> migrateMisroutedPurchaseInbound(
+            @RequestParam(required = false) String auditor) {
+        try {
+            Map<String, Object> result = stockService.migrateMisroutedPurchaseInboundToRawWarehouse(auditor);
+            return ResponseResult.success("历史采购入库纠偏完成", result);
+        } catch (Exception e) {
+            return ResponseResult.error("历史采购入库纠偏失败: " + e.getMessage());
+        }
+    }
     
     // ============= 出库申请 =============
     
@@ -444,12 +570,29 @@ public class TapeStockController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) Integer status,
-            @RequestParam(required = false) String materialCode) {        IPage<TapeOutboundRequest> result = stockService.getOutboundPage(page, size, status, materialCode);
+            @RequestParam(required = false) String materialCode,
+            @RequestParam(required = false) String orderNo) {        IPage<TapeOutboundRequest> result = stockService.getOutboundPage(page, size, status, materialCode, orderNo);
         Map<String, Object> data = new HashMap<>();
         data.put("records", result.getRecords());
         data.put("total", result.getTotal());
         data.put("current", result.getCurrent());
         data.put("size", result.getSize());
+        return ResponseResult.success("查询成功", data);
+    }
+
+    /**
+     * 统一分页查询出库列表（胶带产品 + 原材料）
+     */
+    @GetMapping("/outbound/unified-list")
+    @PreAuthorize("hasAnyAuthority('warehouse','admin','sales','finance','quality')")
+    public ResponseResult<?> getUnifiedOutboundList(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) Integer status,
+            @RequestParam(required = false) String materialCode,
+            @RequestParam(required = false) String bizType,
+            @RequestParam(required = false) String orderNo) {
+        Map<String, Object> data = stockService.getUnifiedOutboundPage(page, size, status, materialCode, bizType, orderNo);
         return ResponseResult.success("查询成功", data);
     }
     
@@ -465,6 +608,35 @@ public class TapeStockController {
             return ResponseResult.error("申请失败: " + e.getMessage());
         }
     }
+
+    /**
+     * 修改出库申请（仅待审批）
+     */
+    @PutMapping("/outbound/{id}")
+    @PreAuthorize("hasAnyAuthority('warehouse','admin','sales','finance','quality')")
+    public ResponseResult<?> updateOutboundRequest(@PathVariable Long id, @RequestBody Map<String, Object> body) {
+        try {
+            Integer rolls = null;
+            if (body != null && body.get("rolls") != null) {
+                Object r = body.get("rolls");
+                if (r instanceof Number) {
+                    rolls = ((Number) r).intValue();
+                } else {
+                    try {
+                        rolls = Integer.parseInt(String.valueOf(r).trim());
+                    } catch (Exception ignored) {
+                    }
+                }
+            }
+            String applyDept = body == null || body.get("applyDept") == null ? null : String.valueOf(body.get("applyDept"));
+            String remark = body == null || body.get("remark") == null ? null : String.valueOf(body.get("remark"));
+
+            TapeOutboundRequest result = stockService.updateOutboundRequest(id, rolls, applyDept, remark);
+            return ResponseResult.success("修改成功", result);
+        } catch (Exception e) {
+            return ResponseResult.error("修改失败: " + e.getMessage());
+        }
+    }
     
     /**
     * 创建出库申请（FIFO自动分配）
@@ -476,9 +648,12 @@ public class TapeStockController {
             @RequestParam int totalRolls,
             @RequestParam String applicant,
             @RequestParam(required = false) String applyDept,
-            @RequestParam(required = false) String remark) {        try {
+            @RequestParam(required = false) String remark,
+            @RequestParam(required = false) String orderNo,
+            @RequestParam(required = false) Long orderItemId,
+            @RequestParam(required = false) String bizType) {        try {
             List<TapeOutboundRequest> result = stockService.createOutboundRequestFIFO(
-                    materialCode, totalRolls, applicant, applyDept, remark);
+                materialCode, totalRolls, applicant, applyDept, remark, orderNo, orderItemId, bizType);
             return ResponseResult.success("申请提交成功，共分配" + result.size() + "个批次", result);
         } catch (Exception e) {
             return ResponseResult.error("申请失败: " + e.getMessage());
@@ -564,6 +739,25 @@ public class TapeStockController {
             @RequestParam(required = false) String type,
             @RequestParam(required = false) String materialCode,
             @RequestParam(required = false) String batchNo) {        IPage<TapeStockLog> result = stockService.getStockLogPage(page, size, type, materialCode, batchNo);
+        Map<String, Object> data = new HashMap<>();
+        data.put("records", result.getRecords());
+        data.put("total", result.getTotal());
+        data.put("current", result.getCurrent());
+        data.put("size", result.getSize());
+        return ResponseResult.success("查询成功", data);
+    }
+
+    /**
+     * 分页查询出库流水汇总（按关联单号+料号+批次聚合）
+     */
+    @GetMapping("/log/outbound-summary/list")
+    @PreAuthorize("hasAnyAuthority('warehouse','admin','sales','production','finance','quality')")
+    public ResponseResult<?> getOutboundSummaryLogList(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String materialCode,
+            @RequestParam(required = false) String batchNo) {
+        IPage<TapeStockLog> result = stockService.getOutboundLogSummaryPage(page, size, materialCode, batchNo);
         Map<String, Object> data = new HashMap<>();
         data.put("records", result.getRecords());
         data.put("total", result.getTotal());

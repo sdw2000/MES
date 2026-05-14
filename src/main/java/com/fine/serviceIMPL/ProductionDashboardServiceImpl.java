@@ -16,21 +16,27 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class ProductionDashboardServiceImpl implements ProductionDashboardService {
 
     private static final DateTimeFormatter REPORT_TIME_MINUTE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+    private static final Pattern SHIFT_TOKEN_PATTERN = Pattern.compile("(?:^|[^A-Z])([ABCD])(?:班|组|$)", Pattern.CASE_INSENSITIVE);
+
+    private final Map<String, String> operatorShiftCache = new ConcurrentHashMap<>();
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
     @Override
     public Map<String, Object> getSummary(String shiftCode) {
-        String normalizedShift = normalizeShiftCode(shiftCode);
         LoginUser loginUser = getLoginUser();
         List<Map<String, Object>> rows = queryReportRows(LocalDate.now().withDayOfYear(1).minusDays(1), LocalDate.now().plusDays(1));
 
@@ -46,8 +52,6 @@ public class ProductionDashboardServiceImpl implements ProductionDashboardServic
         for (Map<String, Object> row : rows) {
             if (!canViewRowByOperator(row, loginUser)) continue;
             LocalDateTime ts = extractReportDateTime(row);
-            String groupCode = resolveShiftCode(row, ts);
-            if (normalizedShift != null && !normalizedShift.isEmpty() && !normalizedShift.equalsIgnoreCase(groupCode)) continue;
 
             LocalDate statDate = ts.toLocalDate();
             BigDecimal sqm = toBigDecimal(row.get("outputSqm"));
@@ -69,7 +73,7 @@ public class ProductionDashboardServiceImpl implements ProductionDashboardServic
         }
 
         Map<String, Object> result = new HashMap<>();
-        result.put("shiftCode", normalizedShift);
+    result.put("shiftCode", "ALL");
         result.put("todayArea", todayArea);
         result.put("monthArea", monthArea);
         result.put("yearArea", yearArea);
@@ -82,7 +86,6 @@ public class ProductionDashboardServiceImpl implements ProductionDashboardServic
 
     @Override
     public List<Map<String, Object>> getTopProcesses(String shiftCode) {
-        String normalizedShift = normalizeShiftCode(shiftCode);
         LoginUser loginUser = getLoginUser();
         List<Map<String, Object>> rows = queryReportRows(LocalDate.now().withDayOfYear(1).minusDays(1), LocalDate.now().plusDays(1));
 
@@ -92,8 +95,6 @@ public class ProductionDashboardServiceImpl implements ProductionDashboardServic
         for (Map<String, Object> row : rows) {
             if (!canViewRowByOperator(row, loginUser)) continue;
             LocalDateTime ts = extractReportDateTime(row);
-            String groupCode = resolveShiftCode(row, ts);
-            if (normalizedShift != null && !normalizedShift.isEmpty() && !normalizedShift.equalsIgnoreCase(groupCode)) continue;
 
             LocalDate statDate = ts.toLocalDate();
             if (statDate.getYear() != today.getYear()) continue;
@@ -121,7 +122,6 @@ public class ProductionDashboardServiceImpl implements ProductionDashboardServic
 
     @Override
     public Map<String, Object> getYearTrend(String shiftCode) {
-        String normalizedShift = normalizeShiftCode(shiftCode);
         LoginUser loginUser = getLoginUser();
         List<Map<String, Object>> rows = queryReportRows(LocalDate.now().withDayOfYear(1).minusDays(1), LocalDate.now().plusDays(1));
         Map<String, BigDecimal> monthAreaMap = new HashMap<>();
@@ -130,8 +130,6 @@ public class ProductionDashboardServiceImpl implements ProductionDashboardServic
         for (Map<String, Object> row : rows) {
             if (!canViewRowByOperator(row, loginUser)) continue;
             LocalDateTime ts = extractReportDateTime(row);
-            String groupCode = resolveShiftCode(row, ts);
-            if (normalizedShift != null && !normalizedShift.isEmpty() && !normalizedShift.equalsIgnoreCase(groupCode)) continue;
 
             LocalDate statDate = ts.toLocalDate();
             if (statDate.getYear() != today.getYear()) continue;
@@ -156,7 +154,6 @@ public class ProductionDashboardServiceImpl implements ProductionDashboardServic
 
     @Override
     public List<Map<String, Object>> getTodayReports(String shiftCode) {
-        String normalizedShift = normalizeShiftCode(shiftCode);
         LoginUser loginUser = getLoginUser();
         List<Map<String, Object>> rows = queryReportRows(LocalDate.now().minusDays(2), LocalDate.now().plusDays(1));
         LocalDate today = LocalDate.now();
@@ -167,7 +164,6 @@ public class ProductionDashboardServiceImpl implements ProductionDashboardServic
             LocalDateTime ts = extractReportDateTime(row);
             if (ts == null) continue;
             String groupCode = resolveShiftCode(row, ts);
-            if (normalizedShift != null && !normalizedShift.isEmpty() && !normalizedShift.equalsIgnoreCase(groupCode)) continue;
 
             LocalDate statDate = ts.toLocalDate();
             if (!statDate.equals(today)) continue;
@@ -248,31 +244,29 @@ public class ProductionDashboardServiceImpl implements ProductionDashboardServic
     }
 
     private String resolveShiftCode(Map<String, Object> row, LocalDateTime reportTime) {
-        if (reportTime != null) {
-            int hour = reportTime.getHour();
-            // 08:00~19:59 为A班，其余为B班
-            return (hour >= 8 && hour < 20) ? "A" : "B";
+        String byOperator = extractGroupCode(row);
+        if (isValidShiftCode(byOperator)) {
+            return byOperator;
         }
-        return extractGroupCode(row);
+        return "未识别";
     }
 
     private String extractGroupCode(Map<String, Object> row) {
-        if (row == null) return "未识别";
+        if (row == null) return "";
         String byCode = normalizeShiftCode(String.valueOf(row.get("shiftCode")));
-        if (byCode != null && !byCode.isEmpty() && !"NULL".equalsIgnoreCase(byCode)) {
+        if (isValidShiftCode(byCode)) {
             return byCode;
         }
 
         String operator = String.valueOf(row.get("operatorName"));
         if (operator == null || operator.trim().isEmpty() || "null".equalsIgnoreCase(operator)) {
-            return "未识别";
+            return "";
         }
-        String raw = operator.trim().toUpperCase();
-        raw = raw.replace("白班", "").replace("夜班", "").replace("班", "");
-        String[] parts = raw.split("[-_\\s]+");
-        String last = parts.length > 0 ? parts[parts.length - 1] : raw;
-        last = last.replaceAll("[^A-Z0-9\\u4E00-\\u9FA5]", "");
-        return (last == null || last.isEmpty() || "NULL".equalsIgnoreCase(last)) ? "未识别" : last;
+        String direct = normalizeShiftToken(operator);
+        if (isValidShiftCode(direct)) {
+            return direct;
+        }
+        return resolveShiftFromStaffTeam(operator);
     }
 
     private String normalizeStaffName(Object rawName) {
@@ -284,7 +278,112 @@ public class ProductionDashboardServiceImpl implements ProductionDashboardServic
     }
 
     private String normalizeShiftCode(String shiftCode) {
-        return shiftCode == null ? "" : shiftCode.trim().toUpperCase();
+        String normalized = normalizeShiftToken(shiftCode);
+        return normalized == null ? "" : normalized;
+    }
+
+    private String normalizeShiftToken(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        String text = raw.trim().toUpperCase();
+        if (text.isEmpty()) {
+            return "";
+        }
+        if ("A".equals(text) || "B".equals(text) || "C".equals(text) || "D".equals(text)) {
+            return text;
+        }
+        if (text.contains("A班") || text.contains("A组")) return "A";
+        if (text.contains("B班") || text.contains("B组")) return "B";
+        if (text.contains("C班") || text.contains("C组")) return "C";
+        if (text.contains("D班") || text.contains("D组")) return "D";
+        Matcher matcher = SHIFT_TOKEN_PATTERN.matcher(text);
+        if (matcher.find()) {
+            return matcher.group(1).toUpperCase();
+        }
+        if (text.contains("甲")) return "A";
+        if (text.contains("乙")) return "B";
+        if (text.contains("丙")) return "C";
+        if (text.contains("丁")) return "D";
+        if (text.contains("白")) {
+            return "A";
+        }
+        if (text.contains("夜")) {
+            return "B";
+        }
+        return "";
+    }
+
+    private boolean isValidShiftCode(String code) {
+        if (code == null) return false;
+        String c = code.trim().toUpperCase();
+        return "A".equals(c) || "B".equals(c) || "C".equals(c) || "D".equals(c);
+    }
+
+    private String resolveShiftFromStaffTeam(String operatorRaw) {
+        if (operatorRaw == null || operatorRaw.trim().isEmpty()) {
+            return "";
+        }
+        final String cacheKey = operatorRaw.trim().toUpperCase();
+        String cached = operatorShiftCache.get(cacheKey);
+        if (isValidShiftCode(cached)) {
+            return cached;
+        }
+
+        LinkedHashSet<String> candidates = new LinkedHashSet<>();
+        String op = operatorRaw.trim();
+        candidates.add(op);
+        String[] parts = op.split("[-_\\s]+");
+        if (parts.length > 0 && parts[0] != null && !parts[0].trim().isEmpty()) {
+            candidates.add(parts[0].trim());
+        }
+
+        for (String candidate : candidates) {
+            if (candidate == null || candidate.trim().isEmpty()) {
+                continue;
+            }
+            String c = candidate.trim();
+            try {
+                List<String> teamNames = jdbcTemplate.query(
+                        "SELECT pt.team_name " +
+                                "FROM production_staff ps " +
+                                "LEFT JOIN production_team pt ON pt.id = ps.team_id " +
+                                "WHERE IFNULL(ps.is_deleted, 0) = 0 " +
+                                "AND (ps.staff_name = ? OR ps.staff_code = ?) " +
+                                "LIMIT 1",
+                        (rs, rowNum) -> rs.getString(1),
+                        c, c
+                );
+                String shift = normalizeShiftToken((teamNames == null || teamNames.isEmpty()) ? null : teamNames.get(0));
+                if (isValidShiftCode(shift)) {
+                    operatorShiftCache.put(cacheKey, shift);
+                    return shift;
+                }
+            } catch (Exception ignored) {
+            }
+
+            try {
+                List<String> teamNames = jdbcTemplate.query(
+                        "SELECT pt.team_name " +
+                                "FROM users u " +
+                                "LEFT JOIN production_staff ps ON ps.id = u.staff_id AND IFNULL(ps.is_deleted, 0) = 0 " +
+                                "LEFT JOIN production_team pt ON pt.id = ps.team_id " +
+                                "WHERE IFNULL(u.del_flag, 0) = 0 " +
+                                "AND (u.username = ? OR u.real_name = ?) " +
+                                "LIMIT 1",
+                        (rs, rowNum) -> rs.getString(1),
+                        c, c
+                );
+                String shift = normalizeShiftToken((teamNames == null || teamNames.isEmpty()) ? null : teamNames.get(0));
+                if (isValidShiftCode(shift)) {
+                    operatorShiftCache.put(cacheKey, shift);
+                    return shift;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+
+        return "";
     }
 
     private LoginUser getLoginUser() {
@@ -309,28 +408,57 @@ public class ProductionDashboardServiceImpl implements ProductionDashboardServic
         }
         String op = operator.trim();
 
-        String username = loginUser.getUsername();
-        String realName = loginUser.getUser() == null ? null : loginUser.getUser().getRealName();
-
-        if (username != null && !username.trim().isEmpty()) {
-            String u = username.trim();
-            if (op.equalsIgnoreCase(u)
-                    || op.toUpperCase().startsWith((u + "-").toUpperCase())
-                    || op.toUpperCase().startsWith((u + "_").toUpperCase())) {
-                return true;
-            }
-        }
-
-        if (realName != null && !realName.trim().isEmpty()) {
-            String r = realName.trim();
-            if (op.equalsIgnoreCase(r)
-                    || op.toUpperCase().startsWith((r + "-").toUpperCase())
-                    || op.toUpperCase().startsWith((r + "_").toUpperCase())) {
+        for (String alias : resolveOperatorAliases(loginUser)) {
+            if (alias == null || alias.trim().isEmpty()) continue;
+            String a = alias.trim();
+            if (op.equalsIgnoreCase(a)
+                    || op.toUpperCase().startsWith((a + "-").toUpperCase())
+                    || op.toUpperCase().startsWith((a + "_").toUpperCase())) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    private List<String> resolveOperatorAliases(LoginUser loginUser) {
+        LinkedHashSet<String> aliases = new LinkedHashSet<>();
+        if (loginUser == null) {
+            return new ArrayList<>(aliases);
+        }
+
+        if (loginUser.getUsername() != null && !loginUser.getUsername().trim().isEmpty()) {
+            aliases.add(loginUser.getUsername().trim());
+        }
+
+        Long staffId = null;
+        if (loginUser.getUser() != null) {
+            String realName = loginUser.getUser().getRealName();
+            if (realName != null && !realName.trim().isEmpty()) {
+                aliases.add(realName.trim());
+            }
+            staffId = loginUser.getUser().getStaffId();
+        }
+
+        if (staffId != null && staffId > 0) {
+            try {
+                List<String> rows = jdbcTemplate.query(
+                        "SELECT staff_name FROM production_staff WHERE id = ? AND IFNULL(is_deleted, 0) = 0 LIMIT 1",
+                        (rs, rowNum) -> rs.getString(1),
+                        staffId
+                );
+                if (rows != null) {
+                    for (String name : rows) {
+                        if (name != null && !name.trim().isEmpty()) {
+                            aliases.add(name.trim());
+                        }
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+        }
+
+        return new ArrayList<>(aliases);
     }
 
     private BigDecimal toBigDecimal(Object value) {

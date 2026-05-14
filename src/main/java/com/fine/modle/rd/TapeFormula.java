@@ -18,12 +18,15 @@ public class TapeFormula {
     
     // 胶水信息
     private String glueModel;           // 胶水型号
+    private String glueType;            // 胶水类型
     private String colorCode;           // 颜色代码
     private BigDecimal coatingThickness;// 涂胶厚度(μm)
     private BigDecimal glueDensity;     // 胶水密度(g/cm³)
     private String solidContent;        // 固含量(%)
     private BigDecimal coatingArea;     // 涂布数量(㎡)
     
+    private String processTemperature;  // 工艺温度
+    private String processSpeed;        // 工艺车速
     private String processRemark;       // 工艺备注
     private BigDecimal totalWeight;     // 总重量(kg)
     
@@ -63,6 +66,9 @@ public class TapeFormula {
     
     public String getGlueModel() { return glueModel; }
     public void setGlueModel(String glueModel) { this.glueModel = glueModel; }
+
+    public String getGlueType() { return glueType; }
+    public void setGlueType(String glueType) { this.glueType = glueType; }
     
     public String getColorCode() { return colorCode; }
     public void setColorCode(String colorCode) { this.colorCode = colorCode; }
@@ -78,6 +84,12 @@ public class TapeFormula {
     
     public BigDecimal getCoatingArea() { return coatingArea; }
     public void setCoatingArea(BigDecimal coatingArea) { this.coatingArea = coatingArea; }
+
+    public String getProcessTemperature() { return processTemperature; }
+    public void setProcessTemperature(String processTemperature) { this.processTemperature = processTemperature; }
+
+    public String getProcessSpeed() { return processSpeed; }
+    public void setProcessSpeed(String processSpeed) { this.processSpeed = processSpeed; }
     
     public String getProcessRemark() { return processRemark; }
     public void setProcessRemark(String processRemark) { this.processRemark = processRemark; }

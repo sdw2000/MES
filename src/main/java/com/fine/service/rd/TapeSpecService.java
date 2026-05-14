@@ -62,7 +62,7 @@ public interface TapeSpecService {
     /**
      * 颜色字典管理列表
      */
-    ResponseResult<?> getColorDictList(String keyword, Integer status);
+    ResponseResult<?> getColorDictList(String keyword, Integer status, int page, int size);
 
     /**
      * 新增颜色字典

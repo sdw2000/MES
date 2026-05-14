@@ -26,6 +26,7 @@ import com.fine.modle.DeliveryNotice;
 import com.fine.service.DeliveryNoticeService;
 import com.fine.Dao.CustomerMapper;
 import com.fine.Dao.DeliveryNoticeItemMapper;
+import com.fine.Dao.stock.TapeOutboundRequestMapper;
 import com.fine.Dao.production.SalesOrderMapper;
 import com.fine.Dao.SalesOrderItemMapper;
 import com.fine.Utils.ResponseResult;
@@ -41,8 +42,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.util.Date;
 import com.fine.modle.DeliveryNoticeItem;
-import java.util.LinkedHashSet;
-import java.util.Set;
+import java.util.LinkedHashMap;
 
 @RestController
 @RequestMapping("/delivery")
@@ -66,6 +66,9 @@ public class DeliveryController {
 
     @Autowired
     private TapeStockService tapeStockService;
+
+    @Autowired
+    private TapeOutboundRequestMapper tapeOutboundRequestMapper;
 
     private static final String SLITTING_PENDING_OUTBOUND_LOCATION = "成品待出库区";
     
@@ -338,6 +341,13 @@ public class DeliveryController {
                 result.put("traces", result.getOrDefault("traces", java.util.Collections.emptyList()));
                 return ResponseResult.success(result);
             }
+            if (msg.contains("单号长度不符合") || msg.contains("单号格式不正确")) {
+                result.put("success", false);
+                result.put("status", result.getOrDefault("status", "暂无轨迹"));
+                result.put("lastUpdate", result.getOrDefault("lastUpdate", "-"));
+                result.put("traces", result.getOrDefault("traces", java.util.Collections.emptyList()));
+                return ResponseResult.success(result);
+            }
             return ResponseResult.error(500, msg);
         } catch (Exception e) {
             return ResponseResult.error(500, "物流查询失败: " + e.getMessage());
@@ -396,8 +406,6 @@ public class DeliveryController {
         if (items == null || items.isEmpty()) {
             return;
         }
-
-        Set<Long> usedStockIds = new LinkedHashSet<>();
         for (DeliveryNoticeItem item : items) {
             if (item == null) {
                 continue;
@@ -406,29 +414,46 @@ public class DeliveryController {
             if (needRolls <= 0) {
                 continue;
             }
-
             String materialCode = item.getMaterialCode() == null ? "" : item.getMaterialCode().trim();
-            LinkedHashSet<Long> selected = new LinkedHashSet<>();
+            Map<Long, Integer> stockAllocations = new LinkedHashMap<>();
+            int allocatedRolls = 0;
 
             // 优先按发货明细批次号定位
             for (String oneBatch : splitBatchNos(item.getBatchNo())) {
                 TapeStock stock = tapeStockService.getStockByBatchNo(oneBatch);
-                if (isSlittingPendingOutboundStock(stock, materialCode)
-                        && !usedStockIds.contains(stock.getId())
-                        && selected.add(stock.getId())
-                        && selected.size() >= needRolls) {
+                if (!isSlittingPendingOutboundStock(stock, materialCode)) {
+                    continue;
+                }
+                int available = stock.getTotalRolls() == null ? 0 : Math.max(stock.getTotalRolls(), 0);
+                int canAllocate = Math.min(needRolls - allocatedRolls, available);
+                if (canAllocate <= 0) {
+                    continue;
+                }
+                stockAllocations.put(stock.getId(), canAllocate);
+                allocatedRolls += canAllocate;
+                if (allocatedRolls >= needRolls) {
                     break;
                 }
             }
 
             // 批次不足时按料号FIFO补足
-            if (selected.size() < needRolls && StringUtils.hasText(materialCode)) {
+            if (allocatedRolls < needRolls && StringUtils.hasText(materialCode)) {
                 List<TapeStock> fifoStocks = tapeStockService.getStockByMaterialFIFO(materialCode);
                 for (TapeStock stock : fifoStocks) {
-                    if (isSlittingPendingOutboundStock(stock, materialCode)
-                            && !usedStockIds.contains(stock.getId())
-                            && selected.add(stock.getId())
-                            && selected.size() >= needRolls) {
+                    if (!isSlittingPendingOutboundStock(stock, materialCode)) {
+                        continue;
+                    }
+                    if (stockAllocations.containsKey(stock.getId())) {
+                        continue;
+                    }
+                    int available = stock.getTotalRolls() == null ? 0 : Math.max(stock.getTotalRolls(), 0);
+                    int canAllocate = Math.min(needRolls - allocatedRolls, available);
+                    if (canAllocate <= 0) {
+                        continue;
+                    }
+                    stockAllocations.put(stock.getId(), canAllocate);
+                    allocatedRolls += canAllocate;
+                    if (allocatedRolls >= needRolls) {
                         break;
                     }
                 }
@@ -438,28 +463,32 @@ public class DeliveryController {
             // 因此这里采用“尽力处理”策略：
             // - 匹配到0卷：直接跳过该明细
             // - 匹配不足：按实际匹配到的卷数执行自动出库
-            if (selected.isEmpty()) {
+            if (stockAllocations.isEmpty()) {
                 continue;
             }
 
-            int approved = 0;
-            for (Long stockId : selected) {
-                if (approved >= needRolls) {
-                    break;
+            for (Map.Entry<Long, Integer> allocation : stockAllocations.entrySet()) {
+                Long stockId = allocation.getKey();
+                Integer allocateRolls = allocation.getValue();
+                if (stockId == null || allocateRolls == null || allocateRolls <= 0) {
+                    continue;
                 }
                 TapeOutboundRequest outbound = new TapeOutboundRequest();
                 outbound.setStockId(stockId);
-                outbound.setRolls(1);
+                outbound.setRolls(allocateRolls);
                 outbound.setApplicant(operator);
                 outbound.setApplyDept("销售发货");
                 outbound.setRemark("发货单" + notice.getNoticeNo() + "自动出库");
+                outbound.setOrderNo(notice.getOrderNo());
+                outbound.setOrderItemId(item.getOrderItemId());
+                outbound.setDeliveryNoticeId(notice.getId());
+                outbound.setDeliveryNoticeNo(notice.getNoticeNo());
+                outbound.setBizType(TapeOutboundRequest.BIZ_TYPE_SALES_AUTO);
                 TapeOutboundRequest created = tapeStockService.createOutboundRequest(outbound);
 
                 TapeStock stock = tapeStockService.getStockById(stockId);
                 String scanCode = stock == null ? "" : (StringUtils.hasText(stock.getBatchNo()) ? stock.getBatchNo() : stock.getQrCode());
                 tapeStockService.approveOutbound(created.getId(), true, operator, "销售发货自动出库（分切成品）", scanCode);
-                usedStockIds.add(stockId);
-                approved++;
             }
         }
     }
@@ -538,10 +567,195 @@ public class DeliveryController {
     }
 
     /**
+     * 历史补扣：按“发货单+料号”对账已确认发货/收货单，补齐遗漏的分切成品自动出库。
+     * - dryRun=true: 仅计算差额，不执行扣减
+     * - dryRun=false: 执行补扣（仅扣“成品待出库区”库存）
+     */
+    @PostMapping("/repair/auto-outbound-slitting")
+    @PreAuthorize("hasAuthority('admin')")
+    @Transactional(rollbackFor = Exception.class)
+    public ResponseResult<Map<String, Object>> repairAutoOutboundSlitting(
+            @RequestParam(defaultValue = "true") boolean dryRun,
+            @RequestParam(required = false) Integer limit) {
+        try {
+            LoginUser loginUser = getLoginUser();
+            String operator = getCurrentUsername(loginUser);
+
+            QueryWrapper<DeliveryNotice> wrapper = new QueryWrapper<>();
+            wrapper.eq("is_deleted", 0)
+                    .and(w -> w.eq("status", "已发货")
+                            .or().eq("status", "shipped")
+                            .or().eq("status", "已收货")
+                            .or().eq("status", "received"))
+                    .orderByDesc("id");
+            List<DeliveryNotice> notices = deliveryNoticeService.list(wrapper);
+
+            if (limit != null && limit > 0 && notices.size() > limit) {
+                notices = notices.subList(0, limit);
+            }
+
+            int scannedNotices = 0;
+            int affectedNotices = 0;
+            int repairedRolls = 0;
+            int shortageRolls = 0;
+            List<Map<String, Object>> details = new ArrayList<>();
+
+            for (DeliveryNotice notice : notices) {
+                if (notice == null || notice.getId() == null || !StringUtils.hasText(notice.getNoticeNo())) {
+                    continue;
+                }
+                scannedNotices++;
+
+                List<DeliveryNoticeItem> items = deliveryNoticeItemMapper.selectByNoticeId(notice.getId());
+                if (items == null || items.isEmpty()) {
+                    continue;
+                }
+
+                Map<String, Integer> requiredByMaterial = new LinkedHashMap<>();
+                for (DeliveryNoticeItem item : items) {
+                    if (item == null) {
+                        continue;
+                    }
+                    String material = normalizeMaterialCode(item.getMaterialCode());
+                    int qty = item.getQuantity() == null ? 0 : Math.max(item.getQuantity(), 0);
+                    if (!StringUtils.hasText(material) || qty <= 0) {
+                        continue;
+                    }
+                    Integer oldRequired = requiredByMaterial.get(material);
+                    requiredByMaterial.put(material, (oldRequired == null ? 0 : oldRequired) + qty);
+                }
+                if (requiredByMaterial.isEmpty()) {
+                    continue;
+                }
+
+                Map<String, Integer> approvedByMaterial = loadApprovedAutoOutboundByMaterial(notice.getNoticeNo());
+
+                boolean noticeAffected = false;
+                for (Map.Entry<String, Integer> entry : requiredByMaterial.entrySet()) {
+                    String materialCode = entry.getKey();
+                    int required = entry.getValue() == null ? 0 : Math.max(entry.getValue(), 0);
+                    int approved = approvedByMaterial.getOrDefault(materialCode, 0);
+                    int deficit = required - approved;
+                    if (deficit <= 0) {
+                        continue;
+                    }
+
+                    noticeAffected = true;
+                    Map<String, Object> d = new LinkedHashMap<>();
+                    d.put("noticeNo", notice.getNoticeNo());
+                    d.put("materialCode", materialCode);
+                    d.put("requiredRolls", required);
+                    d.put("approvedRolls", approved);
+                    d.put("deficitRolls", deficit);
+
+                    if (dryRun) {
+                        d.put("dryRun", true);
+                        details.add(d);
+                        repairedRolls += deficit;
+                        continue;
+                    }
+
+                    int remaining = deficit;
+                    int fixed = 0;
+                    List<TapeStock> fifoStocks = tapeStockService.getStockByMaterialFIFO(materialCode);
+                    for (TapeStock stock : fifoStocks) {
+                        if (remaining <= 0) {
+                            break;
+                        }
+                        if (!isSlittingPendingOutboundStock(stock, materialCode)) {
+                            continue;
+                        }
+                        int available = stock.getTotalRolls() == null ? 0 : Math.max(stock.getTotalRolls(), 0);
+                        if (available <= 0) {
+                            continue;
+                        }
+
+                        int allocate = Math.min(remaining, available);
+                        TapeOutboundRequest outbound = new TapeOutboundRequest();
+                        outbound.setStockId(stock.getId());
+                        outbound.setRolls(allocate);
+                        outbound.setApplicant(operator);
+                        outbound.setApplyDept("销售发货");
+                        outbound.setRemark("发货单" + notice.getNoticeNo() + "自动补扣出库");
+                        outbound.setOrderNo(notice.getOrderNo());
+                        outbound.setDeliveryNoticeId(notice.getId());
+                        outbound.setDeliveryNoticeNo(notice.getNoticeNo());
+                        outbound.setBizType(TapeOutboundRequest.BIZ_TYPE_SALES_REPAIR);
+                        TapeOutboundRequest created = tapeStockService.createOutboundRequest(outbound);
+
+                        String scanCode = StringUtils.hasText(stock.getBatchNo()) ? stock.getBatchNo() : stock.getQrCode();
+                        tapeStockService.approveOutbound(created.getId(), true, operator, "历史发货自动补扣（分切成品）", scanCode);
+
+                        fixed += allocate;
+                        remaining -= allocate;
+                    }
+
+                    d.put("dryRun", false);
+                    d.put("fixedRolls", fixed);
+                    d.put("shortageRolls", Math.max(remaining, 0));
+                    details.add(d);
+
+                    repairedRolls += fixed;
+                    shortageRolls += Math.max(remaining, 0);
+                }
+
+                if (noticeAffected) {
+                    affectedNotices++;
+                }
+            }
+
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("dryRun", dryRun);
+            data.put("scannedNotices", scannedNotices);
+            data.put("affectedNotices", affectedNotices);
+            data.put("repairedRolls", repairedRolls);
+            data.put("shortageRolls", shortageRolls);
+            data.put("details", details);
+            return ResponseResult.success(dryRun ? "历史补扣预览完成" : "历史补扣执行完成", data);
+        } catch (Exception e) {
+            return ResponseResult.error(500, "历史补扣失败: " + e.getMessage());
+        }
+    }
+
+    private Map<String, Integer> loadApprovedAutoOutboundByMaterial(String noticeNo) {
+        Map<String, Integer> result = new LinkedHashMap<>();
+        if (!StringUtils.hasText(noticeNo)) {
+            return result;
+        }
+        QueryWrapper<TapeOutboundRequest> wrapper = new QueryWrapper<>();
+        wrapper.eq("status", TapeOutboundRequest.STATUS_APPROVED)
+                .eq("apply_dept", "销售发货")
+                .likeRight("remark", "发货单" + noticeNo + "自动")
+                .orderByAsc("id");
+        List<TapeOutboundRequest> list = tapeOutboundRequestMapper.selectList(wrapper);
+        if (list == null || list.isEmpty()) {
+            return result;
+        }
+        for (TapeOutboundRequest req : list) {
+            if (req == null) {
+                continue;
+            }
+            String material = normalizeMaterialCode(req.getMaterialCode());
+            int rolls = req.getRolls() == null ? 0 : Math.max(req.getRolls(), 0);
+            if (!StringUtils.hasText(material) || rolls <= 0) {
+                continue;
+            }
+            Integer oldApproved = result.get(material);
+            result.put(material, (oldApproved == null ? 0 : oldApproved) + rolls);
+        }
+        return result;
+    }
+
+    private String normalizeMaterialCode(String materialCode) {
+        return materialCode == null ? "" : materialCode.trim();
+    }
+
+    /**
      * 确认收货 - 更新状态为已收货
      */
     @PostMapping("/receive/{id}")
-    public ResponseResult<?> confirmReceive(@PathVariable Long id) {
+    public ResponseResult<?> confirmReceive(@PathVariable Long id,
+                                            @RequestBody(required = false) Map<String, Object> body) {
         try {
             LoginUser loginUser = getLoginUser();
             DeliveryNotice notice = deliveryNoticeService.getById(id);
@@ -550,6 +764,25 @@ public class DeliveryController {
             }
             if (!canAccessNotice(loginUser, notice)) {
                 return ResponseResult.error(403, "无权限操作该发货单");
+            }
+
+            // 兼容“确认收货弹窗”一并提交物流信息，避免先调 /delivery/update 触发已扣减库存禁止编辑
+            if (body != null) {
+                Object carrierNameObj = body.get("carrierName");
+                Object carrierNoObj = body.get("carrierNo");
+                Object carrierPhoneObj = body.get("carrierPhone");
+                String reqCarrierName = carrierNameObj == null ? "" : String.valueOf(carrierNameObj).trim();
+                String reqCarrierNo = carrierNoObj == null ? "" : String.valueOf(carrierNoObj).trim();
+                String reqCarrierPhone = carrierPhoneObj == null ? "" : String.valueOf(carrierPhoneObj).trim();
+                if (StringUtils.hasText(reqCarrierName)) {
+                    notice.setCarrierName(reqCarrierName);
+                }
+                if (StringUtils.hasText(reqCarrierNo)) {
+                    notice.setCarrierNo(reqCarrierNo);
+                }
+                if (StringUtils.hasText(reqCarrierPhone)) {
+                    notice.setCarrierPhone(reqCarrierPhone);
+                }
             }
 
             String status = notice.getStatus();
@@ -681,6 +914,33 @@ public class DeliveryController {
             DeliveryNotice existing = deliveryNoticeService.getById(deliveryNotice.getId());
             if (existing != null && !canAccessNotice(getLoginUser(), existing)) {
                 return ResponseResult.error(403, "无权限操作该发货单");
+            }
+
+            // 已完成库存扣减的发货单，不再允许整单编辑；
+            // 但确认收货场景仍需补录物流信息，允许仅更新承运信息字段。
+            if (existing != null) {
+                String remark = existing.getRemark() == null ? "" : existing.getRemark();
+                if (remark.contains("[STOCK_OUT_SYNCED]")) {
+                    if (deliveryNotice.getCarrierName() != null) {
+                        existing.setCarrierName(deliveryNotice.getCarrierName());
+                    }
+                    if (deliveryNotice.getCarrierNo() != null) {
+                        existing.setCarrierNo(deliveryNotice.getCarrierNo());
+                    }
+                    if (deliveryNotice.getCarrierPhone() != null) {
+                        existing.setCarrierPhone(deliveryNotice.getCarrierPhone());
+                    }
+                    if (deliveryNotice.getDeliveryDate() != null) {
+                        existing.setDeliveryDate(deliveryNotice.getDeliveryDate());
+                    }
+                    existing.setUpdatedBy(getCurrentUsername(getLoginUser()));
+                    existing.setUpdatedAt(new Date());
+                    boolean updated = deliveryNoticeService.updateById(existing);
+                    if (updated) {
+                        return ResponseResult.success("更新成功");
+                    }
+                    return ResponseResult.error(500, "更新失败");
+                }
             }
 
             deliveryNoticeService.updateDeliveryNotice(deliveryNotice);

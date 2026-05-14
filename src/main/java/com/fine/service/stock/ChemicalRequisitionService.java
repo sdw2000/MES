@@ -9,9 +9,9 @@ import java.util.Map;
 
 public interface ChemicalRequisitionService {
 
-    Map<String, Object> generateFromCoatingPlan(LocalDate planDate, String orderNo, String materialCode);
+    Map<String, Object> generateFromCoatingPlan(LocalDate planDate, Long scheduleId, String orderNo, String materialCode);
 
-    List<Map<String, Object>> queryLocksByPlan(LocalDate planDate, String orderNo, String materialCode);
+    List<Map<String, Object>> queryLocksByPlan(LocalDate planDate, Long scheduleId, String orderNo, String materialCode);
 
     IPage<ChemicalPurchaseRequest> getRequestPage(int current, int size, String status);
 
@@ -28,4 +28,6 @@ public interface ChemicalRequisitionService {
     Map<String, Object> receiveAndFulfill(String requestNo, Map<Long, Integer> receiveQtyMap);
 
     Map<String, Object> confirmIssueByLocks(java.util.List<Long> lockIds, String operator);
+
+    Map<String, Object> confirmIssueByLocks(java.util.Map<Long, Integer> lockQtyMap, String operator);
 }

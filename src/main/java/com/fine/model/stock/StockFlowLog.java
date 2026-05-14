@@ -16,7 +16,8 @@ public class StockFlowLog {
     public enum StockType {
         TAPE("TAPE", "胶带"),
         CHEMICAL("CHEMICAL", "化工原料"),
-        FILM("FILM", "薄膜");
+        FILM("FILM", "薄膜"),
+        PACKAGE("PACKAGE", "包材");
 
         private final String code;
         private final String desc;
@@ -112,6 +113,14 @@ public class StockFlowLog {
 
     /** 备注 */
     private String remark;
+
+    /** 规格描述（展示字段，不落库） */
+    @TableField(exist = false)
+    private String specDesc;
+
+    /** 单据时间（展示字段，不落库） */
+    @TableField(exist = false)
+    private LocalDateTime documentTime;
 
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;

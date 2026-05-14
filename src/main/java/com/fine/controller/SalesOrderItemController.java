@@ -21,7 +21,7 @@ import java.util.Map;
  */
 @RestController
 @RequestMapping("/sales/order-items")
-@PreAuthorize("hasAnyAuthority('admin','production','packaging','packing')")
+@PreAuthorize("hasAnyAuthority('admin','production','packaging','packing','quality')")
 public class SalesOrderItemController {
 
     @Autowired

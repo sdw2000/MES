@@ -8,6 +8,7 @@ import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonFormat;
 
 import lombok.AllArgsConstructor;
@@ -84,6 +85,8 @@ public class SalesOrderItem {
     private BigDecimal amount;
     
     // 备注
+    @TableField("remark")
+    @JsonAlias({"remark", "itemRemark", "detailRemark", "orderDetailRemark"})
     private String remark;
 
     // 涂布日期（计划）

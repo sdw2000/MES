@@ -17,7 +17,7 @@ public interface TapeSpecMapper {
      */
     @Select("<script>" +
             "SELECT * FROM tape_spec WHERE 1=1" +
-            "<if test='materialCode != null and materialCode != \"\"'> AND material_code LIKE CONCAT(#{materialCode},'%')</if>" +
+            "<if test='materialCode != null and materialCode != \"\"'> AND material_code LIKE CONCAT('%',#{materialCode},'%')</if>" +
             "<if test='productName != null and productName != \"\"'> AND product_name LIKE CONCAT('%',#{productName},'%')</if>" +
             "<if test='colorCode != null and colorCode != \"\"'> AND color_code = #{colorCode}</if>" +
             "<if test='baseMaterial != null and baseMaterial != \"\"'> AND base_material = #{baseMaterial}</if>" +
@@ -49,6 +49,18 @@ public interface TapeSpecMapper {
             @Result(property = "unwindForceType", column = "unwind_force_type"),
             @Result(property = "heatResistance", column = "heat_resistance"),
             @Result(property = "heatResistanceType", column = "heat_resistance_type"),
+            @Result(property = "extraQcItem1Name", column = "extra_qc_item1_name"),
+            @Result(property = "extraQcItem1Unit", column = "extra_qc_item1_unit"),
+            @Result(property = "extraQcItem1Standard", column = "extra_qc_item1_standard"),
+            @Result(property = "extraQcItem2Name", column = "extra_qc_item2_name"),
+            @Result(property = "extraQcItem2Unit", column = "extra_qc_item2_unit"),
+            @Result(property = "extraQcItem2Standard", column = "extra_qc_item2_standard"),
+            @Result(property = "extraQcItem3Name", column = "extra_qc_item3_name"),
+            @Result(property = "extraQcItem3Unit", column = "extra_qc_item3_unit"),
+            @Result(property = "extraQcItem3Standard", column = "extra_qc_item3_standard"),
+            @Result(property = "extraQcItem4Name", column = "extra_qc_item4_name"),
+            @Result(property = "extraQcItem4Unit", column = "extra_qc_item4_unit"),
+            @Result(property = "extraQcItem4Standard", column = "extra_qc_item4_standard"),
             @Result(property = "remark", column = "remark"),
             @Result(property = "status", column = "status"),
             @Result(property = "createTime", column = "create_time"),
@@ -69,7 +81,7 @@ public interface TapeSpecMapper {
      */
     @Select("<script>" +
             "SELECT * FROM tape_spec WHERE 1=1" +
-            "<if test='materialCode != null and materialCode != \"\"'> AND material_code LIKE CONCAT(#{materialCode},'%')</if>" +
+            "<if test='materialCode != null and materialCode != \"\"'> AND material_code LIKE CONCAT('%',#{materialCode},'%')</if>" +
             "<if test='productName != null and productName != \"\"'> AND product_name LIKE CONCAT('%',#{productName},'%')</if>" +
             "<if test='colorCode != null and colorCode != \"\"'> AND color_code = #{colorCode}</if>" +
             "<if test='baseMaterial != null and baseMaterial != \"\"'> AND base_material = #{baseMaterial}</if>" +
@@ -90,7 +102,7 @@ public interface TapeSpecMapper {
      */
     @Select("<script>" +
             "SELECT COUNT(*) FROM tape_spec WHERE 1=1" +
-            "<if test='materialCode != null and materialCode != \"\"'> AND material_code LIKE CONCAT(#{materialCode},'%')</if>" +
+            "<if test='materialCode != null and materialCode != \"\"'> AND material_code LIKE CONCAT('%',#{materialCode},'%')</if>" +
             "<if test='productName != null and productName != \"\"'> AND product_name LIKE CONCAT('%',#{productName},'%')</if>" +
             "<if test='colorCode != null and colorCode != \"\"'> AND color_code = #{colorCode}</if>" +
             "<if test='baseMaterial != null and baseMaterial != \"\"'> AND base_material = #{baseMaterial}</if>" +
@@ -122,7 +134,7 @@ public interface TapeSpecMapper {
     @Select("<script>" +
             "SELECT * FROM tape_spec " +
             "WHERE status = 1 " +
-            "AND material_code LIKE CONCAT(#{keyword}, '%') " +
+            "AND material_code LIKE CONCAT('%', #{keyword}, '%') " +
             "ORDER BY " +
             "  CASE WHEN material_code = #{keyword} THEN 0 ELSE 1 END ASC, " +
             "  ABS(CHAR_LENGTH(material_code) - CHAR_LENGTH(#{keyword})) ASC, " +
@@ -154,14 +166,24 @@ public interface TapeSpecMapper {
             "total_thickness, total_thickness_min, total_thickness_max, " +
             "peel_strength_min, peel_strength_max, peel_strength_type, " +
             "unwind_force_min, unwind_force_max, unwind_force_type, " +
-            "heat_resistance, heat_resistance_type, remark, status, create_by) " +
+            "heat_resistance, heat_resistance_type, " +
+            "extra_qc_item1_name, extra_qc_item1_unit, extra_qc_item1_standard, " +
+            "extra_qc_item2_name, extra_qc_item2_unit, extra_qc_item2_standard, " +
+            "extra_qc_item3_name, extra_qc_item3_unit, extra_qc_item3_standard, " +
+            "extra_qc_item4_name, extra_qc_item4_unit, extra_qc_item4_standard, " +
+            "remark, status, create_by) " +
             "VALUES (#{materialCode}, #{productName}, #{colorCode}, #{colorName}, " +
             "#{baseThickness}, #{baseMaterial}, #{glueMaterial}, #{glueThickness}, " +
             "#{initialTackMin}, #{initialTackMax}, #{initialTackType}, " +
             "#{totalThickness}, #{totalThicknessMin}, #{totalThicknessMax}, " +
             "#{peelStrengthMin}, #{peelStrengthMax}, #{peelStrengthType}, " +
             "#{unwindForceMin}, #{unwindForceMax}, #{unwindForceType}, " +
-            "#{heatResistance}, #{heatResistanceType}, #{remark}, #{status}, #{createBy})")
+            "#{heatResistance}, #{heatResistanceType}, " +
+            "#{extraQcItem1Name}, #{extraQcItem1Unit}, #{extraQcItem1Standard}, " +
+            "#{extraQcItem2Name}, #{extraQcItem2Unit}, #{extraQcItem2Standard}, " +
+            "#{extraQcItem3Name}, #{extraQcItem3Unit}, #{extraQcItem3Standard}, " +
+            "#{extraQcItem4Name}, #{extraQcItem4Unit}, #{extraQcItem4Standard}, " +
+            "#{remark}, #{status}, #{createBy})")
     @Options(useGeneratedKeys = true, keyProperty = "id")
     int insert(TapeSpec spec);
 
@@ -178,6 +200,10 @@ public interface TapeSpecMapper {
             "peel_strength_min = #{peelStrengthMin}, peel_strength_max = #{peelStrengthMax}, peel_strength_type = #{peelStrengthType}, " +
             "unwind_force_min = #{unwindForceMin}, unwind_force_max = #{unwindForceMax}, unwind_force_type = #{unwindForceType}, " +
             "heat_resistance = #{heatResistance}, heat_resistance_type = #{heatResistanceType}, " +
+            "extra_qc_item1_name = #{extraQcItem1Name}, extra_qc_item1_unit = #{extraQcItem1Unit}, extra_qc_item1_standard = #{extraQcItem1Standard}, " +
+            "extra_qc_item2_name = #{extraQcItem2Name}, extra_qc_item2_unit = #{extraQcItem2Unit}, extra_qc_item2_standard = #{extraQcItem2Standard}, " +
+            "extra_qc_item3_name = #{extraQcItem3Name}, extra_qc_item3_unit = #{extraQcItem3Unit}, extra_qc_item3_standard = #{extraQcItem3Standard}, " +
+            "extra_qc_item4_name = #{extraQcItem4Name}, extra_qc_item4_unit = #{extraQcItem4Unit}, extra_qc_item4_standard = #{extraQcItem4Standard}, " +
             "remark = #{remark}, status = #{status}, update_by = #{updateBy} " +
             "WHERE id = #{id}")
     int update(TapeSpec spec);
@@ -218,6 +244,31 @@ public interface TapeSpecMapper {
     /**
      * 查询颜色字典（管理端）
      */
+    @Select("<script>" +
+            "SELECT id, color_code as code, color_name as name, remark, color_hex as extra, sort_order, status " +
+            "FROM tape_color_dict WHERE 1=1 " +
+            "<if test='keyword != null and keyword != \"\"'>" +
+            "  AND (color_code LIKE CONCAT('%', #{keyword}, '%') OR color_name LIKE CONCAT('%', #{keyword}, '%') OR IFNULL(remark,'') LIKE CONCAT('%', #{keyword}, '%')) " +
+            "</if>" +
+            "<if test='status != null'> AND status = #{status} </if>" +
+            "ORDER BY sort_order ASC, id ASC " +
+            "LIMIT #{offset}, #{size}" +
+            "</script>")
+    List<DictItem> selectColorDictAllPaged(@Param("keyword") String keyword,
+                                           @Param("status") Integer status,
+                                           @Param("offset") int offset,
+                                           @Param("size") int size);
+
+    @Select("<script>" +
+            "SELECT COUNT(*) FROM tape_color_dict WHERE 1=1 " +
+            "<if test='keyword != null and keyword != \"\"'>" +
+            "  AND (color_code LIKE CONCAT('%', #{keyword}, '%') OR color_name LIKE CONCAT('%', #{keyword}, '%') OR IFNULL(remark,'') LIKE CONCAT('%', #{keyword}, '%')) " +
+            "</if>" +
+            "<if test='status != null'> AND status = #{status} </if>" +
+            "</script>")
+    int selectColorDictAllCount(@Param("keyword") String keyword,
+                                @Param("status") Integer status);
+
     @Select("<script>" +
             "SELECT id, color_code as code, color_name as name, remark, color_hex as extra, sort_order, status " +
             "FROM tape_color_dict WHERE 1=1 " +

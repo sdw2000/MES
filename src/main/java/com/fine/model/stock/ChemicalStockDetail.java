@@ -38,6 +38,22 @@ public class ChemicalStockDetail {
 
     /** 单位 */
     private String unit;
+
+    /** 最小包装单位：桶/包 */
+    @TableField("pack_uom")
+    private String packUom;
+
+    /** 当前包装数量（整数） */
+    @TableField("pack_count")
+    private Integer packCount;
+
+    /** 标准单位：kg */
+    @TableField("std_uom")
+    private String stdUom;
+
+    /** 每包装标准量（kg/桶、kg/包） */
+    @TableField("std_qty_per_pack")
+    private BigDecimal stdQtyPerPack;
     
     /** 重量(kg) */
     private BigDecimal weight;

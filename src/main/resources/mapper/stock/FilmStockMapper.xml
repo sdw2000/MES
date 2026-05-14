@@ -30,6 +30,8 @@
             locked_area = locked_area + #{lockArea},
             available_rolls = available_rolls - #{lockRolls},
             locked_rolls = locked_rolls + #{lockRolls},
+            available_pack_count = COALESCE(available_pack_count, available_rolls) - #{lockRolls},
+            locked_pack_count = COALESCE(locked_pack_count, locked_rolls) + #{lockRolls},
             update_time = NOW()
         WHERE id = #{id}
           AND available_area >= #{lockArea}
@@ -43,6 +45,8 @@
             locked_area = locked_area - #{unlockArea},
             available_rolls = available_rolls + #{unlockRolls},
             locked_rolls = locked_rolls - #{unlockRolls},
+            available_pack_count = COALESCE(available_pack_count, available_rolls) + #{unlockRolls},
+            locked_pack_count = COALESCE(locked_pack_count, locked_rolls) - #{unlockRolls},
             update_time = NOW()
         WHERE id = #{id}
           AND locked_area >= #{unlockArea}
@@ -53,13 +57,36 @@
     <update id="deductStock">
         UPDATE film_stock
         SET total_area = total_area - #{outArea},
-            locked_area = locked_area - #{outArea},
             total_rolls = total_rolls - #{outRolls},
-            locked_rolls = locked_rolls - #{outRolls},
+            total_pack_count = COALESCE(total_pack_count, total_rolls) - #{outRolls},
+            locked_area = CASE
+                WHEN locked_area >= #{outArea} AND locked_rolls >= #{outRolls} THEN locked_area - #{outArea}
+                ELSE locked_area
+            END,
+            locked_rolls = CASE
+                WHEN locked_area >= #{outArea} AND locked_rolls >= #{outRolls} THEN locked_rolls - #{outRolls}
+                ELSE locked_rolls
+            END,
+            locked_pack_count = CASE
+                WHEN locked_area >= #{outArea} AND locked_rolls >= #{outRolls} THEN COALESCE(locked_pack_count, locked_rolls) - #{outRolls}
+                ELSE COALESCE(locked_pack_count, locked_rolls)
+            END,
+            available_area = CASE
+                WHEN locked_area >= #{outArea} AND locked_rolls >= #{outRolls} THEN available_area
+                ELSE available_area - #{outArea}
+            END,
+            available_rolls = CASE
+                WHEN locked_area >= #{outArea} AND locked_rolls >= #{outRolls} THEN available_rolls
+                ELSE available_rolls - #{outRolls}
+            END,
+            available_pack_count = CASE
+                WHEN locked_area >= #{outArea} AND locked_rolls >= #{outRolls} THEN COALESCE(available_pack_count, available_rolls)
+                ELSE COALESCE(available_pack_count, available_rolls) - #{outRolls}
+            END,
             update_time = NOW()
         WHERE id = #{id}
-          AND locked_area >= #{outArea}
-          AND locked_rolls >= #{outRolls}
+          AND ((locked_area >= #{outArea} AND locked_rolls >= #{outRolls})
+               OR (available_area >= #{outArea} AND available_rolls >= #{outRolls}))
     </update>
     
 </mapper>

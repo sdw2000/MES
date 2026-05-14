@@ -24,6 +24,8 @@ import java.nio.charset.StandardCharsets;
 import java.math.BigDecimal;
 import java.net.URLEncoder;
 import java.text.SimpleDateFormat;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.Base64;
 import java.util.*;
 import java.util.zip.GZIPInputStream;
@@ -37,6 +39,7 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
 
     private static final int SPEC_MAX_LENGTH = 255;
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final Pattern NUMBER_WITH_UNIT_PATTERN = Pattern.compile("^([+-]?\\d+(?:\\.\\d+)?)\\s*(.*)$");
 
     @Autowired
     private TapeFormulaMapper tapeFormulaMapper;
@@ -46,6 +49,11 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
                                      String glueModel, Integer status) {
         int offset = (page - 1) * size;
         List<TapeFormula> list = tapeFormulaMapper.selectList(materialCode, productName, glueModel, status, offset, size);
+        if (list != null) {
+            for (TapeFormula one : list) {
+                hydrateProcessSplitFields(one);
+            }
+        }
         int total = tapeFormulaMapper.selectCount(materialCode, productName, glueModel, status);
 
         Map<String, Object> result = new HashMap<>();
@@ -63,6 +71,7 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
         if (formula == null) {
             return new ResponseResult<>(50000, "配方不存在");
         }
+        hydrateProcessSplitFields(formula);
         // 加载原料明细
         List<TapeFormulaItem> items = tapeFormulaMapper.selectItemsByFormulaId(id);
         formula.setItems(items);
@@ -75,6 +84,7 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
         if (formula == null) {
             return new ResponseResult<>(50000, "该产品料号暂无配方");
         }
+        hydrateProcessSplitFields(formula);
         List<TapeFormulaItem> items = tapeFormulaMapper.selectItemsByFormulaId(formula.getId());
         formula.setItems(items);
         return new ResponseResult<>(20000, "查询成功", formula);
@@ -83,11 +93,21 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
     @Override
     @Transactional
     public ResponseResult<?> create(TapeFormula formula, String operator) {
+        normalizeFormulaFields(formula);
         // 检查料号是否重复
         if (tapeFormulaMapper.checkMaterialCodeExists(formula.getMaterialCode(), 0L) > 0) {
             return new ResponseResult<>(50000, "该产品料号已存在配方");
         }
 
+        hydrateByTapeSpec(formula);
+        applyDefaultGlueDensityByType(formula);
+        formula.setFormulaNo(nextFormulaNo());
+        formula.setGlueModel(nextGlueModel());
+        formula.setVersion("A/00");
+        if (formula.getCreateDate() == null) {
+            formula.setCreateDate(new Date());
+        }
+        formula.setProcessRemark(buildProcessRemark(formula));
         formula.setStatus(formula.getStatus() == null ? 1 : formula.getStatus());
         formula.setCreateBy(operator);
         
@@ -116,11 +136,27 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
             return new ResponseResult<>(50000, "ID不能为空");
         }
 
+        TapeFormula existing = tapeFormulaMapper.selectById(formula.getId());
+        if (existing == null) {
+            return new ResponseResult<>(50000, "配方不存在");
+        }
+
+        normalizeFormulaFields(formula);
+
         // 检查料号是否重复（排除自己）
         if (tapeFormulaMapper.checkMaterialCodeExists(formula.getMaterialCode(), formula.getId()) > 0) {
             return new ResponseResult<>(50000, "该产品料号已存在其他配方");
         }
 
+        hydrateByTapeSpec(formula);
+        applyDefaultGlueDensityByType(formula);
+        formula.setFormulaNo(existing.getFormulaNo());
+        formula.setGlueModel(existing.getGlueModel());
+        formula.setVersion(nextVersion(existing.getVersion()));
+        if (formula.getCreateDate() == null) {
+            formula.setCreateDate(existing.getCreateDate() != null ? existing.getCreateDate() : new Date());
+        }
+        formula.setProcessRemark(buildProcessRemark(formula));
         formula.setUpdateBy(operator);
         
         // 计算总重量
@@ -161,10 +197,11 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
 
     @Override
     public ResponseResult<?> getRawMaterialPage(int page, int size, String materialCode, String materialName,
-                                                String materialCategory, String materialType, Integer status) {
+                                                String materialCategory, String materialType, Integer status,
+                                                String releaseForceA, String releaseForceB) {
         int offset = (page - 1) * size;
-        List<TapeRawMaterial> list = tapeFormulaMapper.selectRawMaterialPage(materialCode, materialName, materialCategory, materialType, status, offset, size);
-        int total = tapeFormulaMapper.selectRawMaterialCount(materialCode, materialName, materialCategory, materialType, status);
+        List<TapeRawMaterial> list = tapeFormulaMapper.selectRawMaterialPage(materialCode, materialName, materialCategory, materialType, status, releaseForceA, releaseForceB, offset, size);
+        int total = tapeFormulaMapper.selectRawMaterialCount(materialCode, materialName, materialCategory, materialType, status, releaseForceA, releaseForceB);
 
         Map<String, Object> result = new HashMap<>();
         result.put("records", list);
@@ -207,7 +244,6 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
         material.setSpec(normalizeText(material.getSpec()));
         material.setRemark(normalizeText(material.getRemark()));
         material.setPerformanceParams(normalizeText(material.getPerformanceParams()));
-        material.setSortOrder(material.getSortOrder() == null ? 0 : material.getSortOrder());
         material.setStatus(material.getStatus() == null ? 1 : material.getStatus());
         tapeFormulaMapper.insertRawMaterial(material);
         return new ResponseResult<>(20000, "创建成功", material);
@@ -239,7 +275,6 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
         material.setSpec(normalizeText(material.getSpec()));
         material.setRemark(normalizeText(material.getRemark()));
         material.setPerformanceParams(normalizeText(material.getPerformanceParams()));
-        material.setSortOrder(material.getSortOrder() == null ? 0 : material.getSortOrder());
         material.setStatus(material.getStatus() == null ? 1 : material.getStatus());
 
         tapeFormulaMapper.updateRawMaterial(material);
@@ -254,14 +289,19 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
 
     @Override
     public void exportRawMaterials(HttpServletResponse response, String materialCode, String materialName,
-                                   String materialCategory, String materialType, Integer status) {
+                                   String materialCategory, String materialType, Integer status,
+                                   String releaseForceA, String releaseForceB) {
         try {
-            List<TapeRawMaterial> list = tapeFormulaMapper.selectRawMaterialPage(materialCode, materialName, materialCategory, materialType, status, 0, 100000);
+            List<TapeRawMaterial> list = tapeFormulaMapper.selectRawMaterialPage(materialCode, materialName, materialCategory, materialType, status, releaseForceA, releaseForceB, 0, 100000);
 
             Workbook workbook = new XSSFWorkbook();
             Sheet sheet = workbook.createSheet("原材料表");
 
-            String[] headers = {"序号", "供应商代码", "物料编码", "物料大类", "物料类别(原始)", "物料名称", "物料类别(系统)", "物料类型", "单位", "规格说明", "备注", "性能参数(JSON/范围)", "排序", "状态"};
+                String[] headers = {
+                    "序号", "供应商代码", "物料编码", "物料大类", "物料类别(原始)", "物料名称", "物料类别(系统)", "物料类型", "单位", "规格说明", "备注",
+                    "厚度", "电晕值", "抗拉强度", "伸长率", "颜色", "外观", "固含量", "粘度", "剥离强度", "离型力A", "离型力B",
+                    "状态"
+                };
             Row headerRow = sheet.createRow(0);
             CellStyle headerStyle = workbook.createCellStyle();
             headerStyle.setFillForegroundColor(IndexedColors.GREY_25_PERCENT.getIndex());
@@ -274,12 +314,19 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
                 Cell cell = headerRow.createCell(i);
                 cell.setCellValue(headers[i]);
                 cell.setCellStyle(headerStyle);
-                sheet.setColumnWidth(i, i == 9 ? 7000 : (i == 11 ? 9000 : 4200));
+                int width = 4200;
+                if (i == 9 || i == 10) {
+                    width = 7000;
+                } else if (i >= 11 && i <= 21) {
+                    width = 4500;
+                }
+                sheet.setColumnWidth(i, width);
             }
 
             int rowNum = 1;
             for (TapeRawMaterial material : list) {
                 Row row = sheet.createRow(rowNum);
+                Map<String, Object> performanceMap = parsePerformanceParamsMap(material.getPerformanceParams());
                 row.createCell(0).setCellValue(rowNum);
                 row.createCell(1).setCellValue(material.getSupplierCode() != null ? material.getSupplierCode() : "");
                 row.createCell(2).setCellValue(material.getMaterialCode() != null ? material.getMaterialCode() : "");
@@ -291,9 +338,18 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
                 row.createCell(8).setCellValue(material.getUnit() != null ? material.getUnit() : "");
                 row.createCell(9).setCellValue(material.getSpec() != null ? material.getSpec() : "");
                 row.createCell(10).setCellValue(material.getRemark() != null ? material.getRemark() : "");
-                row.createCell(11).setCellValue(material.getPerformanceParams() != null ? material.getPerformanceParams() : "");
-                row.createCell(12).setCellValue(material.getSortOrder() != null ? material.getSortOrder() : 0);
-                row.createCell(13).setCellValue(material.getStatus() != null && material.getStatus() == 1 ? "启用" : "禁用");
+                row.createCell(11).setCellValue(readPerfText(performanceMap, "thickness", "widthInspection"));
+                row.createCell(12).setCellValue(readPerfText(performanceMap, "coronaValue", "coronaBothSides"));
+                row.createCell(13).setCellValue(readPerfText(performanceMap, "tensileStrength", "thicknessTensile", "transverseTensile"));
+                row.createCell(14).setCellValue(readPerfText(performanceMap, "elongation", "thicknessElongation", "transverseElongation"));
+                row.createCell(15).setCellValue(readPerfText(performanceMap, "color"));
+                row.createCell(16).setCellValue(readPerfText(performanceMap, "appearance", "surface"));
+                row.createCell(17).setCellValue(readPerfText(performanceMap, "solidContent"));
+                row.createCell(18).setCellValue(readPerfText(performanceMap, "viscosity", "viscosityValue"));
+                row.createCell(19).setCellValue(readPerfText(performanceMap, "peelStrength"));
+                row.createCell(20).setCellValue(readPerfText(performanceMap, "releaseForceA", "releaseForcea"));
+                row.createCell(21).setCellValue(readPerfText(performanceMap, "releaseForceB", "releaseForceb"));
+                row.createCell(22).setCellValue(material.getStatus() != null && material.getStatus() == 1 ? "启用" : "禁用");
                 rowNum++;
             }
 
@@ -326,7 +382,17 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
         int unitIdxNew = -1;
         int specIdx = -1;
         int perfIdx = -1;
-        int sortIdx = -1;
+        int thicknessIdx = -1;
+        int coronaValueIdx = -1;
+        int tensileStrengthIdx = -1;
+        int elongationIdx = -1;
+        int colorIdx = -1;
+        int appearanceIdx = -1;
+        int solidContentIdx = -1;
+        int viscosityIdx = -1;
+        int peelStrengthIdx = -1;
+        int releaseForceAIdx = -1;
+        int releaseForceBIdx = -1;
         int statusIdx = -1;
         int remarkIdxNew = -1;
 
@@ -345,7 +411,17 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
             unitIdxNew = findColumnIndex(headerIndexMap, "单位", "计量单位");
             specIdx = findColumnIndex(headerIndexMap, "规格说明", "规格");
             perfIdx = findColumnIndex(headerIndexMap, "性能参数(JSON/范围)", "性能参数", "性能参数（JSON/范围）");
-            sortIdx = findColumnIndex(headerIndexMap, "排序", "sort_order");
+            thicknessIdx = findColumnIndex(headerIndexMap, "厚度", "厚度(μm)", "厚度(um)", "thickness");
+            coronaValueIdx = findColumnIndex(headerIndexMap, "电晕值", "电晕值(dyne)", "coronaValue");
+            tensileStrengthIdx = findColumnIndex(headerIndexMap, "抗拉强度", "抗拉强度(N/15mm)", "tensileStrength");
+            elongationIdx = findColumnIndex(headerIndexMap, "伸长率", "伸长率(%)", "elongation");
+            colorIdx = findColumnIndex(headerIndexMap, "颜色", "color");
+            appearanceIdx = findColumnIndex(headerIndexMap, "外观", "appearance", "surface");
+            solidContentIdx = findColumnIndex(headerIndexMap, "固含量", "固含量(%)", "solidContent");
+            viscosityIdx = findColumnIndex(headerIndexMap, "粘度", "黏度", "粘度(cps)", "viscosity", "viscosityValue");
+            peelStrengthIdx = findColumnIndex(headerIndexMap, "剥离强度", "剥离强度(N/25mm)", "peelStrength");
+            releaseForceAIdx = findColumnIndex(headerIndexMap, "离型力A", "离型力a", "releaseForceA", "releaseforcea");
+            releaseForceBIdx = findColumnIndex(headerIndexMap, "离型力B", "离型力b", "releaseForceB", "releaseforceb");
             statusIdx = findColumnIndex(headerIndexMap, "状态", "status");
             remarkIdxNew = findColumnIndex(headerIndexMap, "备注");
 
@@ -387,10 +463,35 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
                     String materialTypeText = normalizeText(getCellStringValue(getCellByIndex(row, materialTypeIdx)));
                     String unit = normalizeText(getCellStringValue(getCellByIndex(row, unitIdxNew)));
                     String specText = normalizeText(getCellStringValue(getCellByIndex(row, specIdx)));
-                    String performanceText = normalizeText(getCellStringValue(getCellByIndex(row, perfIdx)));
+                        String performanceText = normalizeText(getCellStringValue(getCellByIndex(row, perfIdx)));
+                        String thicknessText = normalizeText(getCellStringValue(getCellByIndex(row, thicknessIdx)));
+                        String coronaValueText = normalizeText(getCellStringValue(getCellByIndex(row, coronaValueIdx)));
+                        String tensileStrengthText = normalizeText(getCellStringValue(getCellByIndex(row, tensileStrengthIdx)));
+                        String elongationText = normalizeText(getCellStringValue(getCellByIndex(row, elongationIdx)));
+                        String colorText = normalizeText(getCellStringValue(getCellByIndex(row, colorIdx)));
+                        String appearanceText = normalizeText(getCellStringValue(getCellByIndex(row, appearanceIdx)));
+                        String solidContentText = normalizeText(getCellStringValue(getCellByIndex(row, solidContentIdx)));
+                        String viscosityText = normalizeText(getCellStringValue(getCellByIndex(row, viscosityIdx)));
+                        String peelStrengthText = normalizeText(getCellStringValue(getCellByIndex(row, peelStrengthIdx)));
+                        String releaseForceAText = normalizeText(getCellStringValue(getCellByIndex(row, releaseForceAIdx)));
+                        String releaseForceBText = normalizeText(getCellStringValue(getCellByIndex(row, releaseForceBIdx)));
                     String remarkText = normalizeText(getCellStringValue(getCellByIndex(row, remarkIdxNew)));
-                    Integer sortOrder = getCellIntValue(getCellByIndex(row, sortIdx));
                     String statusText = normalizeText(getCellStringValue(getCellByIndex(row, statusIdx)));
+
+                        String mergedPerformanceParams = mergeImportedPerformanceParams(
+                            performanceText,
+                            thicknessText,
+                            coronaValueText,
+                            tensileStrengthText,
+                            elongationText,
+                            colorText,
+                            appearanceText,
+                            solidContentText,
+                            viscosityText,
+                            peelStrengthText,
+                            releaseForceAText,
+                            releaseForceBText
+                        );
 
                     // 按导入表字段原样写库：不做归类推断、不做类型映射
                     material.setSupplierCode(supplierCode);
@@ -400,9 +501,8 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
                     material.setMaterialType(materialTypeText);
                     material.setUnit(unit);
                     material.setSpec(specText);
-                    material.setPerformanceParams(performanceText);
+                        material.setPerformanceParams(mergedPerformanceParams);
                     material.setRemark(remarkText);
-                    material.setSortOrder(sortOrder == null ? 0 : sortOrder);
                     material.setStatus(parseStatusValue(statusText));
 
                     TapeRawMaterial existing = tapeFormulaMapper.selectRawMaterialByCode(materialCode);
@@ -439,8 +539,18 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
         headerMapping.put("单位", unitIdxNew);
         headerMapping.put("规格说明", specIdx);
         headerMapping.put("性能参数", perfIdx);
+        headerMapping.put("厚度", thicknessIdx);
+        headerMapping.put("电晕值", coronaValueIdx);
+        headerMapping.put("抗拉强度", tensileStrengthIdx);
+        headerMapping.put("伸长率", elongationIdx);
+        headerMapping.put("颜色", colorIdx);
+        headerMapping.put("外观", appearanceIdx);
+        headerMapping.put("固含量", solidContentIdx);
+        headerMapping.put("粘度", viscosityIdx);
+        headerMapping.put("剥离强度", peelStrengthIdx);
+        headerMapping.put("离型力A", releaseForceAIdx);
+        headerMapping.put("离型力B", releaseForceBIdx);
         headerMapping.put("备注", remarkIdxNew);
-        headerMapping.put("排序", sortIdx);
         headerMapping.put("状态", statusIdx);
         result.put("headerMapping", headerMapping);
         return new ResponseResult<>(20000, "导入完成", result);
@@ -452,7 +562,11 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
             Workbook workbook = new XSSFWorkbook();
             Sheet sheet = workbook.createSheet("研发原材料初始化模板");
 
-            String[] headers = {"供应商代码", "物料代码", "物料大类", "物料类别", "物料名称", "单位", "备注"};
+            String[] headers = {
+                "供应商代码", "物料代码", "物料大类", "物料类别(原始)", "物料类型", "物料名称", "单位", "规格说明", "备注",
+                "厚度", "电晕值", "抗拉强度", "伸长率", "颜色", "外观", "固含量", "粘度", "剥离强度", "离型力A", "离型力B",
+                "状态"
+            };
             Row headerRow = sheet.createRow(0);
             CellStyle headerStyle = workbook.createCellStyle();
             headerStyle.setFillForegroundColor(IndexedColors.LIGHT_BLUE.getIndex());
@@ -466,7 +580,13 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
                 Cell cell = headerRow.createCell(i);
                 cell.setCellValue(headers[i]);
                 cell.setCellStyle(headerStyle);
-                sheet.setColumnWidth(i, i == 6 ? 7000 : 4200);
+                int width = 4200;
+                if (i == 7 || i == 8) {
+                    width = 7000;
+                } else if (i >= 9 && i <= 19) {
+                    width = 4500;
+                }
+                sheet.setColumnWidth(i, width);
             }
 
             Row sample = sheet.createRow(1);
@@ -474,45 +594,103 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
             sample.createCell(1).setCellValue("7058");
             sample.createCell(2).setCellValue("化工料");
             sample.createCell(3).setCellValue("胶水");
-            sample.createCell(4).setCellValue("7058");
-            sample.createCell(5).setCellValue("kg");
-            sample.createCell(6).setCellValue("橡胶 180kg/桶");
+            sample.createCell(4).setCellValue("resin");
+            sample.createCell(5).setCellValue("7058");
+            sample.createCell(6).setCellValue("kg");
+            sample.createCell(7).setCellValue("橡胶 180kg/桶");
+            sample.createCell(8).setCellValue("主剂");
+            sample.createCell(9).setCellValue("");
+            sample.createCell(10).setCellValue("");
+            sample.createCell(11).setCellValue("");
+            sample.createCell(12).setCellValue("");
+            sample.createCell(13).setCellValue("浅黄色");
+            sample.createCell(14).setCellValue("透明液体");
+            sample.createCell(15).setCellValue("52~56%");
+            sample.createCell(16).setCellValue("1200~1800cps");
+            sample.createCell(17).setCellValue("");
+            sample.createCell(18).setCellValue("");
+            sample.createCell(19).setCellValue("");
+            sample.createCell(20).setCellValue("启用");
 
             Row sample2 = sheet.createRow(2);
             sample2.createCell(0).setCellValue("BDJ001");
             sample2.createCell(1).setCellValue("708");
             sample2.createCell(2).setCellValue("化工料");
             sample2.createCell(3).setCellValue("固化剂");
-            sample2.createCell(4).setCellValue("708");
-            sample2.createCell(5).setCellValue("kg");
-            sample2.createCell(6).setCellValue("1%");
+            sample2.createCell(4).setCellValue("curing");
+            sample2.createCell(5).setCellValue("708");
+            sample2.createCell(6).setCellValue("kg");
+            sample2.createCell(7).setCellValue("1%");
+            sample2.createCell(8).setCellValue("辅料");
+            sample2.createCell(9).setCellValue("");
+            sample2.createCell(10).setCellValue("");
+            sample2.createCell(11).setCellValue("");
+            sample2.createCell(12).setCellValue("");
+            sample2.createCell(13).setCellValue("无色");
+            sample2.createCell(14).setCellValue("液体");
+            sample2.createCell(15).setCellValue("");
+            sample2.createCell(16).setCellValue("200~400cps");
+            sample2.createCell(17).setCellValue("");
+            sample2.createCell(18).setCellValue("");
+            sample2.createCell(19).setCellValue("");
+            sample2.createCell(20).setCellValue("启用");
 
             Row sample3 = sheet.createRow(3);
             sample3.createCell(0).setCellValue("BH00");
             sample3.createCell(1).setCellValue("PETM-T23");
             sample3.createCell(2).setCellValue("原膜");
             sample3.createCell(3).setCellValue("PET膜");
-            sample3.createCell(4).setCellValue("PETM-T23");
-            sample3.createCell(5).setCellValue("kg");
-            sample3.createCell(6).setCellValue("");
+            sample3.createCell(4).setCellValue("additive");
+            sample3.createCell(5).setCellValue("PETM-T23");
+            sample3.createCell(6).setCellValue("m²");
+            sample3.createCell(7).setCellValue("23μm");
+            sample3.createCell(8).setCellValue("双面电晕");
+            sample3.createCell(9).setCellValue("23μm");
+            sample3.createCell(10).setCellValue("≥48dyne");
+            sample3.createCell(11).setCellValue("120~150N/15mm");
+            sample3.createCell(12).setCellValue("80~120%");
+            sample3.createCell(13).setCellValue("透明");
+            sample3.createCell(14).setCellValue("无杂质");
+            sample3.createCell(15).setCellValue("");
+            sample3.createCell(16).setCellValue("");
+            sample3.createCell(17).setCellValue("5~7N/25mm");
+            sample3.createCell(18).setCellValue("20~35gf/in");
+            sample3.createCell(19).setCellValue("30~45gf/in");
+            sample3.createCell(20).setCellValue("启用");
 
             Row sample4 = sheet.createRow(4);
             sample4.createCell(0).setCellValue("CP001");
             sample4.createCell(1).setCellValue("YKLJ0101");
             sample4.createCell(2).setCellValue("化工料");
             sample4.createCell(3).setCellValue("胶水");
-            sample4.createCell(4).setCellValue("YKLJ0101");
-            sample4.createCell(5).setCellValue("kg");
-            sample4.createCell(6).setCellValue("6019");
+            sample4.createCell(4).setCellValue("resin");
+            sample4.createCell(5).setCellValue("YKLJ0101");
+            sample4.createCell(6).setCellValue("kg");
+            sample4.createCell(7).setCellValue("6019");
+            sample4.createCell(8).setCellValue("压敏胶");
+            sample4.createCell(9).setCellValue("");
+            sample4.createCell(10).setCellValue("");
+            sample4.createCell(11).setCellValue("");
+            sample4.createCell(12).setCellValue("");
+            sample4.createCell(13).setCellValue("乳白");
+            sample4.createCell(14).setCellValue("均匀膏状");
+            sample4.createCell(15).setCellValue("48~52%");
+            sample4.createCell(16).setCellValue("1500~2200cps");
+            sample4.createCell(17).setCellValue("");
+            sample4.createCell(18).setCellValue("");
+            sample4.createCell(19).setCellValue("");
+            sample4.createCell(20).setCellValue("启用");
 
             Sheet mappingSheet = workbook.createSheet("字段映射说明");
             mappingSheet.setColumnWidth(0, 24000);
             String[] notes = {
                     "【初始化模板字段说明】",
-                    "1) 模板顺序固定：供应商代码、物料代码、物料大类、物料类别、物料名称、单位、备注。",
+                    "1) 模板顺序固定：供应商代码、物料代码、物料大类、物料类别(原始)、物料类型、物料名称、单位、规格说明、备注、十一项性能参数、状态。",
                     "2) 导入键为【物料代码】：存在则更新，不存在则新增。",
-                    "3) 物料大类/物料类别/备注会写入原材料【规格说明】用于留痕。",
-                    "4) 物料大类=原膜 或 单位含m² 时，系统归类为薄膜；其他归类化工物料。"
+                    "3) 十一项性能参数列：厚度、电晕值、抗拉强度、伸长率、颜色、外观、固含量、粘度、剥离强度、离型力A、离型力B。",
+                    "4) 性能参数可填写值（如 红色）、区间（如 120~150N/15mm）或阈值（如 ≥48dyne / ≤2200cps）。",
+                    "5) 仍兼容旧列【性能参数(JSON/范围)】：当十一项列为空时将回退使用旧列。",
+                    "6) 状态支持：启用/禁用/1/0，默认启用。"
             };
             for (int i = 0; i < notes.length; i++) {
                 Row r = mappingSheet.createRow(i);
@@ -689,6 +867,36 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
         return new ResponseResult<>(20000, "请使用Excel导入进行初始化", result);
     }
 
+    @Override
+    @Transactional
+    public ResponseResult<?> resequenceAll(String operator) {
+        List<TapeFormula> all = tapeFormulaMapper.selectAllOrderById();
+        if (all == null || all.isEmpty()) {
+            return new ResponseResult<>(20000, "无可重编数据", Collections.emptyMap());
+        }
+
+        int formulaSeq = 1;
+        int glueSeq = 1;
+        int count = 0;
+        for (TapeFormula one : all) {
+            if (one == null || one.getId() == null) {
+                continue;
+            }
+            String formulaNo = formatFormulaNo(formulaSeq++);
+            String glueModel = formatGlueModel(glueSeq++);
+            String version = "A/00";
+            tapeFormulaMapper.updateSequenceFieldsById(one.getId(), formulaNo, glueModel, version, operator);
+            count++;
+        }
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("updated", count);
+        data.put("formulaStart", "F00001");
+        data.put("glueModelStart", "GLU-00001");
+        data.put("version", "A/00");
+        return new ResponseResult<>(20000, "重编完成", data);
+    }
+
     // ========== 私有辅助方法 ==========
 
     private void calculateTotalWeight(TapeFormula formula) {
@@ -701,7 +909,159 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
             }
             formula.setTotalWeight(total);
         }
-    }    private void createCell(Row row, int column, String value, CellStyle style) {
+    }
+
+    private void normalizeFormulaFields(TapeFormula formula) {
+        if (formula == null) {
+            return;
+        }
+        formula.setMaterialCode(normalizeText(formula.getMaterialCode()));
+        formula.setProductName(normalizeText(formula.getProductName()));
+        formula.setColorCode(normalizeText(formula.getColorCode()));
+        formula.setGlueType(normalizeText(formula.getGlueType()));
+        formula.setSolidContent(normalizeText(formula.getSolidContent()));
+        formula.setProcessTemperature(normalizeText(formula.getProcessTemperature()));
+        formula.setProcessSpeed(normalizeText(formula.getProcessSpeed()));
+        formula.setProcessRemark(normalizeText(formula.getProcessRemark()));
+        formula.setPreparedBy(normalizeText(formula.getPreparedBy()));
+        formula.setReviewedBy(normalizeText(formula.getReviewedBy()));
+        formula.setApprovedBy(normalizeText(formula.getApprovedBy()));
+        formula.setRemark(normalizeText(formula.getRemark()));
+    }
+
+    private void hydrateByTapeSpec(TapeFormula formula) {
+        if (formula == null || formula.getMaterialCode() == null) {
+            return;
+        }
+        com.fine.modle.rd.TapeSpec spec = tapeFormulaMapper.selectTapeSpecLiteByCode(formula.getMaterialCode());
+        if (spec == null) {
+            return;
+        }
+        if (spec.getProductName() != null) {
+            formula.setProductName(spec.getProductName().trim());
+        }
+        if (spec.getGlueThickness() != null) {
+            formula.setCoatingThickness(spec.getGlueThickness());
+        }
+        if ((formula.getColorCode() == null || formula.getColorCode().isEmpty()) && spec.getColorCode() != null) {
+            formula.setColorCode(spec.getColorCode().trim());
+        }
+    }
+
+    private void applyDefaultGlueDensityByType(TapeFormula formula) {
+        if (formula == null || formula.getGlueDensity() != null) {
+            return;
+        }
+        String type = formula.getGlueType();
+        if (type == null) {
+            return;
+        }
+        switch (type.trim()) {
+            case "亚克力":
+                formula.setGlueDensity(new BigDecimal("1.05"));
+                break;
+            case "橡胶":
+                formula.setGlueDensity(new BigDecimal("0.98"));
+                break;
+            case "硅胶":
+                formula.setGlueDensity(new BigDecimal("1.10"));
+                break;
+            case "PU胶":
+                formula.setGlueDensity(new BigDecimal("1.12"));
+                break;
+            default:
+                break;
+        }
+    }
+
+    private String buildProcessRemark(TapeFormula formula) {
+        String temp = normalizeText(formula.getProcessTemperature());
+        String speed = normalizeText(formula.getProcessSpeed());
+        String remark = normalizeText(formula.getProcessRemark());
+
+        List<String> parts = new ArrayList<>();
+        if (temp != null) {
+            parts.add("温度=" + temp);
+        }
+        if (speed != null) {
+            parts.add("车速=" + speed);
+        }
+        if (remark != null && !remark.contains("温度=") && !remark.contains("车速=")) {
+            parts.add("备注=" + remark);
+        }
+        return parts.isEmpty() ? remark : String.join(";", parts);
+    }
+
+    private String nextFormulaNo() {
+        Integer max = tapeFormulaMapper.selectMaxFormulaNoSeq();
+        int seq = (max == null ? 0 : max) + 1;
+        return formatFormulaNo(seq);
+    }
+
+    private String nextGlueModel() {
+        Integer max = tapeFormulaMapper.selectMaxGlueModelSeq();
+        int seq = (max == null ? 0 : max) + 1;
+        return formatGlueModel(seq);
+    }
+
+    private String formatFormulaNo(int seq) {
+        return String.format("F%05d", Math.max(seq, 1));
+    }
+
+    private String formatGlueModel(int seq) {
+        return String.format("GLU-%05d", Math.max(seq, 1));
+    }
+
+    private String nextVersion(String currentVersion) {
+        String text = normalizeText(currentVersion);
+        int current = 0;
+        if (text != null) {
+            int idx = text.indexOf('/');
+            String n = idx >= 0 ? text.substring(idx + 1) : text;
+            try {
+                current = Integer.parseInt(n.replaceAll("[^0-9]", ""));
+            } catch (Exception ignore) {
+                current = 0;
+            }
+        }
+        return "A/" + String.format("%02d", current + 1);
+    }
+
+    private void hydrateProcessSplitFields(TapeFormula formula) {
+        if (formula == null || formula.getProcessRemark() == null) {
+            return;
+        }
+        String text = formula.getProcessRemark();
+        if ((formula.getProcessTemperature() == null || formula.getProcessTemperature().trim().isEmpty())) {
+            String temp = extractTokenValue(text, "温度");
+            if (temp != null) {
+                formula.setProcessTemperature(temp);
+            }
+        }
+        if ((formula.getProcessSpeed() == null || formula.getProcessSpeed().trim().isEmpty())) {
+            String speed = extractTokenValue(text, "车速");
+            if (speed != null) {
+                formula.setProcessSpeed(speed);
+            }
+        }
+    }
+
+    private String extractTokenValue(String text, String key) {
+        if (text == null || key == null || key.trim().isEmpty()) {
+            return null;
+        }
+        String[] pieces = text.split(";");
+        for (String piece : pieces) {
+            String p = piece == null ? "" : piece.trim();
+            if (p.startsWith(key + "=")) {
+                String v = p.substring((key + "=").length()).trim();
+                return v.isEmpty() ? null : v;
+            }
+        }
+        return null;
+    }
+
+    private void createCell(Row row, int column, String value, CellStyle style) {
         Cell cell = row.createCell(column);
         cell.setCellValue(value != null ? value : "");
         if (style != null) {
@@ -718,8 +1078,8 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
             Sheet mainSheet = workbook.createSheet("配方主表");
             Row header1 = mainSheet.createRow(0);
             String[] mainHeaders = {"产品料号*", "产品名称*", "文件编号", "版次", "制定日期", 
-                    "胶水型号", "颜色代码", "涂胶厚度(μm)", "胶水密度(g/cm³)", "固含量(%)", 
-                    "涂布数量(㎡)", "工艺备注", "编制人", "审核人", "批准人"};
+                    "胶水型号", "胶水类型", "颜色代码", "涂胶厚度(μm)", "胶水密度(g/cm³)", "固含量(%)", 
+                    "涂布数量(㎡)", "工艺温度", "工艺车速", "工艺备注", "编制人", "审核人", "批准人"};
             for (int i = 0; i < mainHeaders.length; i++) {
                 Cell cell = header1.createCell(i);
                 cell.setCellValue(mainHeaders[i]);
@@ -730,19 +1090,22 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
             Row example1 = mainSheet.createRow(1);
             example1.createCell(0).setCellValue("1011-R02-1204-G01-0300");
             example1.createCell(1).setCellValue("16μm翠绿PET终止胶带");
-            example1.createCell(2).setCellValue("107");
-            example1.createCell(3).setCellValue("A/0");
+            example1.createCell(2).setCellValue("F00001");
+            example1.createCell(3).setCellValue("A/00");
             example1.createCell(4).setCellValue("2025-12-08");
-            example1.createCell(5).setCellValue("YKLJ0801G01040300");
-            example1.createCell(6).setCellValue("G01");
-            example1.createCell(7).setCellValue(5);
-            example1.createCell(8).setCellValue(1.1);
-            example1.createCell(9).setCellValue("15±2");
-            example1.createCell(10).setCellValue(24000);
-            example1.createCell(11).setCellValue("温度：70 80 120 120 120 90 80 70，速度40m");
-            example1.createCell(12).setCellValue("张三");
-            example1.createCell(13).setCellValue("李四");
-            example1.createCell(14).setCellValue("王五");
+            example1.createCell(5).setCellValue("GLU-00001");
+            example1.createCell(6).setCellValue("亚克力");
+            example1.createCell(7).setCellValue("G01");
+            example1.createCell(8).setCellValue(5);
+            example1.createCell(9).setCellValue(1.1);
+            example1.createCell(10).setCellValue("15±2");
+            example1.createCell(11).setCellValue(24000);
+            example1.createCell(12).setCellValue("70 80 120 120 120 90 80 70");
+            example1.createCell(13).setCellValue("40m/min");
+            example1.createCell(14).setCellValue("可附加工艺说明");
+            example1.createCell(15).setCellValue("张三");
+            example1.createCell(16).setCellValue("李四");
+            example1.createCell(17).setCellValue("王五");
             
             // Sheet2: 原料明细模板
             Sheet itemSheet = workbook.createSheet("原料明细");
@@ -893,15 +1256,18 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
                     formula.setVersion(getCellStringValue(row.getCell(3)));
                     formula.setCreateDate(getCellDateValue(row.getCell(4)));
                     formula.setGlueModel(getCellStringValue(row.getCell(5)));
-                    formula.setColorCode(getCellStringValue(row.getCell(6)));
-                    formula.setCoatingThickness(getCellBigDecimalValue(row.getCell(7)));
-                    formula.setGlueDensity(getCellBigDecimalValue(row.getCell(8)));
-                    formula.setSolidContent(getCellStringValue(row.getCell(9)));
-                    formula.setCoatingArea(getCellBigDecimalValue(row.getCell(10)));
-                    formula.setProcessRemark(getCellStringValue(row.getCell(11)));
-                    formula.setPreparedBy(getCellStringValue(row.getCell(12)));
-                    formula.setReviewedBy(getCellStringValue(row.getCell(13)));
-                    formula.setApprovedBy(getCellStringValue(row.getCell(14)));
+                    formula.setGlueType(getCellStringValue(row.getCell(6)));
+                    formula.setColorCode(getCellStringValue(row.getCell(7)));
+                    formula.setCoatingThickness(getCellBigDecimalValue(row.getCell(8)));
+                    formula.setGlueDensity(getCellBigDecimalValue(row.getCell(9)));
+                    formula.setSolidContent(getCellStringValue(row.getCell(10)));
+                    formula.setCoatingArea(getCellBigDecimalValue(row.getCell(11)));
+                    formula.setProcessTemperature(getCellStringValue(row.getCell(12)));
+                    formula.setProcessSpeed(getCellStringValue(row.getCell(13)));
+                    formula.setProcessRemark(getCellStringValue(row.getCell(14)));
+                    formula.setPreparedBy(getCellStringValue(row.getCell(15)));
+                    formula.setReviewedBy(getCellStringValue(row.getCell(16)));
+                    formula.setApprovedBy(getCellStringValue(row.getCell(17)));
                     formula.setStatus(1);
                     
                     // 设置原料明细
@@ -959,8 +1325,8 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
             Sheet mainSheet = workbook.createSheet("配方主表");
             Row header1 = mainSheet.createRow(0);
             String[] mainHeaders = {"产品料号", "产品名称", "文件编号", "版次", "制定日期", 
-                    "胶水型号", "颜色代码", "涂胶厚度(μm)", "胶水密度(g/cm³)", "固含量(%)", 
-                    "涂布数量(㎡)", "工艺备注", "总重量(kg)", "编制人", "审核人", "批准人", "状态"};
+                    "胶水型号", "胶水类型", "颜色代码", "涂胶厚度(μm)", "胶水密度(g/cm³)", "固含量(%)", 
+                    "涂布数量(㎡)", "工艺温度", "工艺车速", "工艺备注", "总重量(kg)", "编制人", "审核人", "批准人", "状态"};
             
             CellStyle headerStyle = workbook.createCellStyle();
             headerStyle.setFillForegroundColor(IndexedColors.GREY_25_PERCENT.getIndex());
@@ -986,17 +1352,20 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
                 row.createCell(3).setCellValue(f.getVersion() != null ? f.getVersion() : "");
                 row.createCell(4).setCellValue(f.getCreateDate() != null ? sdf.format(f.getCreateDate()) : "");
                 row.createCell(5).setCellValue(f.getGlueModel() != null ? f.getGlueModel() : "");
-                row.createCell(6).setCellValue(f.getColorCode() != null ? f.getColorCode() : "");
-                row.createCell(7).setCellValue(f.getCoatingThickness() != null ? f.getCoatingThickness().doubleValue() : 0);
-                row.createCell(8).setCellValue(f.getGlueDensity() != null ? f.getGlueDensity().doubleValue() : 0);
-                row.createCell(9).setCellValue(f.getSolidContent() != null ? f.getSolidContent() : "");
-                row.createCell(10).setCellValue(f.getCoatingArea() != null ? f.getCoatingArea().doubleValue() : 0);
-                row.createCell(11).setCellValue(f.getProcessRemark() != null ? f.getProcessRemark() : "");
-                row.createCell(12).setCellValue(f.getTotalWeight() != null ? f.getTotalWeight().doubleValue() : 0);
-                row.createCell(13).setCellValue(f.getPreparedBy() != null ? f.getPreparedBy() : "");
-                row.createCell(14).setCellValue(f.getReviewedBy() != null ? f.getReviewedBy() : "");
-                row.createCell(15).setCellValue(f.getApprovedBy() != null ? f.getApprovedBy() : "");
-                row.createCell(16).setCellValue(f.getStatus() != null && f.getStatus() == 1 ? "启用" : "禁用");
+                row.createCell(6).setCellValue(f.getGlueType() != null ? f.getGlueType() : "");
+                row.createCell(7).setCellValue(f.getColorCode() != null ? f.getColorCode() : "");
+                row.createCell(8).setCellValue(f.getCoatingThickness() != null ? f.getCoatingThickness().doubleValue() : 0);
+                row.createCell(9).setCellValue(f.getGlueDensity() != null ? f.getGlueDensity().doubleValue() : 0);
+                row.createCell(10).setCellValue(f.getSolidContent() != null ? f.getSolidContent() : "");
+                row.createCell(11).setCellValue(f.getCoatingArea() != null ? f.getCoatingArea().doubleValue() : 0);
+                row.createCell(12).setCellValue(f.getProcessTemperature() != null ? f.getProcessTemperature() : "");
+                row.createCell(13).setCellValue(f.getProcessSpeed() != null ? f.getProcessSpeed() : "");
+                row.createCell(14).setCellValue(f.getProcessRemark() != null ? f.getProcessRemark() : "");
+                row.createCell(15).setCellValue(f.getTotalWeight() != null ? f.getTotalWeight().doubleValue() : 0);
+                row.createCell(16).setCellValue(f.getPreparedBy() != null ? f.getPreparedBy() : "");
+                row.createCell(17).setCellValue(f.getReviewedBy() != null ? f.getReviewedBy() : "");
+                row.createCell(18).setCellValue(f.getApprovedBy() != null ? f.getApprovedBy() : "");
+                row.createCell(19).setCellValue(f.getStatus() != null && f.getStatus() == 1 ? "启用" : "禁用");
             }
             
             // Sheet2: 原料明细
@@ -1124,6 +1493,7 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
         return trimmed.isEmpty() ? null : trimmed;
     }
 
+    @SuppressWarnings("unused")
     private String parseMaterialType(String rawType) {
         String type = normalizeText(rawType);
         if (type == null) {
@@ -1184,6 +1554,252 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
         return value == null ? "" : value;
     }
 
+    private Map<String, Object> parsePerformanceParamsMap(String performanceParams) {
+        String text = normalizeText(performanceParams);
+        if (text == null) {
+            return Collections.emptyMap();
+        }
+        try {
+            Map<String, Object> map = OBJECT_MAPPER.readValue(text, new TypeReference<Map<String, Object>>() {});
+            return map == null ? Collections.emptyMap() : map;
+        } catch (Exception ex) {
+            return Collections.emptyMap();
+        }
+    }
+
+    private String readPerfText(Map<String, Object> perfMap, String key, String... aliases) {
+        Object value = null;
+        if (perfMap != null) {
+            value = perfMap.get(key);
+            if (value == null && aliases != null) {
+                for (String alias : aliases) {
+                    value = perfMap.get(alias);
+                    if (value != null) {
+                        break;
+                    }
+                }
+            }
+        }
+        return formatPerfValue(value);
+    }
+
+    private String formatPerfValue(Object value) {
+        if (value == null) {
+            return "";
+        }
+        if (!(value instanceof Map)) {
+            String text = normalizeText(String.valueOf(value));
+            return text == null ? "" : text;
+        }
+
+        Map<?, ?> map = (Map<?, ?>) value;
+        String standardValue = normalizeText(objectToString(map.get("standardValue")));
+        String min = normalizeText(objectToString(map.get("min")));
+        String max = normalizeText(objectToString(map.get("max")));
+        String unit = normalizeText(objectToString(map.get("unit")));
+        String judgeMode = normalizeText(objectToString(map.get("judgeMode")));
+        String suffix = unit == null ? "" : unit;
+
+        if (("value".equalsIgnoreCase(judgeMode) || (standardValue != null && min == null && max == null)) && standardValue != null) {
+            return standardValue + suffix;
+        }
+        if (("min".equalsIgnoreCase(judgeMode) || (min != null && max == null)) && min != null) {
+            return "≥" + min + suffix;
+        }
+        if (("max".equalsIgnoreCase(judgeMode) || (max != null && min == null)) && max != null) {
+            return "≤" + max + suffix;
+        }
+        if (min != null && max != null) {
+            return min + "~" + max + suffix;
+        }
+        if (standardValue != null) {
+            return standardValue + suffix;
+        }
+        return "";
+    }
+
+    private String mergeImportedPerformanceParams(String legacyPerformanceText,
+                                                  String thickness,
+                                                  String coronaValue,
+                                                  String tensileStrength,
+                                                  String elongation,
+                                                  String color,
+                                                  String appearance,
+                                                  String solidContent,
+                                                  String viscosity,
+                              String peelStrength,
+                              String releaseForceA,
+                              String releaseForceB) {
+        boolean hasNewPerfColumns = normalizeText(thickness) != null
+                || normalizeText(coronaValue) != null
+                || normalizeText(tensileStrength) != null
+                || normalizeText(elongation) != null
+                || normalizeText(color) != null
+                || normalizeText(appearance) != null
+                || normalizeText(solidContent) != null
+                || normalizeText(viscosity) != null
+            || normalizeText(peelStrength) != null
+            || normalizeText(releaseForceA) != null
+            || normalizeText(releaseForceB) != null;
+
+        String legacy = normalizeText(legacyPerformanceText);
+        if (!hasNewPerfColumns) {
+            return legacy;
+        }
+
+        Map<String, Object> root = new LinkedHashMap<>();
+        if (legacy != null) {
+            try {
+                Map<String, Object> old = OBJECT_MAPPER.readValue(legacy, new TypeReference<Map<String, Object>>() {});
+                if (old != null) {
+                    root.putAll(old);
+                }
+            } catch (Exception ignore) {
+                // 非JSON旧值忽略，按新九列生成
+            }
+        }
+
+        root.remove("thickness");
+        root.remove("coronaValue");
+        root.remove("tensileStrength");
+        root.remove("elongation");
+        root.remove("color");
+        root.remove("appearance");
+        root.remove("solidContent");
+        root.remove("viscosity");
+        root.remove("peelStrength");
+        root.remove("releaseForceA");
+        root.remove("releaseForceB");
+
+        upsertImportedPerfValue(root, "thickness", "厚度", "μm", thickness);
+        upsertImportedPerfValue(root, "coronaValue", "电晕值", "dyne", coronaValue);
+        upsertImportedPerfValue(root, "tensileStrength", "抗拉强度", "N/15mm", tensileStrength);
+        upsertImportedPerfValue(root, "elongation", "伸长率", "%", elongation);
+        upsertImportedPerfValue(root, "color", "颜色", "", color);
+        upsertImportedPerfValue(root, "appearance", "外观", "", appearance);
+        upsertImportedPerfValue(root, "solidContent", "固含量", "%", solidContent);
+        upsertImportedPerfValue(root, "viscosity", "粘度", "cps", viscosity);
+        upsertImportedPerfValue(root, "peelStrength", "剥离强度", "N/25mm", peelStrength);
+        upsertImportedPerfValue(root, "releaseForceA", "离型力A", "gf/in", releaseForceA);
+        upsertImportedPerfValue(root, "releaseForceB", "离型力B", "gf/in", releaseForceB);
+
+        if (root.isEmpty()) {
+            return null;
+        }
+        try {
+            return OBJECT_MAPPER.writeValueAsString(root);
+        } catch (Exception ex) {
+            return legacy;
+        }
+    }
+
+    private void upsertImportedPerfValue(Map<String, Object> root, String key, String label, String defaultUnit, String rawText) {
+        String text = normalizeText(rawText);
+        if (text == null) {
+            return;
+        }
+        Map<String, String> parsed = parseImportedPerfRange(text, defaultUnit);
+        parsed.put("label", label);
+        String currentUnit = normalizeText(parsed.get("unit"));
+        parsed.put("unit", currentUnit == null ? defaultUnit : currentUnit);
+        root.put(key, parsed);
+    }
+
+    private Map<String, String> parseImportedPerfRange(String rawText, String defaultUnit) {
+        String text = normalizeText(rawText);
+        Map<String, String> result = new LinkedHashMap<>();
+        if (text == null) {
+            return result;
+        }
+
+        Matcher plusMinus = Pattern.compile("^([+-]?\\d+(?:\\.\\d+)?)\\s*±\\s*([+-]?\\d+(?:\\.\\d+)?)\\s*(.*)$").matcher(text);
+        if (plusMinus.matches()) {
+            BigDecimal center = toBigDecimal(plusMinus.group(1));
+            BigDecimal tolerance = toBigDecimal(plusMinus.group(2));
+            if (center != null && tolerance != null) {
+                result.put("standardValue", center.stripTrailingZeros().toPlainString());
+                result.put("min", center.subtract(tolerance).stripTrailingZeros().toPlainString());
+                result.put("max", center.add(tolerance).stripTrailingZeros().toPlainString());
+                result.put("unit", normalizeText(plusMinus.group(3)) == null ? defaultUnit : normalizeText(plusMinus.group(3)));
+                result.put("judgeMode", "range");
+                result.put("remark", "");
+                return result;
+            }
+        }
+
+        Matcher range = Pattern.compile("^([+-]?\\d+(?:\\.\\d+)?)\\s*[~～-]\\s*([+-]?\\d+(?:\\.\\d+)?)\\s*(.*)$").matcher(text);
+        if (range.matches()) {
+            result.put("standardValue", "");
+            result.put("min", normalizeText(range.group(1)));
+            result.put("max", normalizeText(range.group(2)));
+            result.put("unit", normalizeText(range.group(3)) == null ? defaultUnit : normalizeText(range.group(3)));
+            result.put("judgeMode", "range");
+            result.put("remark", "");
+            return result;
+        }
+
+        Matcher slashRange = Pattern.compile("^([+-]?\\d+(?:\\.\\d+)?)\\s*/\\s*([+-]?\\d+(?:\\.\\d+)?)\\s*(.*)$").matcher(text);
+        if (slashRange.matches()) {
+            result.put("standardValue", "");
+            result.put("min", normalizeText(slashRange.group(1)));
+            result.put("max", normalizeText(slashRange.group(2)));
+            result.put("unit", normalizeText(slashRange.group(3)) == null ? defaultUnit : normalizeText(slashRange.group(3)));
+            result.put("judgeMode", "range");
+            result.put("remark", "");
+            return result;
+        }
+
+        Matcher ge = Pattern.compile("^[≥>]\\s*([+-]?\\d+(?:\\.\\d+)?)\\s*(.*)$").matcher(text);
+        if (ge.matches()) {
+            result.put("standardValue", "");
+            result.put("min", normalizeText(ge.group(1)));
+            result.put("max", "");
+            result.put("unit", normalizeText(ge.group(2)) == null ? defaultUnit : normalizeText(ge.group(2)));
+            result.put("judgeMode", "min");
+            result.put("remark", "");
+            return result;
+        }
+
+        Matcher le = Pattern.compile("^[≤<]\\s*([+-]?\\d+(?:\\.\\d+)?)\\s*(.*)$").matcher(text);
+        if (le.matches()) {
+            result.put("standardValue", "");
+            result.put("min", "");
+            result.put("max", normalizeText(le.group(1)));
+            result.put("unit", normalizeText(le.group(2)) == null ? defaultUnit : normalizeText(le.group(2)));
+            result.put("judgeMode", "max");
+            result.put("remark", "");
+            return result;
+        }
+
+        Matcher numberWithUnit = NUMBER_WITH_UNIT_PATTERN.matcher(text);
+        if (numberWithUnit.matches()) {
+            result.put("standardValue", normalizeText(numberWithUnit.group(1)));
+            String parsedUnit = normalizeText(numberWithUnit.group(2));
+            result.put("unit", parsedUnit == null ? defaultUnit : parsedUnit);
+        } else {
+            result.put("standardValue", text);
+            result.put("unit", defaultUnit);
+        }
+        result.put("min", "");
+        result.put("max", "");
+        result.put("judgeMode", "value");
+        result.put("remark", "");
+        return result;
+    }
+
+    private BigDecimal toBigDecimal(String value) {
+        String text = normalizeText(value);
+        if (text == null) {
+            return null;
+        }
+        try {
+            return new BigDecimal(text);
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    @SuppressWarnings("unused")
     private void enrichRawMaterialMeta(List<TapeRawMaterial> list) {
         if (list == null || list.isEmpty()) {
             return;
@@ -1244,6 +1860,7 @@ public class TapeFormulaServiceImpl implements TapeFormulaService {
         return type;
     }
 
+    @SuppressWarnings("unused")
     private String mergeSpecWithMeta(String spec, String materialCategory, String materialType, String performanceParams) {
         String merged = normalizeText(spec);
         if (merged != null && merged.length() > SPEC_MAX_LENGTH) {

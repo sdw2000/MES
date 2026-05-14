@@ -46,8 +46,9 @@ public class LabelQrRuleController {
         if (isBlank(customerCode)) {
             return ResponseResult.error("customerCode不能为空");
         }
+        String normalizedBizType = normalizeBizType(bizType);
         String sql = "SELECT id, customer_code, biz_type, qr_template, enabled, updated_at FROM label_qr_rule WHERE customer_code=? AND biz_type=? LIMIT 1";
-        List<Map<String, Object>> list = jdbcTemplate.queryForList(sql, customerCode.trim(), bizType.trim());
+        List<Map<String, Object>> list = jdbcTemplate.queryForList(sql, customerCode.trim(), normalizedBizType);
         if (list == null || list.isEmpty()) {
             return ResponseResult.success(null);
         }
@@ -72,9 +73,7 @@ public class LabelQrRuleController {
         if (isBlank(customerCode)) {
             return ResponseResult.error("customerCode不能为空");
         }
-        if (isBlank(bizType)) {
-            bizType = "SLITTING_OUTER_LABEL";
-        }
+        bizType = normalizeBizType(bizType);
         if (isBlank(qrTemplate)) {
             return ResponseResult.error("qrTemplate不能为空");
         }
@@ -90,7 +89,7 @@ public class LabelQrRuleController {
                 + "ON DUPLICATE KEY UPDATE qr_template=VALUES(qr_template), enabled=VALUES(enabled), updated_by=VALUES(updated_by), updated_at=VALUES(updated_at)";
         jdbcTemplate.update(upsert,
                 customerCode.trim(),
-                bizType.trim(),
+                bizType,
                 qrTemplate,
                 enabled,
                 user,
@@ -100,7 +99,7 @@ public class LabelQrRuleController {
 
         Map<String, Object> data = new HashMap<>();
         data.put("customerCode", customerCode.trim());
-        data.put("bizType", bizType.trim());
+        data.put("bizType", bizType);
         data.put("qrTemplate", qrTemplate);
         data.put("enabled", enabled);
         data.put("updatedBy", user);
@@ -135,7 +134,7 @@ public class LabelQrRuleController {
         }
 
         String countSql = "SELECT COUNT(1) FROM label_qr_rule" + where;
-        Long total = jdbcTemplate.queryForObject(countSql, args.toArray(), Long.class);
+        Long total = jdbcTemplate.queryForObject(countSql, Long.class, args.toArray());
 
         String pageSql = "SELECT id, customer_code, biz_type, qr_template, enabled, created_by, updated_by, created_at, updated_at "
                 + "FROM label_qr_rule " + where
@@ -174,8 +173,9 @@ public class LabelQrRuleController {
         if (isBlank(customerCode)) {
             return ResponseResult.error("customerCode不能为空");
         }
+        String normalizedBizType = normalizeBizType(bizType);
         String sql = "DELETE FROM label_qr_rule WHERE customer_code=? AND biz_type=?";
-        int affected = jdbcTemplate.update(sql, customerCode.trim(), bizType.trim());
+        int affected = jdbcTemplate.update(sql, customerCode.trim(), normalizedBizType);
         if (affected <= 0) {
             return ResponseResult.success("未找到可删除的规则", null);
         }
@@ -211,5 +211,19 @@ public class LabelQrRuleController {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private String normalizeBizType(String bizType) {
+        String text = bizType == null ? "" : bizType.trim();
+        if (text.isEmpty()) {
+            return "SLITTING_OUTER_LABEL";
+        }
+        String upper = text.toUpperCase();
+        if ("[OBJECT POINTEREVENT]".equals(upper)
+                || "[OBJECT MOUSEEVENT]".equals(upper)
+                || upper.contains("ISTRUSTED")) {
+            return "SLITTING_OUTER_LABEL";
+        }
+        return text;
     }
 }

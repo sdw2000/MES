@@ -26,6 +26,13 @@ public class TapeInboundRequest {
     
     /** 生产批次号 */
     private String batchNo;
+
+    /** 客户批次号（用于来料追踪） */
+    @TableField("customer_batch_no")
+    private String customerBatchNo;
+
+    /** 数字号（对应仓库sequence_no） */
+    private Integer sequenceNo;
     
     /** 厚度μm */
     private Integer thickness;
@@ -36,8 +43,12 @@ public class TapeInboundRequest {
     /** 长度M（每卷） */
     private Integer length;
     
-    /** 入库卷数 */
+    /** 入库数量（数值） */
     private Integer rolls;
+
+    /** 入库数量单位（卷/㎡/箱/个/kg） */
+    @TableField("qty_unit")
+    private String qtyUnit;
     
     /** 卡板位 */
     private String location;

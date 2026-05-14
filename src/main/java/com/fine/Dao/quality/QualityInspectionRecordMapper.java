@@ -20,9 +20,11 @@ public interface QualityInspectionRecordMapper extends BaseMapper<QualityInspect
                                               @Param("startDate") String startDate,
                                               @Param("endDate") String endDate);
 
-    @org.apache.ibatis.annotations.Select("SELECT CONCAT('QC-', DATE_FORMAT(NOW(), '%Y%m%d'), '-', LPAD(IFNULL(MAX(CAST(SUBSTRING(inspection_no, 12) AS UNSIGNED)), 0) + 1, 3, '0')) " +
-            "FROM quality_inspection WHERE inspection_no LIKE CONCAT('QC-', DATE_FORMAT(NOW(), '%Y%m%d'), '-%')")
-    String generateInspectionNo();
+        @org.apache.ibatis.annotations.Select("SELECT CONCAT(#{prefix}, DATE_FORMAT(NOW(), '%y%m%d'), '-', " +
+            "LPAD(IFNULL(MAX(CAST(RIGHT(inspection_no, 3) AS UNSIGNED)), 0) + 1, 3, '0')) " +
+            "FROM quality_inspection " +
+            "WHERE inspection_no LIKE CONCAT(#{prefix}, DATE_FORMAT(NOW(), '%y%m%d'), '-%')")
+        String generateInspectionNo(@Param("prefix") String prefix);
 
     java.util.List<QualityReportTypeStat> selectTypeStats();
 

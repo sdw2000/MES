@@ -17,7 +17,6 @@ public class TapeRawMaterial {
     private String spec;            // 规格说明
     private String performanceParams; // 性能参数(JSON)
     private String remark;          // 备注（原始导入）
-    private Integer sortOrder;
     private Integer status;
 
     // Getters and Setters
@@ -56,9 +55,6 @@ public class TapeRawMaterial {
 
     public String getRemark() { return remark; }
     public void setRemark(String remark) { this.remark = remark; }
-    
-    public Integer getSortOrder() { return sortOrder; }
-    public void setSortOrder(Integer sortOrder) { this.sortOrder = sortOrder; }
     
     public Integer getStatus() { return status; }
     public void setStatus(Integer status) { this.status = status; }

@@ -39,11 +39,15 @@ import com.fine.Dao.DeliveryNoticeItemMapper;
 import com.fine.Dao.DeliveryNoticeMapper;
 import com.fine.Dao.SalesOrderItemMapper;
 import com.fine.Dao.production.SalesOrderMapper;
+import com.fine.Dao.stock.TapeOutboundRequestMapper;
+import com.fine.Dao.stock.TapeStockMapper;
 import com.fine.modle.DeliveryNotice;
 import com.fine.modle.DeliveryNoticeItem;
 import com.fine.modle.LogisticsCompany;
 import com.fine.modle.SalesOrder;
 import com.fine.modle.SalesOrderItem;
+import com.fine.modle.stock.TapeOutboundRequest;
+import com.fine.modle.stock.TapeStock;
 import com.fine.service.DeliveryNoticeService;
 import com.fine.service.LogisticsCompanyService;
 
@@ -64,6 +68,14 @@ public class DeliveryNoticeServiceImpl extends ServiceImpl<DeliveryNoticeMapper,
 
     @Autowired
     private LogisticsCompanyService logisticsCompanyService;
+
+    @Autowired
+    private TapeStockMapper tapeStockMapper;
+
+    @Autowired
+    private TapeOutboundRequestMapper tapeOutboundRequestMapper;
+
+    private static final String STOCK_SYNC_TOKEN = "[STOCK_OUT_SYNCED]";
 
     @Value("${mes.logistics.enabled:false}")
     private boolean logisticsEnabled;
@@ -177,6 +189,9 @@ public class DeliveryNoticeServiceImpl extends ServiceImpl<DeliveryNoticeMapper,
         if (existing == null) {
             throw new RuntimeException("发货单不存在或已删除");
         }
+        if (isStockSynced(existing)) {
+            throw new RuntimeException("该发货单已完成库存扣减，不允许再修改；如需调整请新建发货单/红字冲销");
+        }
 
         validateDeliveryItemQuantity(deliveryNotice.getItems(), deliveryNotice.getId());
 
@@ -214,7 +229,264 @@ public class DeliveryNoticeServiceImpl extends ServiceImpl<DeliveryNoticeMapper,
             }
         }
 
+        if (isShipmentStatus(deliveryNotice.getStatus())) {
+            applyShipmentStockDeduction(deliveryNotice);
+            deliveryNotice.setUpdatedAt(new Date());
+            deliveryNoticeMapper.updateById(deliveryNotice);
+        }
+
         return this.getDeliveryNoticeDetail(deliveryNotice.getId());
+    }
+
+    private boolean isShipmentStatus(String status) {
+        String s = status == null ? "" : status.trim();
+        return "已发货".equals(s)
+                || "已收货".equals(s)
+                || "shipped".equalsIgnoreCase(s)
+                || "received".equalsIgnoreCase(s);
+    }
+
+    private boolean isStockSynced(DeliveryNotice notice) {
+        if (notice == null) {
+            return false;
+        }
+        String remark = notice.getRemark() == null ? "" : notice.getRemark();
+        return remark.contains(STOCK_SYNC_TOKEN);
+    }
+
+    private String appendStockSyncToken(String remark) {
+        String base = remark == null ? "" : remark.trim();
+        if (base.contains(STOCK_SYNC_TOKEN)) {
+            return base;
+        }
+        String token = STOCK_SYNC_TOKEN + "=" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        return base.isEmpty() ? token : (base + " | " + token);
+    }
+
+    @SuppressWarnings("unused")
+    private String requireSingleBatchNo(DeliveryNoticeItem item) {
+        String raw = item == null || item.getBatchNo() == null ? "" : item.getBatchNo().trim();
+        if (!StringUtils.hasText(raw)) {
+            throw new RuntimeException("发货明细缺少批次号，不能执行库存扣减");
+        }
+        if (raw.contains(",") || raw.contains("，")) {
+            throw new RuntimeException("发货明细批次号必须一行一批次，禁止逗号多批次混填");
+        }
+        return raw;
+    }
+
+    private String resolveBatchNoForDeduction(DeliveryNotice notice, DeliveryNoticeItem item, int qty, String materialCode) {
+        String direct = item == null || item.getBatchNo() == null ? "" : item.getBatchNo().trim();
+        if (StringUtils.hasText(direct)) {
+            if (direct.contains(",") || direct.contains("，")) {
+                throw new RuntimeException("发货明细批次号必须一行一批次，禁止逗号多批次混填");
+            }
+            return direct;
+        }
+
+        String noticeBatchNos = notice == null || notice.getBatchNos() == null ? "" : notice.getBatchNos().trim();
+        if (!StringUtils.hasText(noticeBatchNos)) {
+            // 历史兼容：主单和明细都缺批次时，尝试从可用分切库存中自动推断唯一批次。
+            List<TapeStock> candidates = tapeStockMapper.selectList(new QueryWrapper<TapeStock>()
+                    .eq("material_code", materialCode)
+                    .eq("roll_type", "分切卷")
+                    .eq("status", 1)
+                    .ge("total_rolls", qty)
+                    .orderByDesc("total_rolls")
+                    .orderByDesc("update_time")
+                    .last("LIMIT 5"));
+            if (candidates == null || candidates.isEmpty()) {
+                throw new RuntimeException("发货明细缺少批次号，且未找到可满足数量的分切库存批次");
+            }
+            if (candidates.size() > 1) {
+                throw new RuntimeException("发货明细缺少批次号，且存在多个可用库存批次，请先在明细逐行选择批次后重试");
+            }
+
+            TapeStock chosen = candidates.get(0);
+            String inferredBatch = chosen == null || chosen.getBatchNo() == null ? "" : chosen.getBatchNo().trim();
+            if (!StringUtils.hasText(inferredBatch)) {
+                throw new RuntimeException("自动推断批次失败，请手工选择批次后重试");
+            }
+            if (item != null && item.getId() != null) {
+                item.setBatchNo(inferredBatch);
+                deliveryNoticeItemMapper.updateById(item);
+            }
+            if (notice != null && notice.getId() != null) {
+                notice.setBatchNos(mergeUniqueBatchNos(notice.getBatchNos(), inferredBatch));
+                notice.setUpdatedAt(new Date());
+                deliveryNoticeMapper.updateById(notice);
+            }
+            return inferredBatch;
+        }
+
+        Set<String> unique = new LinkedHashSet<>();
+        String[] parts = noticeBatchNos.split("[,，]");
+        for (String part : parts) {
+            String one = part == null ? "" : part.trim();
+            if (StringUtils.hasText(one)) {
+                unique.add(one);
+            }
+        }
+        if (unique.isEmpty()) {
+            throw new RuntimeException("发货明细缺少批次号，不能执行库存扣减");
+        }
+        if (unique.size() > 1) {
+            throw new RuntimeException("发货明细缺少批次号且送货单存在多个批次，请先在明细逐行选择批次后重试");
+        }
+
+        String single = unique.iterator().next();
+        if (item != null && item.getId() != null) {
+            item.setBatchNo(single);
+            deliveryNoticeItemMapper.updateById(item);
+        }
+        return single;
+    }
+
+    private void applyShipmentStockDeduction(DeliveryNotice notice) {
+        if (notice == null || notice.getId() == null) {
+            throw new RuntimeException("发货单不存在，不能执行库存扣减");
+        }
+        if (isStockSynced(notice)) {
+            return;
+        }
+
+        List<DeliveryNoticeItem> items = deliveryNoticeItemMapper.selectByNoticeId(notice.getId());
+        if (items == null || items.isEmpty()) {
+            throw new RuntimeException("发货明细为空，不能执行库存扣减");
+        }
+
+        for (DeliveryNoticeItem item : items) {
+            if (item == null) {
+                continue;
+            }
+            int qty = item.getQuantity() == null ? 0 : item.getQuantity();
+            if (qty <= 0) {
+                throw new RuntimeException("发货数量必须大于0，明细ID=" + item.getId());
+            }
+            String materialCode = item.getMaterialCode() == null ? "" : item.getMaterialCode().trim();
+            if (!StringUtils.hasText(materialCode)) {
+                throw new RuntimeException("发货明细缺少料号，明细ID=" + item.getId());
+            }
+            // 新口径：优先按“订单号+料号”匹配出库申请批次扣减，支持一个订单多批次发货。
+            List<String> matchedBatches = resolveOrderMatchedBatches(notice.getOrderNo(), materialCode);
+            if (matchedBatches != null && !matchedBatches.isEmpty()) {
+                int remaining = qty;
+                Set<String> usedBatches = new LinkedHashSet<>();
+                for (String candidateBatch : matchedBatches) {
+                    if (remaining <= 0) {
+                        break;
+                    }
+                    TapeStock stock = tapeStockMapper.selectOne(new QueryWrapper<TapeStock>()
+                            .eq("material_code", materialCode)
+                            .eq("batch_no", candidateBatch)
+                            .eq("roll_type", "分切卷")
+                            .eq("status", 1)
+                            .last("LIMIT 1"));
+                    if (stock == null || stock.getId() == null) {
+                        continue;
+                    }
+                    int beforeRolls = stock.getTotalRolls() == null ? 0 : stock.getTotalRolls();
+                    if (beforeRolls <= 0) {
+                        continue;
+                    }
+                    int deduct = Math.min(beforeRolls, remaining);
+                    doDeductStock(stock, deduct, materialCode, candidateBatch);
+                    remaining -= deduct;
+                    usedBatches.add(candidateBatch);
+                }
+                if (remaining > 0) {
+                    throw new RuntimeException("订单匹配批次库存不足，订单=" + notice.getOrderNo() + "，料号=" + materialCode + "，缺口=" + remaining);
+                }
+                if (!usedBatches.isEmpty()) {
+                    String used = String.join(",", usedBatches);
+                    if (item != null && item.getId() != null) {
+                        item.setBatchNo(mergeUniqueBatchNos(item.getBatchNo(), used));
+                        deliveryNoticeItemMapper.updateById(item);
+                    }
+                    if (notice != null && notice.getId() != null) {
+                        notice.setBatchNos(mergeUniqueBatchNos(notice.getBatchNos(), used));
+                    }
+                }
+                continue;
+            }
+
+            // 兼容旧单据：没有订单匹配批次时，走历史单批次扣减。
+            String batchNo = resolveBatchNoForDeduction(notice, item, qty, materialCode);
+            TapeStock stock = tapeStockMapper.selectOne(new QueryWrapper<TapeStock>()
+                    .eq("material_code", materialCode)
+                    .eq("batch_no", batchNo)
+                    .eq("roll_type", "分切卷")
+                    .eq("status", 1)
+                    .last("LIMIT 1"));
+            if (stock == null || stock.getId() == null) {
+                throw new RuntimeException("未找到可出库分切库存，料号=" + materialCode + "，批次=" + batchNo);
+            }
+            int beforeRolls = stock.getTotalRolls() == null ? 0 : stock.getTotalRolls();
+            if (beforeRolls < qty) {
+                throw new RuntimeException("库存不足，料号=" + materialCode + "，批次=" + batchNo + "，可用=" + beforeRolls + "，发货=" + qty);
+            }
+            doDeductStock(stock, qty, materialCode, batchNo);
+        }
+
+        notice.setRemark(appendStockSyncToken(notice.getRemark()));
+    }
+
+    private List<String> resolveOrderMatchedBatches(String orderNo, String materialCode) {
+        String order = orderNo == null ? "" : orderNo.trim();
+        String material = materialCode == null ? "" : materialCode.trim();
+        if (!StringUtils.hasText(order) || !StringUtils.hasText(material)) {
+            return new ArrayList<>();
+        }
+        List<TapeOutboundRequest> reqs = tapeOutboundRequestMapper.selectList(new QueryWrapper<TapeOutboundRequest>()
+                .eq("status", 1)
+                .eq("order_no", order)
+                .eq("material_code", material)
+                .isNotNull("batch_no")
+                .ne("batch_no", "")
+                .orderByAsc("id"));
+        Set<String> unique = new LinkedHashSet<>();
+        if (reqs != null) {
+            for (TapeOutboundRequest req : reqs) {
+                if (req == null || req.getBatchNo() == null) {
+                    continue;
+                }
+                String[] parts = req.getBatchNo().split("[,，]");
+                for (String part : parts) {
+                    String one = part == null ? "" : part.trim();
+                    if (StringUtils.hasText(one)) {
+                        unique.add(one);
+                    }
+                }
+            }
+        }
+        return new ArrayList<>(unique);
+    }
+
+    private void doDeductStock(TapeStock stock, int deductQty, String materialCode, String batchNo) {
+        if (stock == null || stock.getId() == null || deductQty <= 0) {
+            return;
+        }
+        int beforeRolls = stock.getTotalRolls() == null ? 0 : stock.getTotalRolls();
+        if (beforeRolls < deductQty) {
+            throw new RuntimeException("库存不足，料号=" + materialCode + "，批次=" + batchNo + "，可用=" + beforeRolls + "，发货=" + deductQty);
+        }
+
+        int afterRolls = beforeRolls - deductQty;
+        stock.setTotalRolls(afterRolls);
+        stock.calculateTotalSqm();
+        BigDecimal totalSqm = stock.getTotalSqm() == null ? BigDecimal.ZERO : stock.getTotalSqm();
+        BigDecimal reserved = stock.getReservedArea() == null ? BigDecimal.ZERO : stock.getReservedArea();
+        BigDecimal consumed = stock.getConsumedArea() == null ? BigDecimal.ZERO : stock.getConsumedArea();
+        BigDecimal available = totalSqm.subtract(reserved).subtract(consumed);
+        if (available.compareTo(BigDecimal.ZERO) < 0) {
+            available = BigDecimal.ZERO;
+        }
+        stock.setAvailableArea(available);
+        stock.setStatus(afterRolls > 0 ? 1 : 0);
+
+        if (tapeStockMapper.updateById(stock) <= 0) {
+            throw new RuntimeException("库存扣减失败，料号=" + materialCode + "，批次=" + batchNo);
+        }
     }
 
     private void validateDeliveryItemQuantity(List<DeliveryNoticeItem> items, Long currentNoticeId) {
@@ -344,6 +616,19 @@ public class DeliveryNoticeServiceImpl extends ServiceImpl<DeliveryNoticeMapper,
             }
 
             if (apiResp == null || !isKuaidi100Success(apiResp)) {
+                if (isLikelyOfflineCarrier(notice.getCarrierName())
+                        || (StringUtils.hasText(failMsg)
+                        && (failMsg.contains("单号长度不符合") || failMsg.contains("单号格式不正确")))) {
+                    result.put("success", false);
+                    result.put("message", "同城/线下承运暂不支持轨迹查询，请以司机沟通或平台状态为准");
+                    result.put("status", "线下承运");
+                    result.put("lastUpdate", "-");
+                    result.put("traces", java.util.Collections.emptyList());
+                    result.put("carrierName", notice.getCarrierName());
+                    result.put("carrierNo", normalizedCarrierNo);
+                    result.put("triedCompanyCodes", companyCodes);
+                    return result;
+                }
                 result.put("success", false);
                 result.put("message", failMsg);
                 result.put("carrierName", notice.getCarrierName());
@@ -706,12 +991,28 @@ public class DeliveryNoticeServiceImpl extends ServiceImpl<DeliveryNoticeMapper,
         if (!StringUtils.hasText(name)) {
             return true;
         }
-        String upper = name.toUpperCase();
-        if (name.contains("方恩") || name.contains("自提") || name.contains("送货") || upper.contains("PICKUP")) {
+        if (isLikelyOfflineCarrier(name)) {
             return true;
         }
         List<String> candidates = resolveExpressCodeCandidates(name, "");
         return candidates == null || candidates.isEmpty();
+    }
+
+    private boolean isLikelyOfflineCarrier(String carrierName) {
+        String name = carrierName == null ? "" : carrierName.trim();
+        if (!StringUtils.hasText(name)) {
+            return true;
+        }
+        String upper = name.toUpperCase();
+        return name.contains("方恩")
+                || name.contains("自提")
+                || name.contains("送货")
+                || name.contains("货拉拉")
+                || name.contains("同城")
+                || upper.contains("PICKUP")
+                || upper.contains("HUOLALA")
+                || upper.contains("LALAMOVE")
+                || upper.contains("HLL");
     }
 
     private String mapKuaidi100StateToStatus(String state) {
@@ -887,9 +1188,15 @@ public class DeliveryNoticeServiceImpl extends ServiceImpl<DeliveryNoticeMapper,
                 }
             }
         }
-        String next = incomingBatchNo == null ? "" : incomingBatchNo.trim();
-        if (StringUtils.hasText(next)) {
-            unique.add(next);
+        String incoming = incomingBatchNo == null ? "" : incomingBatchNo.trim();
+        if (StringUtils.hasText(incoming)) {
+            String[] parts = incoming.split("[,，]");
+            for (String part : parts) {
+                String one = part == null ? "" : part.trim();
+                if (StringUtils.hasText(one)) {
+                    unique.add(one);
+                }
+            }
         }
         return String.join(",", unique);
     }

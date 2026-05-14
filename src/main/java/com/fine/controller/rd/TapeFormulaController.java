@@ -1,11 +1,14 @@
 package com.fine.controller.rd;
 
 import com.fine.Utils.ResponseResult;
+import com.fine.modle.LoginUser;
 import com.fine.modle.rd.TapeFormula;
 import com.fine.modle.rd.TapeRawMaterial;
 import com.fine.service.rd.TapeFormulaService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -58,7 +61,7 @@ public class TapeFormulaController {
     @PostMapping
     @PreAuthorize("hasAnyAuthority('admin','rd')")
     public ResponseResult<?> create(@RequestBody TapeFormula formula) {
-        return tapeFormulaService.create(formula, "admin");
+        return tapeFormulaService.create(formula, getCurrentUsername());
     }
 
     /**
@@ -67,7 +70,16 @@ public class TapeFormulaController {
     @PutMapping
     @PreAuthorize("hasAnyAuthority('admin','rd')")
     public ResponseResult<?> update(@RequestBody TapeFormula formula) {
-        return tapeFormulaService.update(formula, "admin");
+        return tapeFormulaService.update(formula, getCurrentUsername());
+    }
+
+    /**
+     * 一次性重编历史流水号
+     */
+    @PostMapping("/resequence")
+    @PreAuthorize("hasAnyAuthority('admin','rd')")
+    public ResponseResult<?> resequenceAll() {
+        return tapeFormulaService.resequenceAll(getCurrentUsername());
     }
 
     /**
@@ -141,8 +153,10 @@ public class TapeFormulaController {
             @RequestParam(required = false) String materialName,
             @RequestParam(required = false) String materialCategory,
             @RequestParam(required = false) String materialType,
-            @RequestParam(required = false) Integer status) {
-        return tapeFormulaService.getRawMaterialPage(page, size, materialCode, materialName, materialCategory, materialType, status);
+            @RequestParam(required = false) Integer status,
+            @RequestParam(required = false) String releaseForceA,
+            @RequestParam(required = false) String releaseForceB) {
+        return tapeFormulaService.getRawMaterialPage(page, size, materialCode, materialName, materialCategory, materialType, status, releaseForceA, releaseForceB);
     }
 
     /**
@@ -189,8 +203,10 @@ public class TapeFormulaController {
                                    @RequestParam(required = false) String materialName,
                                    @RequestParam(required = false) String materialCategory,
                                    @RequestParam(required = false) String materialType,
-                                   @RequestParam(required = false) Integer status) {
-        tapeFormulaService.exportRawMaterials(response, materialCode, materialName, materialCategory, materialType, status);
+                                   @RequestParam(required = false) Integer status,
+                                   @RequestParam(required = false) String releaseForceA,
+                                   @RequestParam(required = false) String releaseForceB) {
+        tapeFormulaService.exportRawMaterials(response, materialCode, materialName, materialCategory, materialType, status, releaseForceA, releaseForceB);
     }
 
     /**
@@ -217,5 +233,13 @@ public class TapeFormulaController {
     @PreAuthorize("hasAnyAuthority('admin','rd')")
     public ResponseResult<?> initializeRawMaterials() {
         return tapeFormulaService.initializeRawMaterials();
+    }
+
+    private String getCurrentUsername() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication != null && authentication.getPrincipal() instanceof LoginUser) {
+            return ((LoginUser) authentication.getPrincipal()).getUsername();
+        }
+        return "system";
     }
 }

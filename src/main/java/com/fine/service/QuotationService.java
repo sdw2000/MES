@@ -38,6 +38,11 @@ public interface QuotationService extends IService<Quotation> {
      */
     ResponseResult<?> updateQuotation(Quotation quotation);
 
+    /**
+     * 重报：基于旧报价快速复制创建新报价
+     */
+    ResponseResult<?> reQuote(Long quotationId);
+
     ResponseResult<?> getQuotationItemVersionHistory(QuotationItemVersionQuery query);
     
     /**

@@ -34,9 +34,25 @@ public interface ChemicalStockService {
      * @param current 当前页（从1开始）
      * @param size 每页大小
      * @param chemicalType 化工类型筛选（可选）
+        * @param materialCode 料号筛选（可选，支持模糊匹配）
+        * @param sortField 排序字段（可选，前端字段名）
+        * @param sortOrder 排序方向（ascending/descending）
      * @return 分页结果
      */
-    IPage<ChemicalStock> getChemicalStockPage(long current, long size, String chemicalType);
+        IPage<ChemicalStock> getChemicalStockPage(long current,
+                                         long size,
+                                         String chemicalType,
+                                         String materialCode,
+                                         String sortField,
+                                         String sortOrder);
+
+        /**
+        * 查询化工库存统计（全表聚合，非当前页）
+        * @param chemicalType 化工类型筛选（可选）
+        * @param materialCode 料号筛选（可选，支持模糊匹配）
+        * @return 统计结果
+        */
+        Map<String, Object> getChemicalStockStatistics(String chemicalType, String materialCode);
     
     /**
      * 根据ID查询化工库存
@@ -44,6 +60,14 @@ public interface ChemicalStockService {
      * @return 化工库存
      */
     ChemicalStock getById(Long id);
+
+    /**
+     * 更新化工库存主表（用于初始化维护）
+     * @param id 库存ID
+     * @param stock 更新字段
+     * @return 更新后的库存
+     */
+    ChemicalStock updateStock(Long id, ChemicalStock stock);
     
     /**
      * 查询化工库存明细
@@ -130,4 +154,19 @@ public interface ChemicalStockService {
      * @return 导入结果
      */
     Map<String, Object> importExcel(MultipartFile file);
+
+    /**
+     * 导入化工库存Excel（可选：导入前先清空）
+     * @param file Excel文件
+     * @param clearBeforeImport 是否导入前先清空化工库存
+     * @return 导入结果
+     */
+    Map<String, Object> importExcel(MultipartFile file, boolean clearBeforeImport);
+
+    /**
+     * 清空化工库存数据（用于重新盘点后全量重导）
+     * @param clearOutboundRecords 是否清空出库记录
+     * @return 清空结果统计
+     */
+    Map<String, Object> clearForReimport(boolean clearOutboundRecords);
 }

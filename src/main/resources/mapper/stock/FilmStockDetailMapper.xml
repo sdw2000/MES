@@ -140,5 +140,44 @@
             #{id}
         </foreach>
     </update>
+
+    <!-- 按卷号查询（包含逻辑删除记录） -->
+    <select id="selectOneByRollNoIncludingDeleted" resultType="com.fine.model.stock.FilmStockDetail">
+        SELECT
+            id,
+            stock_id       AS filmStockId,
+            material_code  AS materialCode,
+            batch_no       AS batchNo,
+            roll_no        AS rollNo,
+            thickness,
+            width,
+            length,
+            diameter,
+            core_diameter  AS coreDiameter,
+            weight,
+            area,
+            quality_level  AS qualityLevel,
+            quality_status AS qcStatus,
+            warehouse,
+            location,
+            supplier,
+            purchase_order_no AS purchaseOrderNo,
+            arrival_date   AS arrivalDate,
+            storage_date   AS inboundDate,
+            unit_price     AS unitPrice,
+            status,
+            locked_by      AS lockedBy,
+            locked_time    AS lockedTime,
+            remark,
+            create_by      AS createBy,
+            create_time    AS createTime,
+            update_by      AS updateBy,
+            update_time    AS updateTime,
+            is_deleted     AS isDeleted
+        FROM film_stock_detail
+        WHERE roll_no = #{rollNo}
+        ORDER BY id DESC
+        LIMIT 1
+    </select>
     
 </mapper>

@@ -21,19 +21,21 @@ public class ChemicalRequisitionController {
 
     @PostMapping("/generate")
     public ResponseResult<Map<String, Object>> generate(@RequestParam String planDate,
+                                                        @RequestParam(required = false) Long scheduleId,
                                                         @RequestParam(required = false) String orderNo,
                                                         @RequestParam(required = false) String materialCode) {
-        Map<String, Object> data = chemicalRequisitionService.generateFromCoatingPlan(LocalDate.parse(planDate), orderNo, materialCode);
+        Map<String, Object> data = chemicalRequisitionService.generateFromCoatingPlan(LocalDate.parse(planDate), scheduleId, orderNo, materialCode);
         return ResponseResult.success("已按配方生成锁定/请购", data);
     }
 
     @PostMapping("/lock-query")
     public ResponseResult<Map<String, Object>> lockQuery(@RequestParam String planDate,
+                                                         @RequestParam(required = false) Long scheduleId,
                                                          @RequestParam(required = false) String orderNo,
                                                          @RequestParam(required = false) String materialCode) {
         LocalDate targetDate = LocalDate.parse(planDate);
-        Map<String, Object> summary = chemicalRequisitionService.generateFromCoatingPlan(targetDate, orderNo, materialCode);
-        java.util.List<Map<String, Object>> locks = chemicalRequisitionService.queryLocksByPlan(targetDate, orderNo, materialCode);
+        Map<String, Object> summary = chemicalRequisitionService.generateFromCoatingPlan(targetDate, scheduleId, orderNo, materialCode);
+        java.util.List<Map<String, Object>> locks = chemicalRequisitionService.queryLocksByPlan(targetDate, scheduleId, orderNo, materialCode);
 
         java.util.Map<String, Object> data = new java.util.LinkedHashMap<>();
         data.put("planDate", planDate);
@@ -45,17 +47,46 @@ public class ChemicalRequisitionController {
     @PostMapping("/issue-confirm")
     public ResponseResult<Map<String, Object>> issueConfirm(@RequestBody Map<String, Object> payload) {
         java.util.List<Long> lockIds = new java.util.ArrayList<>();
+        java.util.Map<Long, Integer> lockQtyMap = new java.util.LinkedHashMap<>();
+
+        Object issueItemsRaw = payload == null ? null : payload.get("issueItems");
+        if (issueItemsRaw instanceof java.util.List) {
+            for (Object obj : (java.util.List<?>) issueItemsRaw) {
+                if (!(obj instanceof Map)) {
+                    continue;
+                }
+                Map<?, ?> row = (Map<?, ?>) obj;
+                Object lockIdObj = row.get("lockId");
+                Object issueQtyObj = row.get("issueQty");
+                try {
+                    Long lockId = Long.parseLong(String.valueOf(lockIdObj));
+                    int issueQty = (int) Math.round(Double.parseDouble(String.valueOf(issueQtyObj)));
+                    if (lockId > 0 && issueQty > 0) {
+                        lockQtyMap.put(lockId, issueQty);
+                    }
+                } catch (Exception ignore) {
+                }
+            }
+        }
+
         Object raw = payload == null ? null : payload.get("lockIds");
         if (raw instanceof java.util.List) {
             for (Object obj : (java.util.List<?>) raw) {
                 try {
-                    lockIds.add(Long.parseLong(String.valueOf(obj)));
+                    Long id = Long.parseLong(String.valueOf(obj));
+                    lockIds.add(id);
+                    lockQtyMap.putIfAbsent(id, Integer.MAX_VALUE);
                 } catch (Exception ignore) {
                 }
             }
         }
         String operator = payload == null ? null : String.valueOf(payload.getOrDefault("operator", "production"));
-        Map<String, Object> data = chemicalRequisitionService.confirmIssueByLocks(lockIds, operator);
+        Map<String, Object> data;
+        if (!lockQtyMap.isEmpty()) {
+            data = chemicalRequisitionService.confirmIssueByLocks(lockQtyMap, operator);
+        } else {
+            data = chemicalRequisitionService.confirmIssueByLocks(lockIds, operator);
+        }
         return ResponseResult.success("领料确认成功，已同步仓库出库", data);
     }
 

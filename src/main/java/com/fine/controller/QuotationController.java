@@ -81,6 +81,12 @@ public class QuotationController {
 		return quotationService.updateQuotation(quotation);
 	}
 
+	@PostMapping("/requote/{quotationId}")
+	@Transactional
+	public ResponseResult<?> reQuote(@PathVariable Long quotationId) {
+		return quotationService.reQuote(quotationId);
+	}
+
 	@PostMapping("/item-versions")
 	public ResponseResult<?> getQuotationItemVersions(@RequestBody QuotationItemVersionQuery query) {
 		return quotationService.getQuotationItemVersionHistory(query);

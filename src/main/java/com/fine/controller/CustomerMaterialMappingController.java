@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.multipart.MultipartFile;
+import javax.annotation.PostConstruct;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -46,6 +47,21 @@ public class CustomerMaterialMappingController {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @PostConstruct
+    public void ensureWidthToleranceColumn() {
+        try {
+            Integer cnt = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(1) FROM information_schema.COLUMNS " +
+                            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'customer_material_mapping' AND COLUMN_NAME = 'width_tolerance'",
+                    Integer.class
+            );
+            if (cnt != null && cnt == 0) {
+                jdbcTemplate.execute("ALTER TABLE customer_material_mapping ADD COLUMN width_tolerance DECIMAL(10,3) NULL COMMENT '宽度公差(mm)' AFTER customer_width");
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
     @GetMapping("/page")
     public ResponseResult<?> page(
             @RequestParam(defaultValue = "1") Integer pageNum,
@@ -59,6 +75,7 @@ public class CustomerMaterialMappingController {
             @RequestParam(required = false) BigDecimal length,
             @RequestParam(required = false) BigDecimal customerThickness,
             @RequestParam(required = false) BigDecimal customerWidth,
+                @RequestParam(required = false) BigDecimal widthTolerance,
             @RequestParam(required = false) BigDecimal customerLength,
             @RequestParam(required = false) Integer isActive
     ) {
@@ -105,6 +122,9 @@ public class CustomerMaterialMappingController {
             }
             if (customerWidth != null) {
                 wrapper.eq("customer_width", customerWidth);
+            }
+            if (widthTolerance != null) {
+                wrapper.eq("width_tolerance", widthTolerance);
             }
             if (customerLength != null) {
                 wrapper.eq("customer_length", customerLength);
@@ -181,6 +201,7 @@ public class CustomerMaterialMappingController {
             entity.setLength(body.getLength());
             entity.setCustomerThickness(body.getCustomerThickness() == null ? body.getThickness() : body.getCustomerThickness());
             entity.setCustomerWidth(body.getCustomerWidth() == null ? body.getWidth() : body.getCustomerWidth());
+            entity.setWidthTolerance(body.getWidthTolerance());
             entity.setCustomerLength(body.getCustomerLength() == null ? body.getLength() : body.getCustomerLength());
             entity.setCustomerMaterialCode(body.getCustomerMaterialCode() == null ? null : body.getCustomerMaterialCode().trim());
             entity.setCustomerMaterialName(body.getCustomerMaterialName() == null ? null : body.getCustomerMaterialName().trim());
@@ -244,6 +265,7 @@ public class CustomerMaterialMappingController {
                 entity.setLength(body.getLength());
                 entity.setCustomerThickness(body.getCustomerThickness() == null ? body.getThickness() : body.getCustomerThickness());
                 entity.setCustomerWidth(body.getCustomerWidth() == null ? body.getWidth() : body.getCustomerWidth());
+                entity.setWidthTolerance(body.getWidthTolerance());
                 entity.setCustomerLength(body.getCustomerLength() == null ? body.getLength() : body.getCustomerLength());
                 entity.setCustomerMaterialCode(body.getCustomerMaterialCode() == null ? null : body.getCustomerMaterialCode().trim());
                 entity.setCustomerMaterialName(body.getCustomerMaterialName() == null ? null : body.getCustomerMaterialName().trim());
@@ -388,6 +410,13 @@ public class CustomerMaterialMappingController {
                 length
             );
 
+            BigDecimal widthTolerance = firstPositive(
+                toBigDecimal(row.get("widthTolerance")),
+                toBigDecimal(row.get("宽度公差")),
+                toBigDecimal(row.get("宽度公差(mm)")),
+                toBigDecimal(row.get("宽度公差（mm）"))
+            );
+
             if (customerCode == null || customerCode.isEmpty() || materialCode == null || materialCode.isEmpty()
                 || thickness == null || width == null || length == null) {
                 skipped++;
@@ -419,6 +448,7 @@ public class CustomerMaterialMappingController {
             entity.setLength(length);
             entity.setCustomerThickness(customerThickness == null ? thickness : customerThickness);
             entity.setCustomerWidth(customerWidth == null ? width : customerWidth);
+            entity.setWidthTolerance(widthTolerance);
             entity.setCustomerLength(customerLength == null ? length : customerLength);
             entity.setCustomerMaterialCode(customerMaterialCode);
             entity.setCustomerMaterialName(customerMaterialName);
@@ -483,6 +513,7 @@ public class CustomerMaterialMappingController {
             headers.add("我司规格");
             headers.add("客户物料名称");
             headers.add("客户标签规格");
+            headers.add("宽度公差(mm)");
             headers.add("备注");
 
             Map<String, Object> sample = new HashMap<>();
@@ -493,6 +524,7 @@ public class CustomerMaterialMappingController {
             sample.put("我司规格", "50μm*5mm*33m");
             sample.put("客户物料名称", "示例客户品名");
             sample.put("客户标签规格", "50μm*5mm*33m");
+            sample.put("宽度公差(mm)", "0.50");
             sample.put("备注", "示例数据");
 
             Map<String, Object> result = new HashMap<>();
@@ -843,6 +875,7 @@ public class CustomerMaterialMappingController {
                     entity.setLength(l);
                     entity.setCustomerThickness(t);
                     entity.setCustomerWidth(w);
+                    entity.setWidthTolerance(null);
                     entity.setCustomerLength(l);
                     entity.setCustomerMaterialCode(m);
                     entity.setCustomerMaterialName(materialName.isEmpty() ? null : materialName);

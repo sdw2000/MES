@@ -237,6 +237,32 @@ public class ManualScheduleController {
         return Boolean.parseBoolean(text);
     }
 
+    private Integer parseInteger(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).intValue();
+        }
+        String text = String.valueOf(value).trim();
+        if (text.isEmpty()) {
+            return null;
+        }
+        try {
+            return new java.math.BigDecimal(text).setScale(0, java.math.RoundingMode.HALF_UP).intValue();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String parseText(Object value) {
+        if (value == null) {
+            return null;
+        }
+        String text = String.valueOf(value).trim();
+        return text.isEmpty() ? null : text;
+    }
+
     private List<Map<String, Object>> toListOfMap(Object raw) {
         if (!(raw instanceof List<?>)) {
             return null;
@@ -340,8 +366,8 @@ public class ManualScheduleController {
      * 获取涂布排程列表
      */
     @GetMapping("/coating-schedules")
-    public ResponseResult<List<Map<String, Object>>> getCoatingSchedules() {
-        List<Map<String, Object>> list = manualScheduleService.getCoatingSchedules();
+    public ResponseResult<List<Map<String, Object>>> getCoatingSchedules(@RequestParam(defaultValue = "false") boolean includeCompleted) {
+        List<Map<String, Object>> list = manualScheduleService.getCoatingSchedules(includeCompleted);
         return ResponseResult.success(list);
     }
 
@@ -352,24 +378,47 @@ public class ManualScheduleController {
     public ResponseResult<IPage<Map<String, Object>>> getCoatingSchedulesPage(
             @RequestParam(defaultValue = "1") long current,
             @RequestParam(defaultValue = "20") long size,
+            @RequestParam(defaultValue = "false") boolean includeCompleted,
             @RequestParam(required = false) String planDateStart,
             @RequestParam(required = false) String planDateEnd,
-            @RequestParam(required = false) String status) {
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String coatingEquipment,
+            @RequestParam(required = false) String materialCode) {
 
         boolean noFilter = (planDateStart == null || planDateStart.trim().isEmpty())
                 && (planDateEnd == null || planDateEnd.trim().isEmpty())
-                && (status == null || status.trim().isEmpty());
+            && (status == null || status.trim().isEmpty())
+            && (coatingEquipment == null || coatingEquipment.trim().isEmpty())
+            && (materialCode == null || materialCode.trim().isEmpty());
 
         IPage<Map<String, Object>> page;
         if (noFilter) {
-            page = manualScheduleService.getCoatingSchedulesPage(current, size);
+            page = manualScheduleService.getCoatingSchedulesPage(current, size, includeCompleted);
         } else {
             LocalDate startDate = parseDate(planDateStart);
             LocalDate endDate = parseDate(planDateEnd);
             String statusFilter = status == null ? null : status.trim();
+            String coatingEquipmentFilter = coatingEquipment == null ? null : coatingEquipment.trim();
+            String materialCodeFilter = materialCode == null ? null : materialCode.trim().toUpperCase();
 
-            List<Map<String, Object>> all = manualScheduleService.getCoatingSchedules();
+            List<Map<String, Object>> all = manualScheduleService.getCoatingSchedules(includeCompleted);
             List<Map<String, Object>> filtered = all.stream().filter(row -> {
+                if (materialCodeFilter != null && !materialCodeFilter.isEmpty()) {
+                    Object material = row.get("material_code");
+                    String rowMaterial = material == null ? "" : String.valueOf(material).trim().toUpperCase();
+                    if (!rowMaterial.contains(materialCodeFilter)) {
+                        return false;
+                    }
+                }
+
+                if (coatingEquipmentFilter != null && !coatingEquipmentFilter.isEmpty()) {
+                    Object eq = row.get("coating_equipment");
+                    String rowEq = eq == null ? "" : String.valueOf(eq).trim();
+                    if (!coatingEquipmentFilter.equals(rowEq)) {
+                        return false;
+                    }
+                }
+
                 if (statusFilter != null && !statusFilter.isEmpty()) {
                     Object st = row.get("status");
                     if (!matchCoatingStatusFilter(st == null ? null : String.valueOf(st), statusFilter)) {
@@ -483,8 +532,10 @@ public class ManualScheduleController {
     public ResponseResult<IPage<Map<String, Object>>> getSlittingSchedulesPage(
             @RequestParam(defaultValue = "1") long current,
             @RequestParam(defaultValue = "20") long size,
-            @RequestParam(required = false) String orderNo) {
-        IPage<Map<String, Object>> page = manualScheduleService.getSlittingSchedulesPage(current, size, orderNo);
+            @RequestParam(required = false) String orderNo,
+            @RequestParam(required = false) String sortProp,
+            @RequestParam(required = false) String sortOrder) {
+        IPage<Map<String, Object>> page = manualScheduleService.getSlittingSchedulesPage(current, size, orderNo, sortProp, sortOrder);
         return ResponseResult.success(page);
     }
 
@@ -554,6 +605,11 @@ public class ManualScheduleController {
             String endTime = params.get("endTime") == null ? null : String.valueOf(params.get("endTime"));
             String operator = params.get("operator") == null ? null : String.valueOf(params.get("operator"));
             String remark = params.get("remark") == null ? null : String.valueOf(params.get("remark"));
+            String materialCode = parseText(params.get("materialCode"));
+            String materialName = parseText(params.get("materialName"));
+            Integer thickness = parseInteger(params.get("thickness"));
+            Integer widthMm = parseInteger(params.get("widthMm"));
+            Integer lengthM = parseInteger(params.get("lengthM"));
             Boolean skipIntermediateInbound = params.get("skipIntermediateInbound") == null
                     ? Boolean.FALSE
                     : Boolean.valueOf(String.valueOf(params.get("skipIntermediateInbound")));
@@ -596,6 +652,11 @@ public class ManualScheduleController {
                         proceedNextProcess,
                     producedRolls,
                     materialIssues,
+                    materialCode,
+                    materialName,
+                    thickness,
+                    widthMm,
+                    lengthM,
                     operator,
                     remark
             );
@@ -630,6 +691,18 @@ public class ManualScheduleController {
     }
 
     /**
+     * 查询单条工序报工完整详情（含母卷/领料明细）
+     */
+    @GetMapping("/report-work/detail")
+    public ResponseResult<Map<String, Object>> getReportWorkDetail(@RequestParam Long reportId) {
+        try {
+            return ResponseResult.success(manualScheduleService.getProcessWorkReportDetail(reportId));
+        } catch (Exception e) {
+            return ResponseResult.error("查询报工详情失败: " + e.getMessage());
+        }
+    }
+
+    /**
      * 更新工序报工记录
      */
     @PostMapping("/report-work/update")
@@ -654,6 +727,9 @@ public class ManualScheduleController {
                     ? Boolean.TRUE
                     : Boolean.valueOf(String.valueOf(params.get("proceedNextProcess")));
 
+                List<Map<String, Object>> producedRolls = toListOfMap(params.get("producedRolls"));
+                List<Map<String, Object>> materialIssues = toListOfMap(params.get("materialIssues"));
+
             java.math.BigDecimal producedQty = null;
             Object producedQtyObj = params.get("producedQty");
             if (producedQtyObj instanceof Number) {
@@ -668,6 +744,8 @@ public class ManualScheduleController {
                     endTime,
                     producedQty,
                     proceedNextProcess,
+                        producedRolls,
+                        materialIssues,
                     operator,
                     remark
             );
@@ -723,6 +801,20 @@ public class ManualScheduleController {
             return ResponseResult.success(manualScheduleService.getProcessMaterialIssues(scheduleId, processType));
         } catch (Exception e) {
             return ResponseResult.error("查询工序领料明细失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 查询工序领料BOM模板（用于自动带出领料项）
+     */
+    @GetMapping("/report-work/material-issue-template")
+    public ResponseResult<List<Map<String, Object>>> getProcessMaterialIssueTemplate(@RequestParam(required = false) Long scheduleId,
+                                                                                      @RequestParam(required = false) Long orderDetailId,
+                                                                                      @RequestParam String processType) {
+        try {
+            return ResponseResult.success(manualScheduleService.getProcessMaterialIssueTemplate(scheduleId, orderDetailId, processType));
+        } catch (Exception e) {
+            return ResponseResult.error("查询工序领料BOM模板失败: " + e.getMessage());
         }
     }
 
@@ -1115,7 +1207,10 @@ public class ManualScheduleController {
     public ResponseResult<Boolean> confirmSchedule(@RequestBody Map<String, Object> params) {
         String orderNo = (String) params.get("orderNo");
         String materialCode = (String) params.get("materialCode");
-        Integer scheduleQty = ((Number) params.get("scheduleQty")).intValue();
+        Integer scheduleQty = parseInteger(params.get("scheduleQty"));
+        if (scheduleQty == null || scheduleQty <= 0) {
+            return ResponseResult.error("请先填写本次排程数量（大于0）");
+        }
 
         Long scheduleId = null;
         Object scheduleIdObj = params.get("scheduleId");

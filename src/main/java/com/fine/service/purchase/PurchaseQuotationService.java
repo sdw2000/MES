@@ -9,6 +9,7 @@ public interface PurchaseQuotationService extends IService<PurchaseQuotation> {
     ResponseResult<?> detail(Long id);
     ResponseResult<?> create(PurchaseQuotation quotation);
     ResponseResult<?> updateQuotation(PurchaseQuotation quotation);
+    ResponseResult<?> reQuote(Long id);
     ResponseResult<?> deleteQuotation(Long id);
     String generateQuotationNo();
 }

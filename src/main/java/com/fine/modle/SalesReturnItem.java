@@ -47,6 +47,9 @@ public class SalesReturnItem {
 
     private BigDecimal sqm;
 
+    /** 计价单位：卷 / m / ㎡ */
+    private String priceUnit;
+
     private BigDecimal unitPrice;
 
     private BigDecimal amount;

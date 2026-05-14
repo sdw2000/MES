@@ -370,6 +370,7 @@ public class SalesReturnServiceImpl extends ServiceImpl<SalesReturnMapper, Sales
                         "soi.length AS length, " +
                         "soi.rolls AS rolls, " +
                         "soi.sqm AS sqm, " +
+                        "COALESCE(NULLIF(soi.unit, ''), '㎡') AS priceUnit, " +
                         "soi.unit_price AS unitPrice, " +
                         "soi.amount AS amount, " +
                         "soi.remark AS remark " +
@@ -516,6 +517,10 @@ public class SalesReturnServiceImpl extends ServiceImpl<SalesReturnMapper, Sales
                 }
                 String materialCode = trimToNull(item.getMaterialCode());
                 if (materialCode == null) {
+                    skippedCount++;
+                    continue;
+                }
+                if (isFreightMaterialCode(materialCode)) {
                     skippedCount++;
                     continue;
                 }
@@ -720,12 +725,25 @@ public class SalesReturnServiceImpl extends ServiceImpl<SalesReturnMapper, Sales
         BigDecimal totalAmount = BigDecimal.ZERO;
 
         for (SalesReturnItem item : items) {
+            if (item == null) {
+                continue;
+            }
             BigDecimal sqm = calcSqm(item);
+            if (isFreightMaterialCode(item == null ? null : item.getMaterialCode())) {
+                sqm = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+            }
             item.setSqm(sqm);
-            BigDecimal unitPrice = item.getUnitPrice() == null ? BigDecimal.ZERO : item.getUnitPrice();
+            String priceUnit = isFreightMaterialCode(item == null ? null : item.getMaterialCode())
+                    ? "卷"
+                    : normalizePriceUnit(item.getPriceUnit());
+            item.setPriceUnit(priceUnit);
+            BigDecimal unitPrice = item.getUnitPrice() == null ? BigDecimal.ZERO : item.getUnitPrice().setScale(4, RoundingMode.HALF_UP);
+            item.setUnitPrice(unitPrice);
             BigDecimal amount = item.getAmount();
             if (amount == null) {
-                amount = sqm.multiply(unitPrice).setScale(2, RoundingMode.HALF_UP);
+                amount = calcAmountByPriceUnit(item, sqm, unitPrice).setScale(4, RoundingMode.HALF_UP);
+            } else {
+                amount = amount.setScale(4, RoundingMode.HALF_UP);
             }
             item.setAmount(amount);
             totalArea = totalArea.add(sqm);
@@ -733,8 +751,8 @@ public class SalesReturnServiceImpl extends ServiceImpl<SalesReturnMapper, Sales
         }
 
         salesReturn.setTotalArea(totalArea.setScale(2, RoundingMode.HALF_UP));
-        salesReturn.setTotalAmount(totalAmount.setScale(2, RoundingMode.HALF_UP));
-        salesReturn.setStatementAmount(totalAmount.abs().negate().setScale(2, RoundingMode.HALF_UP));
+        salesReturn.setTotalAmount(totalAmount.setScale(4, RoundingMode.HALF_UP));
+        salesReturn.setStatementAmount(totalAmount.abs().negate().setScale(4, RoundingMode.HALF_UP));
         LocalDate d = salesReturn.getReturnDate() == null ? LocalDate.now() : salesReturn.getReturnDate();
         salesReturn.setStatementMonth(YearMonth.from(d).toString());
     }
@@ -832,14 +850,63 @@ public class SalesReturnServiceImpl extends ServiceImpl<SalesReturnMapper, Sales
                 .divide(BigDecimal.valueOf(1000), 2, RoundingMode.HALF_UP);
     }
 
+    private BigDecimal calcAmountByPriceUnit(SalesReturnItem item, BigDecimal sqm, BigDecimal unitPrice) {
+        if (item == null || unitPrice == null) {
+            return BigDecimal.ZERO;
+        }
+        if (isFreightMaterialCode(item.getMaterialCode())) {
+            int rolls = item.getRolls() == null ? 0 : item.getRolls();
+            return unitPrice.multiply(BigDecimal.valueOf(rolls));
+        }
+        String priceUnit = normalizePriceUnit(item.getPriceUnit());
+        if ("卷".equals(priceUnit)) {
+            int rolls = item.getRolls() == null ? 0 : item.getRolls();
+            return unitPrice.multiply(BigDecimal.valueOf(rolls));
+        }
+        if ("m".equals(priceUnit)) {
+            BigDecimal length = item.getLength() == null ? BigDecimal.ZERO : item.getLength();
+            int rolls = item.getRolls() == null ? 0 : item.getRolls();
+            return unitPrice.multiply(length).multiply(BigDecimal.valueOf(rolls));
+        }
+        return (sqm == null ? BigDecimal.ZERO : sqm).multiply(unitPrice);
+    }
+
+    private String normalizePriceUnit(String priceUnit) {
+        if (priceUnit == null || priceUnit.trim().isEmpty()) {
+            return "㎡";
+        }
+        String unit = priceUnit.trim();
+        if ("卷".equals(unit)) {
+            return "卷";
+        }
+        if ("m".equalsIgnoreCase(unit) || "米".equals(unit)) {
+            return "m";
+        }
+        return "㎡";
+    }
+
+    private boolean isFreightMaterialCode(String materialCode) {
+        return materialCode != null && "yunfei001".equalsIgnoreCase(materialCode.trim());
+    }
+
     private void saveItems(Long returnId, List<SalesReturnItem> items, Date now) {
         if (items == null || items.isEmpty()) return;
         String operator = getCurrentUsername();
+        Map<String, MaterialSpecRef> materialSpecMap = loadMaterialSpecMap(items);
         for (SalesReturnItem item : items) {
+            String materialCode = trimToNull(item.getMaterialCode());
+            if (materialCode != null) {
+                MaterialSpecRef ref = materialSpecMap.get(materialCode.toLowerCase(Locale.ROOT));
+                if (ref != null) {
+                    item.setMaterialCode(ref.materialCode);
+                    item.setMaterialName(trimToNull(ref.productName));
+                } else {
+                    item.setMaterialCode(materialCode);
+                    item.setMaterialName(trimToNull(item.getMaterialName()));
+                }
+            }
             item.setId(null);
             item.setReturnId(returnId);
-            // 降低冗余：退货明细仅保留料号，品名展示由关联主数据带出
-            item.setMaterialName(null);
             item.setCreatedAt(now);
             item.setUpdatedAt(now);
             item.setCreatedBy(operator);
@@ -847,6 +914,41 @@ public class SalesReturnServiceImpl extends ServiceImpl<SalesReturnMapper, Sales
             item.setIsDeleted(0);
             salesReturnItemMapper.insert(item);
         }
+    }
+
+    private Map<String, MaterialSpecRef> loadMaterialSpecMap(List<SalesReturnItem> items) {
+        Set<String> materialCodes = new LinkedHashSet<>();
+        for (SalesReturnItem item : items) {
+            String code = trimToNull(item == null ? null : item.getMaterialCode());
+            if (code != null) {
+                materialCodes.add(code);
+            }
+        }
+        if (materialCodes.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        String placeholders = String.join(",", Collections.nCopies(materialCodes.size(), "?"));
+        String sql = "SELECT material_code AS materialCode, product_name AS productName " +
+                "FROM tape_spec WHERE material_code IN (" + placeholders + ")";
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, materialCodes.toArray());
+        Map<String, MaterialSpecRef> result = new HashMap<>();
+        for (Map<String, Object> row : rows) {
+            String code = trimToNull(row.get("materialCode") == null ? null : String.valueOf(row.get("materialCode")));
+            if (code == null) {
+                continue;
+            }
+            MaterialSpecRef ref = new MaterialSpecRef();
+            ref.materialCode = code;
+            ref.productName = trimToNull(row.get("productName") == null ? null : String.valueOf(row.get("productName")));
+            result.put(code.toLowerCase(Locale.ROOT), ref);
+        }
+        return result;
+    }
+
+    private static class MaterialSpecRef {
+        private String materialCode;
+        private String productName;
     }
 
     private LoginUser getLoginUser() {

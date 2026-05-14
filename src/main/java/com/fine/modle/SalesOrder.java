@@ -10,6 +10,7 @@ import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonFormat;
 
 import lombok.AllArgsConstructor;
@@ -50,6 +51,8 @@ public class SalesOrder {
     private String customerDisplay;
     
     // 客户订单号
+    @TableField("customer_order_no")
+    @JsonAlias({"customer_order_no", "customerOrderNo"})
     private String customerOrderNo;
     
     // 销售（从客户表关联，存储用户ID）

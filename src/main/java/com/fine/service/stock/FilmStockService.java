@@ -36,9 +36,25 @@ public interface FilmStockService {
      * @param current 当前页（从1开始）
      * @param size 每页大小
      * @param thickness 厚度筛选（可选）
+        * @param materialCode 料号筛选（可选，支持模糊匹配）
+        * @param sortField 排序字段（可选，前端字段名）
+        * @param sortOrder 排序方向（ascending/descending）
      * @return 分页结果
      */
-    IPage<FilmStock> getFilmStockPage(long current, long size, Integer thickness);
+        IPage<FilmStock> getFilmStockPage(long current,
+                                   long size,
+                                   Integer thickness,
+                                   String materialCode,
+                                   String sortField,
+                                   String sortOrder);
+
+      /**
+       * 薄膜库存统计（全量聚合，非当前页）
+       * @param thickness 厚度筛选（可选）
+       * @param materialCode 料号筛选（可选）
+       * @return 统计信息
+       */
+      Map<String, Object> getFilmStockStatistics(Integer thickness, String materialCode);
     
     /**
      * 根据ID查询薄膜库存
@@ -151,4 +167,19 @@ public interface FilmStockService {
      * @return 导入结果
      */
     Map<String, Object> importExcel(MultipartFile file);
+
+    /**
+     * 导入薄膜库存Excel（可选：导入前先清空）
+     * @param file Excel文件
+     * @param clearBeforeImport 是否导入前先清空薄膜库存
+     * @return 导入结果
+     */
+    Map<String, Object> importExcel(MultipartFile file, boolean clearBeforeImport);
+
+    /**
+     * 清空薄膜库存数据（用于重新盘点后全量重导）
+     * @param clearOutboundRecords 是否清空出库记录
+     * @return 清空结果统计
+     */
+    Map<String, Object> clearForReimport(boolean clearOutboundRecords);
 }

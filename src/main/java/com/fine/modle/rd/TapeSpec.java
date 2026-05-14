@@ -46,6 +46,20 @@ public class TapeSpec {
     // 耐温
     private BigDecimal heatResistance;     // 耐温标准值
     private String heatResistanceType;     // gte
+
+    // 扩展检测项目（用于检测报告额外项目）
+    private String extraQcItem1Name;
+    private String extraQcItem1Unit;
+    private String extraQcItem1Standard;
+    private String extraQcItem2Name;
+    private String extraQcItem2Unit;
+    private String extraQcItem2Standard;
+    private String extraQcItem3Name;
+    private String extraQcItem3Unit;
+    private String extraQcItem3Standard;
+    private String extraQcItem4Name;
+    private String extraQcItem4Unit;
+    private String extraQcItem4Standard;
     
     private String remark;
     private Integer status;
@@ -123,6 +137,42 @@ public class TapeSpec {
     
     public String getHeatResistanceType() { return heatResistanceType; }
     public void setHeatResistanceType(String heatResistanceType) { this.heatResistanceType = heatResistanceType; }
+
+    public String getExtraQcItem1Name() { return extraQcItem1Name; }
+    public void setExtraQcItem1Name(String extraQcItem1Name) { this.extraQcItem1Name = extraQcItem1Name; }
+
+    public String getExtraQcItem1Unit() { return extraQcItem1Unit; }
+    public void setExtraQcItem1Unit(String extraQcItem1Unit) { this.extraQcItem1Unit = extraQcItem1Unit; }
+
+    public String getExtraQcItem1Standard() { return extraQcItem1Standard; }
+    public void setExtraQcItem1Standard(String extraQcItem1Standard) { this.extraQcItem1Standard = extraQcItem1Standard; }
+
+    public String getExtraQcItem2Name() { return extraQcItem2Name; }
+    public void setExtraQcItem2Name(String extraQcItem2Name) { this.extraQcItem2Name = extraQcItem2Name; }
+
+    public String getExtraQcItem2Unit() { return extraQcItem2Unit; }
+    public void setExtraQcItem2Unit(String extraQcItem2Unit) { this.extraQcItem2Unit = extraQcItem2Unit; }
+
+    public String getExtraQcItem2Standard() { return extraQcItem2Standard; }
+    public void setExtraQcItem2Standard(String extraQcItem2Standard) { this.extraQcItem2Standard = extraQcItem2Standard; }
+
+    public String getExtraQcItem3Name() { return extraQcItem3Name; }
+    public void setExtraQcItem3Name(String extraQcItem3Name) { this.extraQcItem3Name = extraQcItem3Name; }
+
+    public String getExtraQcItem3Unit() { return extraQcItem3Unit; }
+    public void setExtraQcItem3Unit(String extraQcItem3Unit) { this.extraQcItem3Unit = extraQcItem3Unit; }
+
+    public String getExtraQcItem3Standard() { return extraQcItem3Standard; }
+    public void setExtraQcItem3Standard(String extraQcItem3Standard) { this.extraQcItem3Standard = extraQcItem3Standard; }
+
+    public String getExtraQcItem4Name() { return extraQcItem4Name; }
+    public void setExtraQcItem4Name(String extraQcItem4Name) { this.extraQcItem4Name = extraQcItem4Name; }
+
+    public String getExtraQcItem4Unit() { return extraQcItem4Unit; }
+    public void setExtraQcItem4Unit(String extraQcItem4Unit) { this.extraQcItem4Unit = extraQcItem4Unit; }
+
+    public String getExtraQcItem4Standard() { return extraQcItem4Standard; }
+    public void setExtraQcItem4Standard(String extraQcItem4Standard) { this.extraQcItem4Standard = extraQcItem4Standard; }
     
     public String getRemark() { return remark; }
     public void setRemark(String remark) { this.remark = remark; }

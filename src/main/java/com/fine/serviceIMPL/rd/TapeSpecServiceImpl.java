@@ -8,9 +8,11 @@ import com.fine.service.rd.TapeSpecService;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import javax.annotation.PostConstruct;
 import javax.servlet.http.HttpServletResponse;
 import java.io.OutputStream;
 import java.math.BigDecimal;
@@ -26,21 +28,51 @@ public class TapeSpecServiceImpl implements TapeSpecService {
     @Autowired
     private TapeSpecMapper tapeSpecMapper;
 
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
     private final DataFormatter dataFormatter = new DataFormatter();
+
+    @PostConstruct
+    public void ensureExtraQcColumns() {
+        String[] ddls = new String[] {
+                "ALTER TABLE tape_spec ADD COLUMN IF NOT EXISTS extra_qc_item1_name VARCHAR(100) NULL COMMENT '扩展检测项目1名称'",
+                "ALTER TABLE tape_spec ADD COLUMN IF NOT EXISTS extra_qc_item1_unit VARCHAR(30) NULL COMMENT '扩展检测项目1单位'",
+                "ALTER TABLE tape_spec ADD COLUMN IF NOT EXISTS extra_qc_item1_standard VARCHAR(100) NULL COMMENT '扩展检测项目1标准值'",
+                "ALTER TABLE tape_spec ADD COLUMN IF NOT EXISTS extra_qc_item2_name VARCHAR(100) NULL COMMENT '扩展检测项目2名称'",
+                "ALTER TABLE tape_spec ADD COLUMN IF NOT EXISTS extra_qc_item2_unit VARCHAR(30) NULL COMMENT '扩展检测项目2单位'",
+                "ALTER TABLE tape_spec ADD COLUMN IF NOT EXISTS extra_qc_item2_standard VARCHAR(100) NULL COMMENT '扩展检测项目2标准值'",
+                "ALTER TABLE tape_spec ADD COLUMN IF NOT EXISTS extra_qc_item3_name VARCHAR(100) NULL COMMENT '扩展检测项目3名称'",
+                "ALTER TABLE tape_spec ADD COLUMN IF NOT EXISTS extra_qc_item3_unit VARCHAR(30) NULL COMMENT '扩展检测项目3单位'",
+                "ALTER TABLE tape_spec ADD COLUMN IF NOT EXISTS extra_qc_item3_standard VARCHAR(100) NULL COMMENT '扩展检测项目3标准值'",
+                "ALTER TABLE tape_spec ADD COLUMN IF NOT EXISTS extra_qc_item4_name VARCHAR(100) NULL COMMENT '扩展检测项目4名称'",
+                "ALTER TABLE tape_spec ADD COLUMN IF NOT EXISTS extra_qc_item4_unit VARCHAR(30) NULL COMMENT '扩展检测项目4单位'",
+                "ALTER TABLE tape_spec ADD COLUMN IF NOT EXISTS extra_qc_item4_standard VARCHAR(100) NULL COMMENT '扩展检测项目4标准值'"
+        };
+        for (String ddl : ddls) {
+            try {
+                jdbcTemplate.execute(Objects.requireNonNull(ddl));
+            } catch (Exception ignore) {
+            }
+        }
+    }
 
     @Override
     public ResponseResult<?> getList(int page, int size, String materialCode, String productName,
                                      String colorCode, String baseMaterial, Integer status) {
-        int offset = (page - 1) * size;
-        List<TapeSpec> list = tapeSpecMapper.selectList(materialCode, productName, colorCode, baseMaterial, status, offset, size);
+        int safePage = Math.max(page, 1);
+        int safeSize = size <= 0 ? 20 : Math.min(size, 200);
+        int offset = (safePage - 1) * safeSize;
+        String normalizedBaseMaterial = normalizeBaseMaterialCode(baseMaterial);
+        List<TapeSpec> list = tapeSpecMapper.selectList(materialCode, productName, colorCode, normalizedBaseMaterial, status, offset, safeSize);
         fillMissingColorNameForList(list);
-        int total = tapeSpecMapper.selectCount(materialCode, productName, colorCode, baseMaterial, status);
+        int total = tapeSpecMapper.selectCount(materialCode, productName, colorCode, normalizedBaseMaterial, status);
 
         Map<String, Object> result = new HashMap<>();
         result.put("records", list);
         result.put("total", total);
-        result.put("page", page);
-        result.put("size", size);
+        result.put("page", safePage);
+        result.put("size", safeSize);
 
         return new ResponseResult<>(20000, "查询成功", result);
     }
@@ -51,6 +83,7 @@ public class TapeSpecServiceImpl implements TapeSpecService {
         if (spec == null) {
             return new ResponseResult<>(50000, "规格不存在");
         }
+        normalizeBaseMaterialField(spec);
         return new ResponseResult<>(20000, "查询成功", spec);
     }
 
@@ -60,6 +93,7 @@ public class TapeSpecServiceImpl implements TapeSpecService {
         if (spec == null) {
             return new ResponseResult<>(50000, "料号不存在");
         }
+        normalizeBaseMaterialField(spec);
         return new ResponseResult<>(20000, "查询成功", spec);
     }
 
@@ -82,6 +116,7 @@ public class TapeSpecServiceImpl implements TapeSpecService {
             return new ResponseResult<>(50000, "料号已存在");
         }
 
+        normalizeBaseMaterialField(spec);
         normalizeColorFields(spec, buildColorDictMap());
         spec.setStatus(spec.getStatus() == null ? 1 : spec.getStatus());
         spec.setCreateBy(operator);
@@ -101,6 +136,7 @@ public class TapeSpecServiceImpl implements TapeSpecService {
             return new ResponseResult<>(50000, "料号已存在");
         }
 
+        normalizeBaseMaterialField(spec);
         normalizeColorFields(spec, buildColorDictMap());
         spec.setUpdateBy(operator);
         tapeSpecMapper.update(spec);
@@ -130,9 +166,19 @@ public class TapeSpecServiceImpl implements TapeSpecService {
     }
 
     @Override
-    public ResponseResult<?> getColorDictList(String keyword, Integer status) {
-        List<DictItem> list = tapeSpecMapper.selectColorDictAll(keyword, status);
-        return new ResponseResult<>(20000, "查询成功", list);
+    public ResponseResult<?> getColorDictList(String keyword, Integer status, int page, int size) {
+        int safePage = Math.max(page, 1);
+        int safeSize = size <= 0 ? 20 : Math.min(size, 200);
+        int offset = (safePage - 1) * safeSize;
+        List<DictItem> list = tapeSpecMapper.selectColorDictAllPaged(keyword, status, offset, safeSize);
+        int total = tapeSpecMapper.selectColorDictAllCount(keyword, status);
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("records", list == null ? Collections.emptyList() : list);
+        result.put("total", total);
+        result.put("page", safePage);
+        result.put("size", safeSize);
+        return new ResponseResult<>(20000, "查询成功", result);
     }
 
     @Override
@@ -219,7 +265,12 @@ public class TapeSpecServiceImpl implements TapeSpecService {
             // 表头
                 String[] headers = {"序号", "产品名称", "胶带料号", "颜色代码", "颜色名称", "基材厚度/μm", "基材材质",
                     "胶水材质", "胶水厚度/μm", "初粘/#", "总厚度/μm", "厚度波动/μm",
-                    "剥离力/N/25mm", "解卷力/N/25mm", "耐温/℃/0.5H", "状态"};
+                    "剥离力/N/25mm", "解卷力/N/25mm", "耐温/℃/0.5H",
+                    "扩展项目1", "扩展单位1", "扩展标准1",
+                    "扩展项目2", "扩展单位2", "扩展标准2",
+                    "扩展项目3", "扩展单位3", "扩展标准3",
+                    "扩展项目4", "扩展单位4", "扩展标准4",
+                    "状态"};
 
             Row headerRow = sheet.createRow(0);
             CellStyle headerStyle = workbook.createCellStyle();
@@ -255,7 +306,19 @@ public class TapeSpecServiceImpl implements TapeSpecService {
                 row.createCell(12).setCellValue(spec.getPeelStrengthDisplay());
                 row.createCell(13).setCellValue(spec.getUnwindForceDisplay());
                 row.createCell(14).setCellValue(spec.getHeatResistanceDisplay());
-                row.createCell(15).setCellValue(spec.getStatus() == 1 ? "启用" : "禁用");
+                row.createCell(15).setCellValue(spec.getExtraQcItem1Name() != null ? spec.getExtraQcItem1Name() : "");
+                row.createCell(16).setCellValue(spec.getExtraQcItem1Unit() != null ? spec.getExtraQcItem1Unit() : "");
+                row.createCell(17).setCellValue(spec.getExtraQcItem1Standard() != null ? spec.getExtraQcItem1Standard() : "");
+                row.createCell(18).setCellValue(spec.getExtraQcItem2Name() != null ? spec.getExtraQcItem2Name() : "");
+                row.createCell(19).setCellValue(spec.getExtraQcItem2Unit() != null ? spec.getExtraQcItem2Unit() : "");
+                row.createCell(20).setCellValue(spec.getExtraQcItem2Standard() != null ? spec.getExtraQcItem2Standard() : "");
+                row.createCell(21).setCellValue(spec.getExtraQcItem3Name() != null ? spec.getExtraQcItem3Name() : "");
+                row.createCell(22).setCellValue(spec.getExtraQcItem3Unit() != null ? spec.getExtraQcItem3Unit() : "");
+                row.createCell(23).setCellValue(spec.getExtraQcItem3Standard() != null ? spec.getExtraQcItem3Standard() : "");
+                row.createCell(24).setCellValue(spec.getExtraQcItem4Name() != null ? spec.getExtraQcItem4Name() : "");
+                row.createCell(25).setCellValue(spec.getExtraQcItem4Unit() != null ? spec.getExtraQcItem4Unit() : "");
+                row.createCell(26).setCellValue(spec.getExtraQcItem4Standard() != null ? spec.getExtraQcItem4Standard() : "");
+                row.createCell(27).setCellValue(spec.getStatus() == 1 ? "启用" : "禁用");
                 rowNum++;
             }
 
@@ -298,6 +361,7 @@ public class TapeSpecServiceImpl implements TapeSpecService {
                     normalizeColorFields(spec, colorDictMap);
                     spec.setBaseThickness(getCellDecimalValue(row.getCell(5)));
                     spec.setBaseMaterial(getCellStringValue(row.getCell(6)));
+                    normalizeBaseMaterialField(spec);
                     spec.setGlueMaterial(getCellStringValue(row.getCell(7)));
                     spec.setGlueThickness(getCellDecimalValue(row.getCell(8)));
 
@@ -318,7 +382,21 @@ public class TapeSpecServiceImpl implements TapeSpecService {
                     // 解析耐温
                     parseRangeValue(getCellStringValue(row.getCell(14)), spec, "heatResistance");
 
-                    String statusText = getCellStringValue(row.getCell(15));
+                    // 扩展检测项目（名称/单位/标准值）
+                    spec.setExtraQcItem1Name(getCellStringValue(row.getCell(15)));
+                    spec.setExtraQcItem1Unit(getCellStringValue(row.getCell(16)));
+                    spec.setExtraQcItem1Standard(getCellStringValue(row.getCell(17)));
+                    spec.setExtraQcItem2Name(getCellStringValue(row.getCell(18)));
+                    spec.setExtraQcItem2Unit(getCellStringValue(row.getCell(19)));
+                    spec.setExtraQcItem2Standard(getCellStringValue(row.getCell(20)));
+                    spec.setExtraQcItem3Name(getCellStringValue(row.getCell(21)));
+                    spec.setExtraQcItem3Unit(getCellStringValue(row.getCell(22)));
+                    spec.setExtraQcItem3Standard(getCellStringValue(row.getCell(23)));
+                    spec.setExtraQcItem4Name(getCellStringValue(row.getCell(24)));
+                    spec.setExtraQcItem4Unit(getCellStringValue(row.getCell(25)));
+                    spec.setExtraQcItem4Standard(getCellStringValue(row.getCell(26)));
+
+                    String statusText = getCellStringValue(row.getCell(27));
                     if ("禁用".equals(statusText) || "0".equals(statusText)) {
                         spec.setStatus(0);
                     } else {
@@ -377,7 +455,12 @@ public class TapeSpecServiceImpl implements TapeSpecService {
 
                 String[] headers = {"序号", "产品名称", "胶带料号", "颜色代码", "颜色名称", "基材厚度/μm", "基材材质",
                     "胶水材质", "胶水厚度/μm", "初粘/#", "总厚度/μm", "厚度波动/μm",
-                    "剥离力/N/25mm", "解卷力/N/25mm", "耐温/℃/0.5H", "状态"};
+                    "剥离力/N/25mm", "解卷力/N/25mm", "耐温/℃/0.5H",
+                    "扩展项目1", "扩展单位1", "扩展标准1",
+                    "扩展项目2", "扩展单位2", "扩展标准2",
+                    "扩展项目3", "扩展单位3", "扩展标准3",
+                    "扩展项目4", "扩展单位4", "扩展标准4",
+                    "状态"};
 
             Row headerRow = sheet.createRow(0);
             CellStyle headerStyle = workbook.createCellStyle();
@@ -412,7 +495,19 @@ public class TapeSpecServiceImpl implements TapeSpecService {
             sampleRow.createCell(12).setCellValue("2~4.5");
             sampleRow.createCell(13).setCellValue("0.5~1.5");
             sampleRow.createCell(14).setCellValue("≥110");
-            sampleRow.createCell(15).setCellValue("启用");
+            sampleRow.createCell(15).setCellValue("附着力");
+            sampleRow.createCell(16).setCellValue("N");
+            sampleRow.createCell(17).setCellValue("≥3.5");
+            sampleRow.createCell(18).setCellValue("外观");
+            sampleRow.createCell(19).setCellValue("-");
+            sampleRow.createCell(20).setCellValue("无气泡");
+            sampleRow.createCell(21).setCellValue("");
+            sampleRow.createCell(22).setCellValue("");
+            sampleRow.createCell(23).setCellValue("");
+            sampleRow.createCell(24).setCellValue("");
+            sampleRow.createCell(25).setCellValue("");
+            sampleRow.createCell(26).setCellValue("");
+            sampleRow.createCell(27).setCellValue("启用");
 
             // 说明行
             Row noteRow = sheet.createRow(3);
@@ -563,8 +658,48 @@ public class TapeSpecServiceImpl implements TapeSpecService {
         }
         Map<String, String> colorDictMap = buildColorDictMap();
         for (TapeSpec spec : list) {
+            normalizeBaseMaterialField(spec);
             normalizeColorFields(spec, colorDictMap);
         }
+    }
+
+    private void normalizeBaseMaterialField(TapeSpec spec) {
+        if (spec == null) {
+            return;
+        }
+        spec.setBaseMaterial(normalizeBaseMaterialCode(spec.getBaseMaterial()));
+    }
+
+    private String normalizeBaseMaterialCode(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String value = raw.trim();
+        if (value.isEmpty()) {
+            return value;
+        }
+
+        String upper = value.toUpperCase(Locale.ROOT)
+                .replace(" ", "")
+                .replace("-", "")
+                .replace("_", "");
+
+        if ("PI聚酰亚胺".equals(value) || "聚酰亚胺".equals(value) || "PI".equals(upper)) return "PI";
+        if ("PP聚丙烯".equals(value) || "聚丙烯".equals(value) || "PP".equals(upper)) return "PP";
+
+        if (value.contains("泡棉") || "PEFOAM".equals(upper)) return "PEFOAM";
+        if (value.contains("美纹纸") || value.contains("离型纸") || value.contains("TISSUE")) return "TISSUE";
+        if (value.contains("玻纤布") || value.contains("玻璃纤维") || "FIBERGLASS".equals(upper) || "GLASSFIBER".equals(upper)) return "FIBERGLASS";
+
+        if (value.contains("PET") || "PET".equals(upper)) return "PET";
+        if (value.contains("BOPP") || "BOPP".equals(upper)) return "BOPP";
+        if (value.contains("OPP") || "OPP".equals(upper)) return "OPP";
+        if (value.contains("CPP") || "CPP".equals(upper)) return "CPP";
+        if (value.contains("OPS") || "OPS".equals(upper)) return "OPS";
+        if (value.contains("PVC") || "PVC".equals(upper)) return "PVC";
+        if (value.contains("TPU") || "TPU".equals(upper)) return "TPU";
+
+        return value.toUpperCase(Locale.ROOT);
     }
 
     private String getCellStringValue(Cell cell) {

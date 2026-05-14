@@ -70,6 +70,18 @@ public class UserDetailsServiceImpl implements UserDetailsService {
                 String lower = role.toLowerCase(Locale.ROOT);
                 normalized.add(lower);
 
+                // 角色别名归一：数据库可能存 R&D/研发，系统路由与鉴权统一使用 rd
+                if ("r&d".equals(lower) || "rd".equals(lower) || "research".equals(lower)
+                        || "研发".equals(role) || "研发部".equals(role)) {
+                    normalized.add("rd");
+                }
+
+                // 角色别名归一：质量岗位中文别名统一到 quality
+                if ("quality".equals(lower) || "品质".equals(role) || "质检".equals(role)
+                        || "品质部".equals(role) || "质量".equals(role)) {
+                    normalized.add("quality");
+                }
+
                 // 兼容“涂布”岗位：具备 coating 与 production 双权限
                 if ("涂布".equals(role) || "coating".equals(lower)) {
                     normalized.add("coating");

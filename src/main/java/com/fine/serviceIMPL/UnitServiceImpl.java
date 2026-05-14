@@ -21,6 +21,7 @@ public class UnitServiceImpl implements UnitService {
     private static final int SCALE = 6;
 
     private static class UnitMeta {
+        @SuppressWarnings("unused")
         private final String dimension;
         private final String standardUnit;
         private final BigDecimal factorToStandard;

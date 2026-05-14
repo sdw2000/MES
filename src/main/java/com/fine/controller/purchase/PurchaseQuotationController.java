@@ -44,6 +44,11 @@ public class PurchaseQuotationController {
         return quotationService.updateQuotation(quotation);
     }
 
+    @PostMapping("/{id}/requote")
+    public ResponseResult<?> reQuote(@PathVariable Long id) {
+        return quotationService.reQuote(id);
+    }
+
     @DeleteMapping("/{id}")
     public ResponseResult<?> delete(@PathVariable Long id) {
         return quotationService.deleteQuotation(id);

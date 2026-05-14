@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS manual_schedule_coating_roll (
     schedule_id BIGINT NOT NULL,
     report_id BIGINT NOT NULL,
     roll_code VARCHAR(64) NOT NULL,
+    sequence_no INT NULL COMMENT '数字号（对应仓库sequence_no）',
     batch_no VARCHAR(64) NULL,
     width_mm DECIMAL(10,2) NULL,
     length_m DECIMAL(12,2) NULL,

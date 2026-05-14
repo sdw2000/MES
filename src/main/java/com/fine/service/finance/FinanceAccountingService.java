@@ -10,6 +10,13 @@ public interface FinanceAccountingService {
 
     Map<String, Object> getCoatingCostSummary(String month);
 
+    Map<String, Object> getFormulaTheoreticalCost(String month, Integer pageNum, Integer pageSize, String keyword,
+                                                  String sortField, String sortOrder);
+
+    Map<String, Object> getFormulaCostFactor(String month);
+
+    Map<String, Object> saveFormulaCostFactor(Map<String, Object> payload);
+
     IPage<Map<String, Object>> getMaterialCostConfigPage(String month, String keyword, Integer pageNum, Integer pageSize);
 
     Map<String, Object> saveMaterialCostConfig(Map<String, Object> payload);

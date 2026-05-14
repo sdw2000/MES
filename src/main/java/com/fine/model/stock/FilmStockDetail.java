@@ -27,6 +27,22 @@ public class FilmStockDetail {
     /** 物料编码 */
     private String materialCode;
 
+    /** 最小包装单位：卷 */
+    @TableField("pack_uom")
+    private String packUom;
+
+    /** 当前包装数量（整数） */
+    @TableField("pack_count")
+    private Integer packCount;
+
+    /** 标准单位：m/㎡ */
+    @TableField("std_uom")
+    private String stdUom;
+
+    /** 每包装标准量 */
+    @TableField("std_qty_per_pack")
+    private BigDecimal stdQtyPerPack;
+
     /** 批次号 */
     private String batchNo;
 
@@ -42,6 +58,14 @@ public class FilmStockDetail {
 
     /** 薄膜长度(mm) */
     private Integer length;
+
+    /** 原始长度(m) */
+    @TableField("original_length_m")
+    private BigDecimal originalLengthM;
+
+    /** 当前剩余长度(m) */
+    @TableField("current_length_m")
+    private BigDecimal currentLengthM;
 
     /** 卷径(mm) */
     private Integer diameter;

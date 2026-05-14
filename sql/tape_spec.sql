@@ -42,6 +42,20 @@ CREATE TABLE IF NOT EXISTS `tape_spec` (
     -- 耐温性能
     `heat_resistance` DECIMAL(10,2) COMMENT '耐温标准值(℃/0.5H)',
     `heat_resistance_type` VARCHAR(10) DEFAULT 'gte' COMMENT '耐温类型: gte=大于等于',
+
+    -- 扩展检测项目（用于检测报告额外项目）
+    `extra_qc_item1_name` VARCHAR(100) COMMENT '扩展检测项目1名称',
+    `extra_qc_item1_unit` VARCHAR(30) COMMENT '扩展检测项目1单位',
+    `extra_qc_item1_standard` VARCHAR(100) COMMENT '扩展检测项目1标准值',
+    `extra_qc_item2_name` VARCHAR(100) COMMENT '扩展检测项目2名称',
+    `extra_qc_item2_unit` VARCHAR(30) COMMENT '扩展检测项目2单位',
+    `extra_qc_item2_standard` VARCHAR(100) COMMENT '扩展检测项目2标准值',
+    `extra_qc_item3_name` VARCHAR(100) COMMENT '扩展检测项目3名称',
+    `extra_qc_item3_unit` VARCHAR(30) COMMENT '扩展检测项目3单位',
+    `extra_qc_item3_standard` VARCHAR(100) COMMENT '扩展检测项目3标准值',
+    `extra_qc_item4_name` VARCHAR(100) COMMENT '扩展检测项目4名称',
+    `extra_qc_item4_unit` VARCHAR(30) COMMENT '扩展检测项目4单位',
+    `extra_qc_item4_standard` VARCHAR(100) COMMENT '扩展检测项目4标准值',
     
     -- 其他参数
     `remark` VARCHAR(500) COMMENT '备注',

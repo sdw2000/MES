@@ -38,7 +38,7 @@ public class QualityInspectionServiceImpl extends ServiceImpl<QualityInspectionR
             record.setInspectionType("incoming");
         }
         if (!StringUtils.hasText(record.getInspectionNo())) {
-            record.setInspectionNo(baseMapper.generateInspectionNo());
+            record.setInspectionNo(baseMapper.generateInspectionNo(resolveInspectionPrefix(record.getInspectionType())));
         }
         LocalDateTime now = LocalDateTime.now();
         record.setCreatedAt(now);
@@ -57,5 +57,16 @@ public class QualityInspectionServiceImpl extends ServiceImpl<QualityInspectionR
     @Override
     public boolean deleteRecord(Long id) {
         return this.removeById(id);
+    }
+
+    private String resolveInspectionPrefix(String inspectionType) {
+        String type = inspectionType == null ? "" : inspectionType.trim().toLowerCase();
+        if ("outbound".equals(type)) {
+            return "OQC";
+        }
+        if ("process".equals(type)) {
+            return "PQC";
+        }
+        return "IQC";
     }
 }

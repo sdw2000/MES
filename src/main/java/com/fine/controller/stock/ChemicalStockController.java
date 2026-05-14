@@ -1,6 +1,10 @@
 package com.fine.controller.stock;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.fine.Dao.stock.ChemicalStockOutMapper;
+import com.fine.Dao.stock.ChemicalStockDetailMapper;
 import com.fine.Utils.ResponseResult;
 import com.fine.model.stock.ChemicalStock;
 import com.fine.model.stock.ChemicalStockDetail;
@@ -42,6 +46,12 @@ public class ChemicalStockController {
     
     @Autowired
     private ChemicalStockService chemicalStockService;
+
+    @Autowired
+    private ChemicalStockOutMapper chemicalStockOutMapper;
+
+    @Autowired
+    private ChemicalStockDetailMapper chemicalStockDetailMapper;
     
     /** 查询所有化工库存 */
     @GetMapping("/list")
@@ -55,10 +65,30 @@ public class ChemicalStockController {
     public ResponseResult<IPage<ChemicalStock>> getChemicalStockPage(
             @RequestParam(defaultValue = "1") Long current,
             @RequestParam(defaultValue = "20") Long size,
-            @RequestParam(required = false) String chemicalType
+            @RequestParam(required = false) String chemicalType,
+            @RequestParam(required = false) String materialCode,
+            @RequestParam(required = false) String sortField,
+            @RequestParam(required = false) String sortOrder
     ) {
-        IPage<ChemicalStock> page = chemicalStockService.getChemicalStockPage(current, size, chemicalType);
+        IPage<ChemicalStock> page = chemicalStockService.getChemicalStockPage(
+                current,
+                size,
+                chemicalType,
+                materialCode,
+                sortField,
+                sortOrder
+        );
         return new ResponseResult<>(20000, "查询成功", page);
+    }
+
+    /** 化工库存统计（全表聚合，非当前页） */
+    @GetMapping("/list/statistics")
+    public ResponseResult<Map<String, Object>> getChemicalStockStatistics(
+            @RequestParam(required = false) String chemicalType,
+            @RequestParam(required = false) String materialCode
+    ) {
+        Map<String, Object> statistics = chemicalStockService.getChemicalStockStatistics(chemicalType, materialCode);
+        return new ResponseResult<>(20000, "查询成功", statistics);
     }
     
     /** 按类型查询化工库存 */
@@ -78,6 +108,18 @@ public class ChemicalStockController {
             return new ResponseResult<>(40004, "化工库存不存在", null);
         }
         return new ResponseResult<>(20000, "查询成功", chemicalStock);
+    }
+
+    /** 更新化工库存主表（初始化维护） */
+    @PutMapping("/{id}")
+    @PreAuthorize("hasAuthority('admin')")
+    public ResponseResult<ChemicalStock> updateStock(@PathVariable Long id, @RequestBody ChemicalStock stock) {
+        try {
+            ChemicalStock updated = chemicalStockService.updateStock(id, stock);
+            return new ResponseResult<>(20000, "更新成功", updated);
+        } catch (Exception e) {
+            return new ResponseResult<>(50000, "更新失败: " + e.getMessage(), null);
+        }
     }
     
     /**
@@ -136,6 +178,43 @@ public class ChemicalStockController {
         List<ChemicalStockDetail> details = chemicalStockService.getAvailableDetails(id);
         return new ResponseResult<>(20000, "查询成功", details);
     }
+
+    /**
+     * 按料号分页查询可用化工明细（支持排序）
+     */
+    @GetMapping("/available/page")
+    public ResponseResult<IPage<ChemicalStockDetail>> getAvailableDetailsPage(
+            @RequestParam String materialCode,
+            @RequestParam(defaultValue = "1") Long current,
+            @RequestParam(defaultValue = "20") Long size,
+            @RequestParam(required = false) String sortField,
+            @RequestParam(required = false) String sortOrder
+    ) {
+        LambdaQueryWrapper<ChemicalStockDetail> wrapper = new LambdaQueryWrapper<>();
+        String code = materialCode == null ? "" : materialCode.trim();
+        wrapper.eq(ChemicalStockDetail::getStatus, "available")
+                .eq(!code.isEmpty(), ChemicalStockDetail::getMaterialCode, code);
+
+        boolean asc = "ascending".equalsIgnoreCase(sortOrder);
+        if ("qrCode".equals(sortField)) {
+            wrapper.orderBy(true, asc, ChemicalStockDetail::getContainerNo);
+        } else if ("batchNo".equals(sortField)) {
+            wrapper.orderBy(true, asc, ChemicalStockDetail::getBatchNo);
+        } else if ("availableArea".equals(sortField)) {
+            wrapper.orderBy(true, asc, ChemicalStockDetail::getWeight);
+        } else if ("location".equals(sortField)) {
+            wrapper.orderBy(true, asc, ChemicalStockDetail::getLocation);
+        } else if ("prodDate".equals(sortField)) {
+            wrapper.orderBy(true, asc, ChemicalStockDetail::getInboundDate);
+        } else {
+            wrapper.orderByAsc(ChemicalStockDetail::getInboundDate)
+                    .orderByAsc(ChemicalStockDetail::getId);
+        }
+
+        Page<ChemicalStockDetail> page = new Page<>(current, size);
+        IPage<ChemicalStockDetail> result = chemicalStockDetailMapper.selectPage(page, wrapper);
+        return new ResponseResult<>(20000, "查询成功", result);
+    }
     
     /** 查询即将过期的化工原料 */
     @GetMapping("/expiring")
@@ -155,6 +234,23 @@ public class ChemicalStockController {
         return new ResponseResult<>(20000, "查询成功", records);
     }
 
+    /** 分页查询化工出库记录 */
+    @GetMapping("/outbound/list")
+    public ResponseResult<IPage<ChemicalStockOut>> getOutboundList(
+            @RequestParam(defaultValue = "1") Long page,
+            @RequestParam(defaultValue = "20") Long size,
+            @RequestParam(required = false) String materialCode
+    ) {
+        LambdaQueryWrapper<ChemicalStockOut> wrapper = new LambdaQueryWrapper<>();
+        if (materialCode != null && !materialCode.trim().isEmpty()) {
+            wrapper.like(ChemicalStockOut::getMaterialCode, materialCode.trim());
+        }
+        wrapper.orderByDesc(ChemicalStockOut::getCreateTime);
+        Page<ChemicalStockOut> pageParam = new Page<>(page, size);
+        IPage<ChemicalStockOut> result = chemicalStockOutMapper.selectPage(pageParam, wrapper);
+        return new ResponseResult<>(20000, "查询成功", result);
+    }
+
     /** 锁定化工库存 */
     @PostMapping("/lock")
     @PreAuthorize("hasAnyAuthority('admin','warehouse','production')")
@@ -162,7 +258,14 @@ public class ChemicalStockController {
         try {
             Long chemicalStockId = toLong(payload.get("chemicalStockId"));
             Integer lockQuantity = toInteger(payload.get("lockQuantity"));
+            BigDecimal requiredStdQty = toBigDecimal(payload.get("requiredStdQty"));
+            BigDecimal stdQtyPerPack = toBigDecimal(payload.get("stdQtyPerPack"));
             List<Long> detailIds = toLongList(payload.get("detailIds"));
+
+            if ((lockQuantity == null || lockQuantity <= 0) && requiredStdQty != null && stdQtyPerPack != null
+                    && requiredStdQty.compareTo(BigDecimal.ZERO) > 0 && stdQtyPerPack.compareTo(BigDecimal.ZERO) > 0) {
+                lockQuantity = requiredStdQty.divide(stdQtyPerPack, 0, BigDecimal.ROUND_CEILING).intValue();
+            }
 
             if (chemicalStockId == null) {
                 return new ResponseResult<>(50000, "chemicalStockId不能为空", null);
@@ -296,7 +399,7 @@ public class ChemicalStockController {
         return ids;
     }
 
-    /** 下载化工库存导入模板 */
+    /** 下载化工库存导入模板（明细口径） */
     @GetMapping("/template")
     @PreAuthorize("hasAnyAuthority('admin','warehouse')")
     public void downloadTemplate(HttpServletResponse response) throws IOException {
@@ -304,20 +407,92 @@ public class ChemicalStockController {
         Sheet sheet = workbook.createSheet("化工库存导入模板");
 
         Row header = sheet.createRow(0);
-        String[] headers = {"物料编号", "单位", "单桶重量(kg)", "总重量", "桶数"};
+        String[] headers = {"物料编号", "批次号", "桶号/包号", "单位", "重量(kg)", "包装单位", "包装数量", "标准单位", "每包装标准量", "库位", "供应商", "入库日期", "有效期至", "是否开封", "危险等级", "状态", "备注"};
         for (int i = 0; i < headers.length; i++) {
             header.createCell(i).setCellValue(headers[i]);
         }
 
         Row demo = sheet.createRow(1);
         demo.createCell(0).setCellValue("FN8558");
-        demo.createCell(1).setCellValue("Kg");
-        demo.createCell(2).setCellValue(150);
-        demo.createCell(3).setCellValue(150);
-        demo.createCell(4).setCellValue(1);
+        demo.createCell(1).setCellValue("20260424-C01");
+        demo.createCell(2).setCellValue("T001");
+        demo.createCell(3).setCellValue("Kg");
+        demo.createCell(4).setCellValue(150);
+        demo.createCell(5).setCellValue("桶");
+        demo.createCell(6).setCellValue(1);
+        demo.createCell(7).setCellValue("kg");
+        demo.createCell(8).setCellValue(150);
+        demo.createCell(9).setCellValue("C-01");
+        demo.createCell(10).setCellValue("供应商A");
+        demo.createCell(11).setCellValue("2026-04-24");
+        demo.createCell(12).setCellValue("2027-04-24");
+        demo.createCell(13).setCellValue("否");
+        demo.createCell(14).setCellValue(1);
+        demo.createCell(15).setCellValue("available");
+        demo.createCell(16).setCellValue("明细导入示例");
 
         response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-        response.setHeader("Content-Disposition", "attachment;filename=" + URLEncoder.encode("化工库存导入模板.xlsx", "UTF-8"));
+        response.setHeader("Content-Disposition", "attachment;filename=" + URLEncoder.encode("化工库存导入模板-明细.xlsx", "UTF-8"));
+        workbook.write(response.getOutputStream());
+        workbook.close();
+    }
+
+    /**
+     * 按导入模板格式导出当前化工库存明细（可修改后回导）
+     */
+    @GetMapping("/export/import-format")
+    @PreAuthorize("hasAnyAuthority('admin','warehouse')")
+    public void exportImportFormat(
+            @RequestParam(required = false) String chemicalType,
+            @RequestParam(required = false) String materialCode,
+            HttpServletResponse response) throws IOException {
+        IPage<ChemicalStock> page = chemicalStockService.getChemicalStockPage(
+                1,
+                100000,
+                chemicalType,
+                materialCode,
+                "createTime",
+                "descending"
+        );
+        List<ChemicalStock> records = page == null ? java.util.Collections.emptyList() : page.getRecords();
+
+        Workbook workbook = new XSSFWorkbook();
+        Sheet sheet = workbook.createSheet("化工库存明细导出");
+
+        Row header = sheet.createRow(0);
+        String[] headers = {"物料编号", "批次号", "桶号/包号", "单位", "重量(kg)", "包装单位", "包装数量", "标准单位", "每包装标准量", "库位", "供应商", "入库日期", "有效期至", "是否开封", "危险等级", "状态", "备注"};
+        for (int i = 0; i < headers.length; i++) {
+            header.createCell(i).setCellValue(headers[i]);
+        }
+
+        int rowIndex = 1;
+        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd");
+        for (ChemicalStock stock : records) {
+            List<ChemicalStockDetail> details = chemicalStockService.getDetailsByChemicalStockId(stock.getId());
+            for (ChemicalStockDetail detail : details) {
+                Row row = sheet.createRow(rowIndex++);
+                row.createCell(0).setCellValue(detail.getMaterialCode() == null ? "" : detail.getMaterialCode());
+                row.createCell(1).setCellValue(detail.getBatchNo() == null ? "" : detail.getBatchNo());
+                row.createCell(2).setCellValue(detail.getContainerNo() == null ? "" : detail.getContainerNo());
+                row.createCell(3).setCellValue(detail.getUnit() == null ? "Kg" : detail.getUnit());
+                row.createCell(4).setCellValue(detail.getWeight() == null ? 0 : detail.getWeight().doubleValue());
+                row.createCell(5).setCellValue(detail.getPackUom() == null ? "桶" : detail.getPackUom());
+                row.createCell(6).setCellValue(detail.getPackCount() == null ? 1 : detail.getPackCount());
+                row.createCell(7).setCellValue(detail.getStdUom() == null ? "kg" : detail.getStdUom());
+                row.createCell(8).setCellValue(detail.getStdQtyPerPack() == null ? 0 : detail.getStdQtyPerPack().doubleValue());
+                row.createCell(9).setCellValue(detail.getLocation() == null ? "" : detail.getLocation());
+                row.createCell(10).setCellValue(detail.getSupplier() == null ? "" : detail.getSupplier());
+                row.createCell(11).setCellValue(detail.getInboundDate() == null ? "" : sdf.format(detail.getInboundDate()));
+                row.createCell(12).setCellValue(detail.getExpiryDate() == null ? "" : sdf.format(detail.getExpiryDate()));
+                row.createCell(13).setCellValue(Boolean.TRUE.equals(detail.getIsOpened()) ? "是" : "否");
+                row.createCell(14).setCellValue(detail.getDangerLevel() == null ? 1 : detail.getDangerLevel());
+                row.createCell(15).setCellValue(detail.getStatus() == null ? "available" : detail.getStatus());
+                row.createCell(16).setCellValue(detail.getRemark() == null ? "" : detail.getRemark());
+            }
+        }
+
+        response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        response.setHeader("Content-Disposition", "attachment;filename=" + URLEncoder.encode("化工库存明细导出-可回导.xlsx", "UTF-8"));
         workbook.write(response.getOutputStream());
         workbook.close();
     }
@@ -325,12 +500,29 @@ public class ChemicalStockController {
     /** 导入化工库存汇总 */
     @PostMapping("/import")
     @PreAuthorize("hasAnyAuthority('admin','warehouse')")
-    public ResponseResult<Map<String, Object>> importExcel(@RequestParam("file") MultipartFile file) {
+    public ResponseResult<Map<String, Object>> importExcel(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "clearBeforeImport", defaultValue = "false") boolean clearBeforeImport
+    ) {
         try {
-            Map<String, Object> result = chemicalStockService.importExcel(file);
+            Map<String, Object> result = chemicalStockService.importExcel(file, clearBeforeImport);
             return new ResponseResult<>(20000, "导入完成", result);
         } catch (Exception e) {
             return new ResponseResult<>(50000, "导入失败: " + e.getMessage(), null);
+        }
+    }
+
+    /** 清空化工库存（用于重新盘点后全量导入） */
+    @PostMapping("/clear-for-reimport")
+    @PreAuthorize("hasAnyAuthority('admin','warehouse')")
+    public ResponseResult<Map<String, Object>> clearForReimport(
+            @RequestParam(value = "clearOutbound", defaultValue = "true") boolean clearOutbound
+    ) {
+        try {
+            Map<String, Object> result = chemicalStockService.clearForReimport(clearOutbound);
+            return new ResponseResult<>(20000, "化工库存已清空", result);
+        } catch (Exception e) {
+            return new ResponseResult<>(50000, "清空失败: " + e.getMessage(), null);
         }
     }
 

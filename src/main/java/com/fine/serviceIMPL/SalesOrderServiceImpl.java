@@ -765,6 +765,7 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
         return hasRole(loginUser, "admin")
                 || hasRole(loginUser, "finance")
                 || hasRole(loginUser, "purchase")
+                || hasRole(loginUser, "quality")
                 || hasRole(loginUser, "production")
                 || hasRole(loginUser, "packaging")
                 || hasRole(loginUser, "packing");
@@ -1198,7 +1199,7 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
             
             // 填充已发货数量
             for (SalesOrderItem item : items) {
-                Integer shipped = deliveryNoticeItemMapper.getShippedQuantityByOrderItemId(item.getId());
+                Integer shipped = deliveryNoticeItemMapper.getConfirmedShippedQuantityByOrderItemId(item.getId());
                 item.setShippedRolls(shipped == null ? 0 : Math.max(shipped, 0));
             }
 
@@ -1230,11 +1231,31 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
             LoginUser loginUser = getLoginUser();
             // 根据关键词搜索订单号或客户名
             if (hasKeyword) {
-                queryWrapper.and(wrapper -> 
+                List<Long> matchedOrderIds = new ArrayList<>();
+                List<SalesOrderItem> matchedItems = salesOrderItemMapper.selectList(
+                    new LambdaQueryWrapper<SalesOrderItem>()
+                        .eq(SalesOrderItem::getIsDeleted, 0)
+                        .and(w -> w.like(SalesOrderItem::getMaterialCode, keywordValue)
+                            .or().like(SalesOrderItem::getColorCode, keywordValue)
+                            .or().like(SalesOrderItem::getRemark, keywordValue))
+                );
+                if (matchedItems != null && !matchedItems.isEmpty()) {
+                    for (SalesOrderItem item : matchedItems) {
+                        if (item != null && item.getOrderId() != null) {
+                            matchedOrderIds.add(item.getOrderId());
+                        }
+                    }
+                }
+                queryWrapper.and(wrapper -> {
                     wrapper.like(SalesOrder::getOrderNo, keywordValue)
                           .or()
                           .like(SalesOrder::getCustomer, keywordValue)
-                );
+                          .or()
+                          .like(SalesOrder::getCustomerOrderNo, keywordValue);
+                    if (!matchedOrderIds.isEmpty()) {
+                        wrapper.or().in(SalesOrder::getId, matchedOrderIds);
+                    }
+                });
             }
 
             if (customer != null && !customer.trim().isEmpty()) {
@@ -1319,7 +1340,7 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
                 if (items != null) {
                     for (SalesOrderItem item : items) {
                         total += item.getRolls() != null ? item.getRolls() : 0;
-                        Integer shippedQty = deliveryNoticeItemMapper.getShippedQuantityByOrderItemId(item.getId());
+                        Integer shippedQty = deliveryNoticeItemMapper.getConfirmedShippedQuantityByOrderItemId(item.getId());
                         shipped += shippedQty != null ? Math.max(shippedQty, 0) : 0;
                     }
                 }
@@ -2694,7 +2715,7 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
             scheduledRolls += Math.min(oneScheduled, rolls);
 
             if (item.getId() != null) {
-                Integer oneShipped = deliveryNoticeItemMapper.getShippedQuantityByOrderItemId(item.getId());
+                Integer oneShipped = deliveryNoticeItemMapper.getConfirmedShippedQuantityByOrderItemId(item.getId());
                 shippedRolls += oneShipped == null ? 0 : Math.max(oneShipped, 0);
             }
         }

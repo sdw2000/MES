@@ -52,4 +52,11 @@ public interface FilmStockDetailMapper extends BaseMapper<FilmStockDetail> {
      * @return 影响行数
      */
     int batchUpdateStatus(@Param("ids") List<Long> ids, @Param("status") String status);
+
+    /**
+     * 按卷号查询（包含逻辑删除记录）
+     * @param rollNo 卷号
+     * @return 明细记录（不存在返回null）
+     */
+    FilmStockDetail selectOneByRollNoIncludingDeleted(@Param("rollNo") String rollNo);
 }

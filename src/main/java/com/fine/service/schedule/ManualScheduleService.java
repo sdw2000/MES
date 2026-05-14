@@ -87,10 +87,20 @@ public interface ManualScheduleService extends IService<ManualSchedule> {
      */
     List<Map<String, Object>> getCoatingSchedules();
 
+   /**
+    * 获取涂布排程列表（可包含已完成）
+    */
+   List<Map<String, Object>> getCoatingSchedules(boolean includeCompleted);
+
     /**
      * 分页获取涂布排程列表
      */
     IPage<Map<String, Object>> getCoatingSchedulesPage(long current, long size);
+
+   /**
+    * 分页获取涂布排程列表（可包含已完成）
+    */
+   IPage<Map<String, Object>> getCoatingSchedulesPage(long current, long size, boolean includeCompleted);
 
     /**
      * 获取分切已排列表
@@ -106,6 +116,15 @@ public interface ManualScheduleService extends IService<ManualSchedule> {
     * 分页获取分切已排列表（支持订单号过滤）
     */
    IPage<Map<String, Object>> getSlittingSchedulesPage(long current, long size, String orderNo);
+
+   /**
+    * 分页获取分切已排列表（支持订单号过滤 + 排序）
+    */
+   IPage<Map<String, Object>> getSlittingSchedulesPage(long current,
+                                                       long size,
+                                                       String orderNo,
+                                                       String sortProp,
+                                                       String sortOrder);
 
     /**
      * 获取复卷已排列表
@@ -224,6 +243,11 @@ public interface ManualScheduleService extends IService<ManualSchedule> {
                              Boolean proceedNextProcess,
                              List<Map<String, Object>> producedRolls,
                              List<Map<String, Object>> materialIssues,
+                             String materialCode,
+                             String materialName,
+                             Integer thickness,
+                             Integer widthMm,
+                             Integer lengthM,
                              String operator,
                              String remark);
 
@@ -243,6 +267,11 @@ public interface ManualScheduleService extends IService<ManualSchedule> {
    List<Map<String, Object>> getProcessWorkReports(Long scheduleId, String processType);
 
    /**
+    * 查询单条报工完整详情（含母卷/领料明细）
+    */
+   Map<String, Object> getProcessWorkReportDetail(Long reportId);
+
+   /**
     * 更新工序报工记录
     */
    boolean updateProcessWorkReport(Long reportId,
@@ -250,6 +279,8 @@ public interface ManualScheduleService extends IService<ManualSchedule> {
                                    String endTime,
                                    BigDecimal producedQty,
                                    Boolean proceedNextProcess,
+                                   List<Map<String, Object>> producedRolls,
+                                   List<Map<String, Object>> materialIssues,
                                    String operator,
                                    String remark);
 
@@ -267,6 +298,11 @@ public interface ManualScheduleService extends IService<ManualSchedule> {
     * 查询工序领料明细
     */
    List<Map<String, Object>> getProcessMaterialIssues(Long scheduleId, String processType);
+
+   /**
+    * 查询工序领料BOM模板（用于自动带出领料项）
+    */
+   List<Map<String, Object>> getProcessMaterialIssueTemplate(Long scheduleId, Long orderDetailId, String processType);
 
    /**
     * 生成涂布母卷号：yyMMdd + 线号 + 班组 + 流水号(至少2位)

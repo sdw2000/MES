@@ -14,7 +14,8 @@ public interface StockFlowLogService {
      */
     IPage<StockFlowLog> getStockFlowPage(int page, int size, String stockType, String materialCode,
                                         String batchNo, String type, String refNo,
-                                        String beginTime, String endTime);
+                                        String beginTime, String endTime,
+                                        String sortField, String sortOrder);
 
     /**
      * 根据库存ID查询流水

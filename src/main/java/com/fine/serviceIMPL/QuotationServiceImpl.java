@@ -2,6 +2,7 @@ package com.fine.serviceIMPL;
 
 import com.alibaba.excel.EasyExcel;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
@@ -61,6 +62,8 @@ import java.util.regex.Pattern;
 public class QuotationServiceImpl extends ServiceImpl<QuotationMapper, Quotation> implements QuotationService {
 
     private static final int REMINDER_DAYS = 7;
+    private static final long EDIT_WINDOW_MILLIS = 24L * 60L * 60L * 1000L;
+    private static final LocalDate LONG_TERM_VALID_UNTIL_DATE = LocalDate.of(2099, 12, 31);
     private static final String ORDER_BASELINE_MARK = "INIT_FROM_SALES_ORDER_LATEST_PRICE";
 
     @Autowired
@@ -243,6 +246,8 @@ public class QuotationServiceImpl extends ServiceImpl<QuotationMapper, Quotation
             List<QuotationItem> savedItems = saveQuotationItems(quotation, quotation.getItems(), currentUser, now);
             quotation.setItems(savedItems);
             applyExpiryInfo(quotation);
+            closePreviousAcceptedIfNeeded(quotation, currentUser, now);
+            appendChangeLog("sales", quotation.getId(), quotation.getQuotationNo(), "NEW_QUOTATION", currentUser, "新报价");
             return new ResponseResult<>(200, "创建报价单成功", quotation);
         } catch (Exception e) {
             e.printStackTrace();
@@ -267,11 +272,15 @@ public class QuotationServiceImpl extends ServiceImpl<QuotationMapper, Quotation
             if (!canAccessQuotation(loginUser, existingQuotation) || !canAccessQuotation(loginUser, quotation)) {
                 return new ResponseResult<>(403, "无权限更新该客户的报价单", null);
             }
+            Date now = new Date();
+            Date editableDeadline = resolveEditableDeadline(existingQuotation);
+            if (!hasRole(loginUser, "admin") && editableDeadline != null && now.after(editableDeadline)) {
+                return new ResponseResult<>(409, "该销售报价已超过24小时，不允许修改；如需调整请新建报价单", null);
+            }
             if (quotation.getItems() == null || quotation.getItems().isEmpty()) {
                 return new ResponseResult<>(400, "请至少填写一条报价明细", null);
             }
 
-            Date now = new Date();
             String currentUser = getCurrentUsername();
             existingQuotation.setCustomer(normalizeCodeToken(quotation.getCustomer()));
             existingQuotation.setContactPerson(normalizeText(quotation.getContactPerson()));
@@ -300,10 +309,82 @@ public class QuotationServiceImpl extends ServiceImpl<QuotationMapper, Quotation
             List<QuotationItem> savedItems = saveQuotationItems(existingQuotation, quotation.getItems(), currentUser, now);
             existingQuotation.setItems(savedItems);
             applyExpiryInfo(existingQuotation);
+            closePreviousAcceptedIfNeeded(existingQuotation, currentUser, now);
+            appendChangeLog("sales", existingQuotation.getId(), existingQuotation.getQuotationNo(), "MODIFY_QUOTATION", currentUser, "修改报价");
             return new ResponseResult<>(200, "更新报价单成功", existingQuotation);
         } catch (Exception e) {
             e.printStackTrace();
             return new ResponseResult<>(500, "更新报价单失败: " + e.getMessage(), null);
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ResponseResult<?> reQuote(Long quotationId) {
+        try {
+            ensureEnhancedQuotationSchema();
+            Quotation existing = quotationMapper.selectById(quotationId);
+            if (existing == null || isDeleted(existing.getIsDeleted())) {
+                return new ResponseResult<>(404, "报价单不存在", null);
+            }
+            if (!canAccessQuotation(getLoginUser(), existing)) {
+                return new ResponseResult<>(403, "无权限重报该报价单", null);
+            }
+
+            LambdaQueryWrapper<QuotationItem> itemWrapper = new LambdaQueryWrapper<>();
+            itemWrapper.eq(QuotationItem::getQuotationId, quotationId).eq(QuotationItem::getIsDeleted, 0);
+            List<QuotationItem> oldItems = quotationItemMapper.selectList(itemWrapper);
+
+            Date now = new Date();
+            String currentUser = getCurrentUsername();
+
+            Quotation newQuotation = new Quotation();
+            newQuotation.setQuotationNo(generateQuotationNo());
+            newQuotation.setCustomer(existing.getCustomer());
+            newQuotation.setContactPerson(existing.getContactPerson());
+            newQuotation.setContactPhone(existing.getContactPhone());
+            newQuotation.setSourceSampleNo(existing.getSourceSampleNo());
+            newQuotation.setPricingUnit(normalizeQuotationUnit(existing.getPricingUnit()));
+            newQuotation.setPriceStatus("PRICED");
+            newQuotation.setNeedsPricing(Boolean.FALSE);
+            newQuotation.setQuotationDate(now);
+            newQuotation.setValidUntil(defaultValidUntil(now, null));
+            newQuotation.setStatus("draft");
+            newQuotation.setRemark(existing.getRemark());
+            newQuotation.setCreatedBy(currentUser);
+            newQuotation.setUpdatedBy(currentUser);
+            newQuotation.setCreatedAt(now);
+            newQuotation.setUpdatedAt(now);
+            newQuotation.setIsDeleted(0);
+            quotationMapper.insert(newQuotation);
+
+            List<QuotationItem> copiedItems = new ArrayList<>();
+            if (oldItems != null) {
+                for (QuotationItem old : oldItems) {
+                    QuotationItem item = new QuotationItem();
+                    item.setMaterialCode(old.getMaterialCode());
+                    item.setMaterialName(old.getMaterialName());
+                    item.setSpecification(old.getSpecification());
+                    item.setModel(old.getModel());
+                    item.setColorCode(old.getColorCode());
+                    item.setLength(old.getLength());
+                    item.setWidth(old.getWidth());
+                    item.setThickness(old.getThickness());
+                    item.setUnit(old.getUnit());
+                    item.setSampleNo(old.getSampleNo());
+                    item.setUnitPrice(old.getUnitPrice());
+                    item.setRemark(old.getRemark());
+                    copiedItems.add(item);
+                }
+            }
+            List<QuotationItem> savedItems = saveQuotationItems(newQuotation, copiedItems, currentUser, now);
+            newQuotation.setItems(savedItems);
+
+            appendChangeLog("sales", newQuotation.getId(), newQuotation.getQuotationNo(), "REQUOTE", currentUser, "重报自: " + existing.getQuotationNo());
+            return new ResponseResult<>(200, "重报成功", newQuotation);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return new ResponseResult<>(500, "重报失败: " + e.getMessage(), null);
         }
     }
 
@@ -340,10 +421,12 @@ public class QuotationServiceImpl extends ServiceImpl<QuotationMapper, Quotation
             if (!canAccessQuotation(getLoginUser(), quotation)) {
                 return new ResponseResult<>(403, "无权限删除该报价单", null);
             }
+            String currentUser = getCurrentUsername();
             quotationMapper.deleteById(quotationId);
             LambdaQueryWrapper<QuotationItem> wrapper = new LambdaQueryWrapper<>();
             wrapper.eq(QuotationItem::getQuotationId, quotationId).eq(QuotationItem::getIsDeleted, 0);
             quotationItemMapper.delete(wrapper);
+            appendChangeLog("sales", quotation.getId(), quotation.getQuotationNo(), "DELETE_QUOTATION", currentUser, "删除报价");
             return new ResponseResult<>(200, "删除成功", null);
         } catch (Exception e) {
             e.printStackTrace();
@@ -1433,8 +1516,39 @@ public class QuotationServiceImpl extends ServiceImpl<QuotationMapper, Quotation
             addColumnIfMissing("quotation_items", "updated_by", "ALTER TABLE quotation_items ADD COLUMN updated_by VARCHAR(100) NULL COMMENT '修改人' AFTER created_by");
             addColumnIfMissing("quotation_items", "created_at", "ALTER TABLE quotation_items ADD COLUMN created_at DATETIME NULL COMMENT '创建时间' AFTER updated_by");
             addColumnIfMissing("quotation_items", "updated_at", "ALTER TABLE quotation_items ADD COLUMN updated_at DATETIME NULL COMMENT '修改时间' AFTER created_at");
+            jdbcTemplate.execute("CREATE TABLE IF NOT EXISTS quotation_change_log ("
+                    + "id BIGINT NOT NULL AUTO_INCREMENT,"
+                    + "biz_type VARCHAR(32) NOT NULL COMMENT 'sales/purchase',"
+                    + "quotation_id BIGINT NULL,"
+                    + "quotation_no VARCHAR(64) NULL,"
+                    + "action_type VARCHAR(64) NOT NULL COMMENT 'NEW_QUOTATION/MODIFY_QUOTATION/DELETE_QUOTATION',"
+                    + "operator VARCHAR(100) NULL,"
+                    + "action_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+                    + "remark VARCHAR(255) NULL,"
+                    + "PRIMARY KEY (id),"
+                    + "INDEX idx_qcl_biz_quote (biz_type, quotation_id),"
+                    + "INDEX idx_qcl_quote_no (quotation_no),"
+                    + "INDEX idx_qcl_action_time (action_time)"
+                    + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='报价变更审计日志'");
             enhancedSchemaReady.set(true);
         }
+    }
+
+    private void appendChangeLog(String bizType,
+                                 Long quotationId,
+                                 String quotationNo,
+                                 String actionType,
+                                 String operator,
+                                 String remark) {
+        jdbcTemplate.update(
+                "INSERT INTO quotation_change_log(biz_type, quotation_id, quotation_no, action_type, operator, action_time, remark) VALUES (?,?,?,?,?,NOW(),?)",
+                bizType,
+                quotationId,
+                quotationNo,
+                actionType,
+                operator,
+                remark
+        );
     }
 
     private void addColumnIfMissing(String tableName, String columnName, String alterSql) {
@@ -1610,7 +1724,44 @@ public class QuotationServiceImpl extends ServiceImpl<QuotationMapper, Quotation
     }
 
     private Date defaultValidUntil(Date quotationDate, Date validUntil) {
-        return validUntil;
+        if (validUntil != null) {
+            return validUntil;
+        }
+        return toDate(LONG_TERM_VALID_UNTIL_DATE);
+    }
+
+    private Date resolveEditableDeadline(Quotation quotation) {
+        if (quotation == null) {
+            return null;
+        }
+        Date base = quotation.getCreatedAt();
+        if (base == null) {
+            base = quotation.getUpdatedAt();
+        }
+        if (base == null) {
+            base = quotation.getQuotationDate();
+        }
+        if (base == null) {
+            return null;
+        }
+        return new Date(base.getTime() + EDIT_WINDOW_MILLIS);
+    }
+
+    private void closePreviousAcceptedIfNeeded(Quotation current, String currentUser, Date now) {
+        if (current == null || !"accepted".equalsIgnoreCase(current.getStatus()) || normalizeText(current.getCustomer()) == null) {
+            return;
+        }
+        Date closedDate = toDate(LocalDate.now().minusDays(1));
+        LambdaUpdateWrapper<Quotation> closeWrapper = new LambdaUpdateWrapper<>();
+        closeWrapper.eq(Quotation::getIsDeleted, 0)
+                .eq(Quotation::getCustomer, current.getCustomer())
+                .eq(Quotation::getStatus, "accepted")
+                .ne(Quotation::getId, current.getId())
+                .set(Quotation::getStatus, "expired")
+                .set(Quotation::getValidUntil, closedDate)
+                .set(Quotation::getUpdatedBy, currentUser)
+                .set(Quotation::getUpdatedAt, now);
+        quotationMapper.update(null, closeWrapper);
     }
 
     private boolean hasText(String value) {

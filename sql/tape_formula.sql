@@ -9,11 +9,12 @@ CREATE TABLE IF NOT EXISTS `tape_formula` (
     `material_code` VARCHAR(50) NOT NULL COMMENT '产品料号（关联tape_spec）',
     `product_name` VARCHAR(100) COMMENT '产品名称',
     `formula_no` VARCHAR(50) COMMENT '文件编号',
-    `version` VARCHAR(20) DEFAULT 'A/0' COMMENT '版次',
+    `version` VARCHAR(20) DEFAULT 'A/00' COMMENT '版次',
     `create_date` DATE COMMENT '制定日期',
     
     -- 胶水信息
     `glue_model` VARCHAR(50) COMMENT '胶水型号',
+    `glue_type` VARCHAR(20) COMMENT '胶水类型：亚克力/橡胶/硅胶/PU胶',
     `color_code` VARCHAR(20) COMMENT '颜色代码',
     `coating_thickness` DECIMAL(10,2) COMMENT '涂胶厚度(μm)',
     `glue_density` DECIMAL(10,3) COMMENT '胶水密度(g/cm³)',
@@ -21,6 +22,8 @@ CREATE TABLE IF NOT EXISTS `tape_formula` (
     `coating_area` DECIMAL(15,2) COMMENT '涂布数量(㎡)',
     
     -- 工艺参数（备注）
+    `process_temperature` VARCHAR(255) COMMENT '工艺温度',
+    `process_speed` VARCHAR(255) COMMENT '工艺车速',
     `process_remark` TEXT COMMENT '工艺备注（温度、速度等）',
     
     -- 总重量
@@ -86,20 +89,23 @@ ON DUPLICATE KEY UPDATE `material_name` = VALUES(`material_name`);
 -- 插入示例配方数据
 INSERT INTO `tape_formula` (
     `material_code`, `product_name`, `formula_no`, `version`, `create_date`,
-    `glue_model`, `color_code`, `coating_thickness`, `glue_density`, `solid_content`, `coating_area`,
-    `process_remark`, `total_weight`, `status`
+    `glue_model`, `glue_type`, `color_code`, `coating_thickness`, `glue_density`, `solid_content`, `coating_area`,
+    `process_temperature`, `process_speed`, `process_remark`, `total_weight`, `status`
 ) VALUES (
     '1011-R02-1204-G01-0300', 
     '16μm翠绿PET终止胶带', 
-    '107', 
-    'A/0', 
+    'F00001', 
+    'A/00', 
     '2025-12-08',
-    'YKLJ0801G01040300', 
+    'GLU-00001', 
+    '亚克力',
     'G01', 
     5, 
     1.1, 
     '15±2', 
     24000,
+    '70 80 120 120 120 90 80 70',
+    '40m/min',
     '3~5N/25mm，温度：70 80 120 120 120 90 80 70，0.2%隔离剂，上5μ干胶，总厚度做到16.5~17.5μ，速度40m',
     132.0880,
     1
