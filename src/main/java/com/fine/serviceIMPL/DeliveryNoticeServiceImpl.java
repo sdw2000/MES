@@ -15,6 +15,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.Set;
+import java.util.Arrays;
+import java.util.Locale;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -53,6 +55,10 @@ import com.fine.service.LogisticsCompanyService;
 
 @Service
 public class DeliveryNoticeServiceImpl extends ServiceImpl<DeliveryNoticeMapper, DeliveryNotice> implements DeliveryNoticeService {
+
+    private static final Set<String> RP_CUSTOMER_CODES = new LinkedHashSet<>(Arrays.asList(
+            "RP01", "GDRP01", "JSRP01", "JXRP001", "LZRP01", "SHRP001"
+    ));
 
     @Autowired
     private DeliveryNoticeMapper deliveryNoticeMapper;
@@ -521,11 +527,57 @@ public class DeliveryNoticeServiceImpl extends ServiceImpl<DeliveryNoticeMapper,
                 selfQty = deliveryNoticeItemMapper.getNoticeItemQuantity(currentNoticeId, orderItemId);
             }
 
-            int remainQty = Math.max(0, orderQty - Math.max(0, shippedQty - selfQty));
+            String customerCode = resolveCustomerCodeByOrderItem(orderItem);
+            boolean rpCustomer = isRpCustomerCode(customerCode);
+            int effectiveShippedQty = Math.max(0, shippedQty - selfQty);
+
+            int remainQty;
+            if (rpCustomer) {
+                int producedQty = resolveProducedQtyForDelivery(orderItem);
+                remainQty = Math.max(0, producedQty - effectiveShippedQty);
+            } else {
+                remainQty = Math.max(0, orderQty - effectiveShippedQty);
+            }
+
             if (requestQty > remainQty) {
+                if (rpCustomer) {
+                    throw new RuntimeException("RP客户发货数量不能超过已报工可发数量（订单明细ID=" + orderItemId + "，可发=" + remainQty + "，本次=" + requestQty + "）");
+                }
                 throw new RuntimeException("发货数量不能多过欠货数量（订单明细ID=" + orderItemId + "，欠货=" + remainQty + "，本次=" + requestQty + "）");
             }
         }
+    }
+
+    private String resolveCustomerCodeByOrderItem(SalesOrderItem orderItem) {
+        if (orderItem == null || orderItem.getOrderId() == null) {
+            return "";
+        }
+        SalesOrder order = salesOrderMapper.selectById(orderItem.getOrderId());
+        if (order == null || order.getCustomer() == null) {
+            return "";
+        }
+        return order.getCustomer().trim().toUpperCase(Locale.ROOT);
+    }
+
+    private boolean isRpCustomerCode(String customerCode) {
+        if (!StringUtils.hasText(customerCode)) {
+            return false;
+        }
+        return RP_CUSTOMER_CODES.contains(customerCode.trim().toUpperCase(Locale.ROOT));
+    }
+
+    private int resolveProducedQtyForDelivery(SalesOrderItem orderItem) {
+        if (orderItem == null) {
+            return 0;
+        }
+        if (orderItem.getDeliveredQty() != null) {
+            return Math.max(orderItem.getDeliveredQty(), 0);
+        }
+        int orderQty = orderItem.getRolls() == null ? 0 : Math.max(orderItem.getRolls(), 0);
+        if (orderItem.getRemainingQty() != null) {
+            return Math.max(orderQty - Math.max(orderItem.getRemainingQty(), 0), 0);
+        }
+        return 0;
     }
 
     @Override
