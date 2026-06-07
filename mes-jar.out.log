@@ -1,0 +1,953 @@
+
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+ :: Spring Boot ::               (v2.7.18)
+
+2026-05-21 16:18:13.553  INFO 52264 --- [           main] com.fine.MesApplication                  : Starting MesApplication using Java 1.8.0_192 on davidsun with PID 52264 (E:\java\MES\target\MES-0.0.1-SNAPSHOT.jar started by Administrator in E:\java\MES)
+2026-05-21 16:18:13.557  INFO 52264 --- [           main] com.fine.MesApplication                  : No active profile set, falling back to 1 default profile: "default"
+2026-05-21 16:18:15.377  INFO 52264 --- [           main] .s.d.r.c.RepositoryConfigurationDelegate : Multiple Spring Data modules found, entering strict repository configuration mode
+2026-05-21 16:18:15.380  INFO 52264 --- [           main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data Redis repositories in DEFAULT mode.
+2026-05-21 16:18:15.434  INFO 52264 --- [           main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 36 ms. Found 0 Redis repository interfaces.
+2026-05-21 16:18:16.990  INFO 52264 --- [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port(s): 8090 (http)
+2026-05-21 16:18:17.005  INFO 52264 --- [           main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]
+2026-05-21 16:18:17.006  INFO 52264 --- [           main] org.apache.catalina.core.StandardEngine  : Starting Servlet engine: [Apache Tomcat/9.0.83]
+2026-05-21 16:18:17.161  INFO 52264 --- [           main] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring embedded WebApplicationContext
+2026-05-21 16:18:17.161  INFO 52264 --- [           main] w.s.c.ServletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 3530 ms
+Logging initialized using 'class org.apache.ibatis.logging.stdout.StdOutImpl' adapter.
+Registered plugin: 'com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor@62727399'
+Parsed mapper file: 'class path resource [mapper/customer/CustomerMaterialStatsMapper.xml]'
+Parsed mapper file: 'class path resource [mapper/customer/CustomerTransactionSummaryMapper.xml]'
+Parsed mapper file: 'class path resource [mapper/CustomerMapper.xml]'
+Parsed mapper file: 'class path resource [mapper/inventory/OrderMaterialLockMapper.xml]'
+Parsed mapper file: 'class path resource [mapper/production/MaterialBasePriceMapper.xml]'
+Parsed mapper file: 'class path resource [mapper/production/QualityInspectionMapper.xml]'
+Parsed mapper file: 'class path resource [mapper/production/ScheduleApprovalLogMapper.xml]'
+Parsed mapper file: 'class path resource [mapper/production/SchedulePrintingMapper.xml]'
+Parsed mapper file: 'class path resource [mapper/production/UrgentOrderLogMapper.xml]'
+Parsed mapper file: 'class path resource [mapper/quality/QualityInspectionRecordMapper.xml]'
+Parsed mapper file: 'class path resource [mapper/stock/ChemicalStockDetailMapper.xml]'
+Parsed mapper file: 'class path resource [mapper/stock/ChemicalStockMapper.xml]'
+Parsed mapper file: 'class path resource [mapper/stock/ChemicalStockOutMapper.xml]'
+Parsed mapper file: 'class path resource [mapper/stock/FilmStockDetailMapper.xml]'
+Parsed mapper file: 'class path resource [mapper/stock/FilmStockMapper.xml]'
+Parsed mapper file: 'class path resource [mapper/stock/FilmStockOutMapper.xml]'
+2026-05-21 16:18:19.785  INFO 52264 --- [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Starting...
+2026-05-21 16:18:20.363  INFO 52264 --- [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Start completed.
+[com.fine.Dao.stock.StockFlowLogMapper.selectPage] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.SelectPage]
+[com.fine.Dao.production.ScheduleOrderItemMapper.insert] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.Insert]
+[com.fine.Dao.production.ScheduleOrderItemMapper.selectPage] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.SelectPage]
+[com.fine.Dao.production.ScheduleOrderItemMapper.selectById] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.SelectById]
+[com.fine.Dao.production.ScheduleCoatingMapper.insert] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.Insert]
+[com.fine.Dao.production.ScheduleCoatingMapper.update] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.Update]
+[com.fine.Dao.production.ScheduleCoatingMapper.selectPage] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.SelectPage]
+[com.fine.Dao.production.ScheduleRewindingMapper.insert] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.Insert]
+[com.fine.Dao.production.ScheduleRewindingMapper.update] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.Update]
+[com.fine.Dao.production.ScheduleRewindingMapper.selectPage] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.SelectPage]
+[com.fine.Dao.production.ScheduleRewindingMapper.selectById] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.SelectById]
+[com.fine.Dao.production.ScheduleSlittingMapper.insert] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.Insert]
+[com.fine.Dao.production.ScheduleSlittingMapper.update] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.Update]
+[com.fine.Dao.production.ScheduleSlittingMapper.selectPage] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.SelectPage]
+[com.fine.Dao.production.ScheduleSlittingMapper.selectById] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.SelectById]
+[com.fine.Dao.production.ScheduleStrippingMapper.insert] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.Insert]
+[com.fine.Dao.production.ScheduleStrippingMapper.update] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.Update]
+[com.fine.Dao.production.ScheduleStrippingMapper.selectPage] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.SelectPage]
+[com.fine.Dao.production.ScheduleStrippingMapper.selectById] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.SelectById]
+This primary key of "id" is primitive !不建议如此请使用包装类 in Class: "com.fine.modle.Tape"
+This primary key of "quotationDetailId" is primitive !不建议如此请使用包装类 in Class: "com.fine.modle.QuotationDetail"
+[com.fine.Dao.QuotationDetailsMapper.selectList] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.SelectList]
+[com.fine.Dao.stock.MaterialIssueOrderMapper.selectPage] Has been loaded by XML or SqlProvider or Mybatis's Annotation, so ignoring this injection for [class com.baomidou.mybatisplus.core.injector.methods.SelectPage]
+This primary key of "id" is primitive !不建议如此请使用包装类 in Class: "com.fine.modle.TapeInventory"
+Can not find table primary key in Class: "com.fine.modle.TapeMin".
+2026-05-21 16:18:28.561  WARN 52264 --- [           main] c.b.m.core.injector.DefaultSqlInjector   : class com.fine.modle.TapeMin ,Not found @TableId annotation, Cannot use Mybatis-Plus 'xxById' Method.
+2026-05-21 16:18:29.106  INFO 52264 --- [           main] o.s.b.a.e.web.EndpointLinksResolver      : Exposing 1 endpoint(s) beneath base path '/actuator'
+2026-05-21 16:18:29.377  INFO 52264 --- [           main] o.s.s.web.DefaultSecurityFilterChain     : Will secure any request with [org.springframework.security.web.session.DisableEncodeUrlFilter@76911385, org.springframework.security.web.context.request.async.WebAsyncManagerIntegrationFilter@5467eea4, org.springframework.security.web.context.SecurityContextPersistenceFilter@749f539e, org.springframework.security.web.header.HeaderWriterFilter@5972d253, org.springframework.web.filter.CorsFilter@7fb95505, org.springframework.security.web.authentication.logout.LogoutFilter@7a18e8d, com.fine.filler.JwtAuthenticationTokenFilter@76a2ddf3, org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter@3bcd426c, org.springframework.security.web.savedrequest.RequestCacheAwareFilter@551de37d, org.springframework.security.web.servletapi.SecurityContextHolderAwareRequestFilter@6075b2d3, org.springframework.security.web.authentication.AnonymousAuthenticationFilter@160396db, org.springframework.security.web.session.SessionManagementFilter@1473b8c0, org.springframework.security.web.access.ExceptionTranslationFilter@5e840abf, org.springframework.security.web.access.intercept.AuthorizationFilter@4c9e38]
+2026-05-21 16:18:30.021  INFO 52264 --- [           main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat started on port(s): 8090 (http) with context path ''
+2026-05-21 16:18:33.079  INFO 52264 --- [           main] com.fine.MesApplication                  : Started MesApplication in 20.152 seconds (JVM running for 20.869)
+2026-05-21 16:18:33.108  INFO 52264 --- [teway-bootstrap] c.fine.config.PrintGatewayStartupRunner  : Print gateway is already healthy, skip restart: http://127.0.0.1:9123/health
+2026-05-21 16:18:33.369  INFO 52264 --- [nio-8090-exec-1] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring DispatcherServlet 'dispatcherServlet'
+2026-05-21 16:18:33.369  INFO 52264 --- [nio-8090-exec-1] o.s.web.servlet.DispatcherServlet        : Initializing Servlet 'dispatcherServlet'
+2026-05-21 16:18:33.371  INFO 52264 --- [nio-8090-exec-1] o.s.web.servlet.DispatcherServlet        : Completed initialization in 2 ms
+User(id=null, username=liaozaozhi, password=789789, realName=null, staffId=null, email=null, status=null, createdBy=null, createdAt=null, updatedAt=null, delFlag=null)
+>>> UserDetailsServiceImpl.loadUserByUsername: liaozaozhi
+Creating a new SqlSession
+SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@5870a970] was not registered for synchronization because synchronization is not active
+JDBC Connection [HikariProxyConnection@597965415 wrapping com.mysql.cj.jdbc.ConnectionImpl@60cb27c1] will not be managed by Spring
+==>  Preparing: SELECT id,username,password,real_name,staff_id,email,status,created_by,created_at,updated_at,del_flag FROM users WHERE (username = ?)
+==> Parameters: liaozaozhi(String)
+<==    Columns: id, username, password, real_name, staff_id, email, status, created_by, created_at, updated_at, del_flag
+<==        Row: 7, liaozaozhi, $2a$10$CwTqIhF0h5.IiS.wfvNVyu8oO48yp.yqiMtzTCWwjmF5gQphMKt1O, 廖早枝, 30, null, 0, null, 2026-01-17 10:50:47, 2026-04-11 16:30:51, 0
+<==      Total: 1
+Closing non transactional SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@5870a970]
+>>> User found: liaozaozhi
+>>> Database Password (Hash): $2a$10$CwTqIhF0h5.IiS.wfvNVyu8oO48yp.yqiMtzTCWwjmF5gQphMKt1O
+Creating a new SqlSession
+SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@31e8f32] was not registered for synchronization because synchronization is not active
+JDBC Connection [HikariProxyConnection@195719662 wrapping com.mysql.cj.jdbc.ConnectionImpl@60cb27c1] will not be managed by Spring
+==>  Preparing: SELECT DISTINCT r.name FROM users u LEFT JOIN user_roles ur ON ur.user_id = u.id LEFT JOIN roles r ON ur.role_id = r.id WHERE u.id = ?
+==> Parameters: 7(Long)
+<==    Columns: name
+<==        Row: sales
+<==      Total: 1
+Closing non transactional SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@31e8f32]
+=== 登录调试 ===
+User ID: 7
+JSON长度: 451
+JSON前100字符: {"accountNonExpired":true,"accountNonLocked":true,"credentialsNonExpired":true,"enabled":true,"passw
+Redis验证: 成功(长度:451)
+================
+eyJhbGciOiJIUzI1NiJ9.eyJqdGkiOiI2YjliMmEwNWVmOGI0YjQwODIwNTlmZTExODc1ZGVhOSIsInN1YiI6IjciLCJpc3MiOiJzZyIsImlhdCI6MTc3OTM1MTg2OCwiZXhwIjoxNzc5NzExODY4fQ.-sOTgafHHlBGHl7IIeBBUesys0j-inq_YUGXjhomVRw这是传进来的token
+Creating a new SqlSession
+SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@711c9ad4] was not registered for synchronization because synchronization is not active
+JDBC Connection [HikariProxyConnection@885981150 wrapping com.mysql.cj.jdbc.ConnectionImpl@7bf07553] will not be managed by Spring
+==>  Preparing: SELECT r.name FROM roles r INNER JOIN user_roles ur ON r.id = ur.role_id WHERE ur.user_id = ?
+==> Parameters: 7(Long)
+<==    Columns: name
+<==        Row: sales
+<==      Total: 1
+Closing non transactional SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@711c9ad4]
+Creating a new SqlSession
+SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@195505c7] was not registered for synchronization because synchronization is not active
+JDBC Connection [HikariProxyConnection@1520843068 wrapping com.mysql.cj.jdbc.ConnectionImpl@7bf07553] will not be managed by Spring
+==>  Preparing: SELECT s.*, t.team_name, w.workshop_name FROM production_staff s LEFT JOIN production_team t ON s.team_id = t.id LEFT JOIN workshop w ON s.workshop_id = w.id WHERE s.id = ? AND s.is_deleted = 0
+==> Parameters: 30(Long)
+<==    Columns: id, staff_code, staff_name, gender, phone, department, position_name, education, age, native_place, id_card_no, household_address, current_address, emergency_contact, emergency_relation, contract_sign_date, medical_exam_date, medical_exam_result, team_id, workshop_id, skill_level, entry_date, status, remark, create_time, update_time, create_by, update_by, is_deleted, team_name, workshop_name
+<==        Row: 30, 026, 廖早枝, F, 13428625680, null, 跟单, 高中, 48, null, 422101197801031960, 湖北省应城市宋埠镇柴场街15号, 桥头镇石水口村, 徐高峰, 夫妻, null, null, 合格, null, null, junior, 2020-11-01, active, null, 2026-03-14 10:07:44, 2026-03-16 01:15:42, null, null, 0, null, null
+<==      Total: 1
+Closing non transactional SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@195505c7]
+com.fine.Utils.ResponseResult@483a435e
+Creating a new SqlSession
+SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@7972ced1] was not registered for synchronization because synchronization is not active
+JDBC Connection [HikariProxyConnection@1726503189 wrapping com.mysql.cj.jdbc.ConnectionImpl@344ec4f4] will not be managed by Spring
+==>  Preparing: SELECT DISTINCT sales FROM customers WHERE is_deleted = 0 AND documentation_person = ? AND sales IS NOT NULL
+==> Parameters: 7(Long)
+<==    Columns: sales
+<==        Row: 17
+<==        Row: 8
+<==        Row: 13
+<==        Row: 5
+<==      Total: 4
+Closing non transactional SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@7972ced1]
+Creating a new SqlSession
+SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@50e9c18a] was not registered for synchronization because synchronization is not active
+JDBC Connection [HikariProxyConnection@1798723306 wrapping com.mysql.cj.jdbc.ConnectionImpl@344ec4f4] will not be managed by Spring
+==>  Preparing: SELECT id,username,password,real_name,staff_id,email,status,created_by,created_at,updated_at,del_flag FROM users WHERE (id IN (?,?,?,?) AND status = ? AND del_flag = ?) ORDER BY username ASC
+==> Parameters: 17(Long), 8(Long), 13(Long), 5(Long), 0(Integer), 0(Integer)
+<==    Columns: id, username, password, real_name, staff_id, email, status, created_by, created_at, updated_at, del_flag
+<==        Row: 8, guomanna, $2a$10$yUS1V3Xf/0kcMOm61.akQOPaMLNUe1TsOASLITdiT4j02IF.hjBQK, 郭嫚娜, 21, null, 0, null, 2026-02-25 10:30:12, 2026-03-20 09:35:58, 0
+<==        Row: 5, laiwenbin, $2a$10$GK9vu0DAjZP1VWUK5WayGejGAJGVMCU4EcLNtEp7JRKO.kutImM9S, 赖文斌, 14, null, 0, null, 2026-01-10 11:12:13, 2026-03-31 08:36:24, 0
+<==        Row: 17, sundawei, $2a$10$7vmqCLnPtCvdDWd7U6rkYeG8oYZsL/q5yq2mMJLQsNpRRSSJ8cmIm, 孙大伟, 11, null, 0, null, 2026-03-28 16:10:53, 2026-04-13 08:32:50, 0
+<==        Row: 13, zhangyaqiao, $2a$10$Hw2geJnth69Qs/AQSXxJHufTk6uueNUog0PnP3IPO7uwqfcqkwceO, 张雅乔, 46, null, 0, null, 2026-03-28 15:35:08, 2026-03-28 15:35:08, 0
+<==      Total: 4
+Closing non transactional SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@50e9c18a]
+Creating a new SqlSession
+SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@6cf0ed47] was not registered for synchronization because synchronization is not active
+JDBC Connection [HikariProxyConnection@514620513 wrapping com.mysql.cj.jdbc.ConnectionImpl@1f61c6c4] will not be managed by Spring
+==>  Preparing: SELECT DISTINCT documentation_person FROM customers WHERE is_deleted = 0 AND sales = ? AND documentation_person IS NOT NULL
+==> Parameters: 7(Long)
+<==      Total: 0
+Closing non transactional SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@6cf0ed47]
+eyJhbGciOiJIUzI1NiJ9.eyJqdGkiOiI3ZDczM2RlNjc1ZjM0MzU3OTk4MWRkMTlkODYxYTY0MSIsInN1YiI6IjE5IiwiaXNzIjoic2ciLCJpYXQiOjE3NzkzNDkyNTcsImV4cCI6MTc3OTcwOTI1N30.yYhxB5EiOHLvw6kYaf3Wqfv0aYN8Y81GSyPb-4g0aw4这是传进来的token
+Creating a new SqlSession
+SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@4a935cbc] was not registered for synchronization because synchronization is not active
+JDBC Connection [HikariProxyConnection@164316982 wrapping com.mysql.cj.jdbc.ConnectionImpl@408a0730] will not be managed by Spring
+==>  Preparing: SELECT r.name FROM roles r INNER JOIN user_roles ur ON r.id = ur.role_id WHERE ur.user_id = ?
+==> Parameters: 19(Long)
+<==    Columns: name
+<==        Row: purchase
+<==      Total: 1
+Closing non transactional SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@4a935cbc]
+Creating a new SqlSession
+SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@706fdeb9] was not registered for synchronization because synchronization is not active
+JDBC Connection [HikariProxyConnection@592364917 wrapping com.mysql.cj.jdbc.ConnectionImpl@408a0730] will not be managed by Spring
+==>  Preparing: SELECT s.*, t.team_name, w.workshop_name FROM production_staff s LEFT JOIN production_team t ON s.team_id = t.id LEFT JOIN workshop w ON s.workshop_id = w.id WHERE s.id = ? AND s.is_deleted = 0
+==> Parameters: 24(Long)
+<==    Columns: id, staff_code, staff_name, gender, phone, department, position_name, education, age, native_place, id_card_no, household_address, current_address, emergency_contact, emergency_relation, contract_sign_date, medical_exam_date, medical_exam_result, team_id, workshop_id, skill_level, entry_date, status, remark, create_time, update_time, create_by, update_by, is_deleted, team_name, workshop_name
+<==        Row: 24, 017, 李艳琴, F, 13532830994, 采购, 文员, 本科, 37, null, 420528198902262527, 东莞市桥头镇桥新路26号石竹山水园2期5座1002, 东莞市桥头石竹, 马忠光, 夫妻, null, null, 合格, null, null, junior, 2019-02-24, active, null, 2026-03-14 10:07:44, 2026-03-16 01:15:42, null, null, 0, null, null
+<==      Total: 1
+Closing non transactional SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@706fdeb9]
+com.fine.Utils.ResponseResult@5b49bf76
+Creating a new SqlSession
+SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@5fdf77cc] was not registered for synchronization because synchronization is not active
+Creating a new SqlSession
+SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@39f2de2f] was not registered for synchronization because synchronization is not active
+JDBC Connection [HikariProxyConnection@1804880885 wrapping com.mysql.cj.jdbc.ConnectionImpl@344ec4f4] will not be managed by Spring
+==>  Preparing: SELECT id, material_code, product_name, color_code, total_thickness FROM tape_spec WHERE status = 1 ORDER BY material_code
+==> Parameters: 
+Creating a new SqlSession
+SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@10dd153f] was not registered for synchronization because synchronization is not active
+JDBC Connection [HikariProxyConnection@1532157649 wrapping com.mysql.cj.jdbc.ConnectionImpl@7bf07553] will not be managed by Spring
+==>  Preparing: SELECT id, material_code, material_name, supplier_code, material_major, material_category_raw, material_category, material_type, unit, spec, performance_params, remark, status FROM tape_raw_material WHERE status = 1 ORDER BY id DESC
+Creating a new SqlSession
+==> Parameters: 
+SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@622612fe] was not registered for synchronization because synchronization is not active
+<==    Columns: id, material_code, product_name, color_code, total_thickness
+<==    Columns: id, material_code, material_name, supplier_code, material_major, material_category_raw, material_category, material_type, unit, spec, performance_params, remark, status
+<==        Row: 196, 1011-DGM-7535-T01-0900, 110μm印刷条纹PET胶带, T01, 110.00
+<==        Row: 274, PEG-08, PE管2.5*77*1150, null, null, 管芯, 管芯, 纸管, cps, 2.5*77*1150, <<BLOB>>, null, 1
+<==        Row: 502, 1011-DGM25-2525-B01-0900, 50μm蓝色PET胶带, B01, 50.00
+<==        Row: 273, GLJ-RY-002, 0.2%隔离剂溶液, null, null, 化工料, 化工料, curing, kg, null, <<BLOB>>, null, 1
+<==        Row: 264, 1011-R01-2525-C02-1200cyzy, 50μm茶色膜印字胶带, C02, 50.00
+<==        Row: 272, DJBHS(10%), 对甲苯磺酸10%溶液, null, null, 化工料, 化工料, curing, kg, 对甲苯磺酸10%的异丙醇溶液, <<BLOB>>, null, 1
+<==        Row: 245, 1011-R015-2525-C02-0900, 50μm茶色膜PET胶带, C02, 50.00
+<==        Row: 271, AJSZ0101(20%), 氨基树脂溶液, null, null, 化工料, 化工料, curing, kg, 复配料；母液料号=AJSZ0101；目标浓度=20%；使用口径=按成品溶液投料（Kg）；成本口径=按复配料单价核算；换算关系：成品1kg=母液0.2kg+溶剂0.8kg。, <<BLOB>>, null, 1
+<==        Row: 10, 1011-R02-0903-B05-0300, 12μm蓝色PET终止胶带, B05, 12.00
+<==        Row: 270, BOPPM-T23, 23μmPOPPP薄膜, null, null, 原膜, 原膜, BOPP膜, kg, null, <<BLOB>>, null, 1
+<==        Row: 9, 1011-R02-0903-G03-0300, 12μm无机翠绿PET胶带, G03, 12.00
+<==        Row: 269, PETLXM-S25T-02, 25μmPET双硅离型膜（1:1）, null, null, 离型材料, 离型材料, 离型膜, ㎡, null, <<BLOB>>, null, 1
+<==        Row: 336, 1011-R02-0903-G03-0300H, 12μm无机翠绿PET数字终止胶带, G03, 12.00
+<==        Row: 268, PETLXM-S25T-01, 25μmPET双硅离型膜(1:2), null, null, 离型材料, 离型材料, 离型膜, ㎡, null, <<BLOB>>, null, 1
+<==        Row: 394, 1011-R02-1204-B05-0300, 16μm蓝色PET终止胶带, B05, 16.00
+<==        Row: 267, PETM-QC25, 25μm浅茶色膜, null, null, 原膜, 原膜, PET膜, kg, 1040mm*8000m, <<BLOB>>, null, 1
+<==        Row: 102, 1011-R02-1204-G01-0300, 16μm翠绿PET胶带, G01, 16.00
+<==        Row: 266, PELXM-80W, 80μm白色PE离型膜, null, null, 离型材料, 离型材料, 离型膜, ㎡, null, <<BLOB>>, null, 1
+<==        Row: 103, 1011-R02-1204-G03-0200, 16μm无机翠绿PET胶带, G03, 16.00
+<==        Row: 265, PELXM-80R, 80μm红色PE离型膜, null, null, 离型材料, 离型材料, 离型膜, ㎡, null, <<BLOB>>, null, 1
+<==        Row: 101, 1011-R02-1204-G03-0300, 16u无机翠绿PET胶带, G03, 16.00
+<==        Row: 264, YKLSJ2107, 蓝色浆(蓝色浆1137）, null, null, 化工料, 化工料, 色浆, Kg, 20Kg/桶, <<BLOB>>, null, 1
+<==        Row: 337, 1011-R02-1204-G03-0300H, 16μm无机翠绿PET数字终止胶带, G03, 16.00
+<==        Row: 263, YKLJ6012, 亚克力胶水(9617),透明黄, null, null, 化工料, 化工料, 胶水, Kg, 900kg/桶, <<BLOB>>, null, 1
+<==        Row: 303, 1011-R02-1204-G03-0500, 16μm绿色PET终止胶带, G03, 16.00
+<==        Row: 262, Y8329, 胶水, null, null, 化工料, 化工料, 胶水, Kg, null, <<BLOB>>, null, 1
+<==        Row: 118, 1011-R02-1210-B05-0450, 22μm蓝色PET终止胶带, B05, 22.00
+<==        Row: 261, XPJ0101, 消泡剂, null, null, 化工料, 化工料, 消泡剂, Kg, 200Kg/桶, <<BLOB>>, null, 1
+<==        Row: 104, 1011-R02-1502-B02-0300, 17μm深蓝PET终止胶带, B02, 17.00
+<==        Row: 260, GY, 光油HC1807, null, null, 化工料, 化工料, 光油, Kg, 18kg/桶, <<BLOB>>, null, 1
+<==        Row: 107, 1011-R02-1503-B05-0200H, 18μ蓝色数字PET终止胶带, B05, 18.00
+<==        Row: 259, GLJ0101, GLJ0101, null, null, 化工料, 化工料, 离型剂, kg, 20Kg/桶, <<BLOB>>, null, 1
+<==        Row: 304, 1011-R02-1503-G01-0200, 18μm翠绿PET终止胶带, G01, 18.00
+<==        Row: 105, 1011-R02-1503-G01-0200H, 18μm翠绿数字PET胶带, G01, 18.00
+<==        Row: 258, GJ9262, 硅胶9262, null, null, 化工料, 化工料, 胶水, Kg, null, <<BLOB>>, null, 1
+<==        Row: 106, 1011-R02-1503-G06-0300, 18μm草绿PET胶带, G01, 18.00
+<==        Row: 257, GJ9200, 硅胶9200, null, null, 化工料, 化工料, 胶水, Kg, null, <<BLOB>>, null, 1
+<==        Row: 109, 1011-R02-1506-C01-0100, 21μm茶色胶水PET胶带, C01, 21.00
+<==        Row: 256, GHJ2001, 固化剂2001（MR303）, null, null, 化工料, 化工料, 胶水, Kg, null, <<BLOB>>, null, 1
+<==        Row: 432, 1011-R02-1506-C01-0100H, 21μm茶色胶水PET印字胶带, C01, 21.00
+<==        Row: 255, FN8851, 胶水, null, null, 化工料, 化工料, 胶水, Kg, null, <<BLOB>>, null, 1
+<==        Row: 110, 1011-R02-1506-C01-0300, 21μm茶色胶水PET胶带, C01, 21.00
+<==        Row: 254, FN8558, 胶水, null, null, 化工料, 化工料, 胶水, Kg, null, <<BLOB>>, null, 1
+<==        Row: 108, 1011-R02-1506-G01-0100, 21μm翠绿低粘PET胶带, G01, 21.00
+<==        Row: 253, FN-C102, 胶水, null, null, 化工料, 化工料, 胶水, Kg, null, <<BLOB>>, null, 1
+<==        Row: 373, 1011-R02-1506-G01-0100H, 21μm翠绿低粘PET数字胶带, G01, 21.00
+<==        Row: 252, CSF1015FY20, 茶色色粉, null, null, 化工料, 化工料, 色浆, kg, null, <<BLOB>>, null, 1
+<==        Row: 113, 1011-R02-1506-G01-0300H, 21μm翠绿数字PET胶带, G01, 21.00
+<==        Row: 251, 2089, 绿色色浆2089, null, null, 化工料, 化工料, 色浆, kg, null, <<BLOB>>, null, 1
+<==        Row: 111, 1011-R02-1506-G01-0350, 21μm翠绿PET胶带, G01, 21.00
+<==        Row: 250, PIM-C35, 35μm茶色PI薄膜, null, null, 原膜, 原膜, PI膜, kg, null, <<BLOB>>, null, 1
+<==        Row: 112, 1011-R02-1506-G01-0350H, 21μm翠绿数字PET胶带, G01, 21.00
+<==        Row: 249, PIM-C25, 25μm茶色PI薄膜, null, null, 原膜, 原膜, PI膜, kg, null, <<BLOB>>, null, 1
+<==        Row: 353, 1011-R02-1506-G03-0300H, 21μm无机翠绿PET终止胶带, G03, 21.00
+<==        Row: 248, PETM-Y50, 50μm黄色PET薄膜, null, null, 原膜, 原膜, PET膜, kg, null, <<BLOB>>, null, 1
+<==        Row: 115, 1011-R02-1506-G09-0350, 21μm含卤翠绿PET胶带, G09, 21.00
+<==        Row: 247, PETM-W25A, 25μm白色PET薄膜, null, null, 原膜, 原膜, PET膜, kg, null, <<BLOB>>, null, 1
+<==        Row: 114, 1011-R02-1506-G10-0090H, 21μm无机翠绿PET数字胶带, G10, 21.00
+<==        Row: 246, PETM-T75A, 75μm透明PET薄膜, null, null, 原膜, 原膜, PET膜, kg, null, <<BLOB>>, null, 1
+<==        Row: 508, 1011-R02-1507-B01-0300, 22μm蓝色PET终止胶带, B01, 22.00
+<==        Row: 245, PETM-T50A, 50μm透明PET薄膜, null, null, 原膜, 原膜, PET膜, kg, null, <<BLOB>>, null, 1
+<==        Row: 116, 1011-R02-1507-B01-0400, 22μmPET蓝色胶, B01, 22.00
+<==        Row: 244, PETM-T30, 30μm透明PET薄膜, null, null, 原膜, 原膜, PET膜, kg, null, <<BLOB>>, null, 1
+<==        Row: 201, 1011-R02-1507-B01-0400H, 22μmPET蓝色数字胶, B01, 22.00
+<==        Row: 243, PETM-T3.8, 3.8μm透明PET薄膜, null, null, 原膜, 原膜, PET膜, kg, null, <<BLOB>>, null, 1
+<==        Row: 202, 1011-R02-1507-B05-0400, 22μm蓝色PET终止胶带, B05, 22.00
+<==        Row: 242, PETM-T15A, 15μm透明PET薄膜, null, null, 原膜, 原膜, PET膜, kg, null, <<BLOB>>, null, 1
+<==        Row: 117, 1011-R02-1507-B11-0400, 22μmPET蓝色数字胶, B11, 22.00
+<==        Row: 241, PETM-T12A, 12μm透明PET薄膜, null, null, 原膜, 原膜, PET膜, kg, null, <<BLOB>>, null, 1
+<==        Row: 121, 1011-R02-1507-G03-0200, 22μm无机翠绿PET胶带, G03, 22.00
+<==        Row: 240, PETM-T100, 100μm透明PET薄膜, null, null, 原膜, 原膜, PET膜, kg, null, <<BLOB>>, null, 1
+<==        Row: 122, 1011-R02-1507-G03-0300, 22μm无机翠绿PET胶带, G03, 22.00
+<==        Row: 239, PETM-T10, 12μm透明PET薄膜, null, null, 原膜, 原膜, PET膜, kg, null, <<BLOB>>, null, 1
+<==        Row: 123, 1011-R02-1507-G03-0400, 22μm无机翠绿PET胶带, G03, 22.00
+<==        Row: 238, PETM-G12, 12μm绿色PET薄膜, null, null, 原膜, 原膜, PET膜, kg, null, <<BLOB>>, null, 1
+<==        Row: 448, 1011-R02-1507-G03-0400H, 22μm无机翠绿PET数字终止胶带, G03, 22.00
+<==        Row: 237, PETM-C36, 36μm茶色PET薄膜, null, null, 原膜, 原膜, PET膜, kg, null, <<BLOB>>, null, 1
+<==        Row: 124, 1011-R02-1507-G03-0500, 22μm无机翠绿PET胶带, G03, 22.00
+<==        Row: 236, PETLXM-S50, 50μm双硅离型膜, null, null, 离型材料, 离型材料, PET离型膜, ㎡, null, <<BLOB>>, null, 1
+<==        Row: 119, 1011-R02-1507-G05-0350, 22μm墨绿PET胶带, G05, 22.00
+<==        Row: 235, PETLXM-S251:1, 25μm双硅离型膜1:2（5~10g/5~10g）, null, null, 离型材料, 离型材料, PET离型膜, ㎡, null, <<BLOB>>, null, 1
+<==        Row: 120, 1011-R02-1507-G05-0350H, 22μm墨绿数字PET胶带, G05, 22.00
+<==        Row: 234, PETLXM-S251:2, 25μm双硅离型膜1:2（10g/15-30g）, null, null, 离型材料, 离型材料, PET离型膜, ㎡, null, <<BLOB>>, null, 1
+<==        Row: 397, 1011-R02-1507-G08-0300, 22μm军绿色PET终止胶带, G08, 22.00
+<==        Row: 233, PM2525W, 2525白, null, null, 泡棉, 泡棉, 泡棉, ㎡, null, <<BLOB>>, null, 1
+<==        Row: 203, 1011-R02-1510-B01-0400, 25μm浅蓝PET胶带, B01, 25.00
+<==        Row: 232, PM2525B, 2525黑, null, null, 泡棉, 泡棉, 泡棉, ㎡, null, <<BLOB>>, null, 1
+<==        Row: 481, 1011-R02-1510-Y01-0400, 25μm黄色PET终止胶带, Y01, 25.00
+<==        Row: 231, PELXZ-S120W1:4, 120g双硅离型纸1:4, null, null, 离型材料, 离型材料, 离型纸, ㎡, null, <<BLOB>>, null, 1
+<==        Row: 315, 1011-R02-1512-G10-0500H, 27μm无机翠绿PET数字胶带, G10, 27.00
+<==        Row: 230, PELXZ-S120W, 120g双硅离型纸, null, null, 离型材料, 离型材料, 离型纸, ㎡, null, <<BLOB>>, null, 1
+<==        Row: 207, 1011-R02-1515-B01-0400, 30μm浅蓝PET胶带, B01, 30.00
+<==        Row: 229, PELXZ-S105W, 105g双硅离型纸, null, null, 离型材料, 离型材料, 离型纸, ㎡, null, <<BLOB>>, null, 1
+<==        Row: 145, 1011-R02-1515-C05-0600, 30μm茶色胶水PET胶带, C05, 30.00
+<==        Row: 228, PELXZ-D80FGYS, 80g离型纸, null, null, 离型材料, 离型材料, 离型纸, ㎡, null, <<BLOB>>, null, 1
+<==        Row: 224, 1011-R02-1520-C01-0600, 35μm茶色胶水PET胶带, C01, 35.00
+<==        Row: 227, PELXZ-80F, 80g离型纸, null, null, 离型材料, 离型材料, 离型纸, ㎡, null, <<BLOB>>, null, 1
+<==        Row: 464, 1011-R02-1535-C05-1000H, 50μm茶色印字胶带, C05, 50.00
+<==        Row: 226, PELXZ-80R, 80g离型纸, null, null, 离型材料, 离型材料, 离型纸, ㎡, null, <<BLOB>>, null, 1
+<==        Row: 318, 1011-R02-1904-G01-0200, 23μm绿色PET终止胶带, G01, 23.00
+<==        Row: 225, PELXM-60GY, 60μm绿色PE离型膜, null, null, 离型材料, 离型材料, 离型膜, ㎡, null, <<BLOB>>, null, 1
+<==        Row: 323, 1011-R02-1904-G06-0200, 23μm绿色PET终止胶带, G06, 23.00
+<==        Row: 224, NPZ-D105, 单硅牛皮纸, null, null, 离型材料, 离型材料, 离型纸, kg, null, <<BLOB>>, null, 1
+<==        Row: 399, 1011-R02-1905-B05-0300, 24μm蓝色PET终止胶带, B05, 24.00
+<==        Row: 203, PELXM-100B, 100μm蓝色PE离型膜, null, null, 离型材料, 离型材料, 离型膜, ㎡, null, <<BLOB>>, null, 1
+<==        Row: 125, 1011-R02-1905-G01-0300, 25μ翠绿PET胶带, G01, 25.00
+<==        Row: 202, GLXZ-S90Y1:4, 双硅格拉辛纸?(1:4), null, null, 离型材料, 离型材料, 离型纸, ㎡, null, <<BLOB>>, null, 1
+<==        Row: 322, 1011-R02-2003-G01-0200H, 23μm绿色PET数字终止胶带, G01, 23.00
+<==        Row: 201, BOPPM-T37, 37μmBOPP薄膜, null, null, 原膜, 原膜, BOPP膜, kg, 37μm*1040mm, <<BLOB>>, null, 1
+<==        Row: 298, 1011-R02-2010-B01-0300, 30μm蓝色终止胶带, B01, 30.00
+<==        Row: 200, YKLSJ2117, 亚克力蓝色浆, null, null, 化工料, 化工料, 色浆, kg, 20Kg/桶, <<BLOB>>, null, 1
+<==        Row: 206, 1011-R02-2010-B01-0400, 30μm浅蓝PET胶带, B01, 30.00
+<==        Row: 198, 1011-R02-2010-B01-0400A, 30μm浅蓝PET胶带, B01, 30.00
+<==        Row: 199, K03, 保护膜胶水K03, null, null, 化工料, 化工料, 溶剂, kg, 190kg/桶，900kg/桶, <<BLOB>>, null, 1
+<==        Row: 581, 1011-R02-2010-B01-0500, 30μm蓝色PET终止胶带, B01, 30.00
+<==        Row: 198, YC, 乙醇, null, null, 化工料, 化工料, 溶剂, kg, 160kg/桶，165kg/桶, <<BLOB>>, null, 1
+<==        Row: 204, 1011-R02-2010-B02-0350, 30μm深蓝PET胶带, B02, 30.00
+<==        Row: 197, DC, DC, null, null, 化工料, 化工料, 溶剂, kg, 160kg/桶，165kg/桶, <<BLOB>>, null, 1
+<==        Row: 563, 1011-R02-2010-B02-0350-HCD1-20, 30μm蓝色PET印字胶带（HCD1-20）, B02, 30.00
+<==        Row: 196, YBC, 异丙醇, null, null, 化工料, 化工料, 溶剂, kg, 160kg/桶, <<BLOB>>, null, 1
+<==        Row: 205, 1011-R02-2010-B02-0350H, 30μm深蓝数字PET胶带, B02, 30.00
+<==        Row: 195, YSYZ, 乙酸乙酯, null, null, 化工料, 化工料, 溶剂, kg, 180kg/桶, <<BLOB>>, null, 1
+<==        Row: 468, 1011-R02-2010-B02-0350HCD1-20, 1011-R02-2010-B02-0350HCD1-20, B02, 0.00
+<==        Row: 506, 1011-R02-2010-B02-0500-JZM1/JZM2, 30μm蓝色PET印字胶带, B02, 30.00
+JDBC Connection [HikariProxyConnection@287377430 wrapping com.mysql.cj.jdbc.ConnectionImpl@408a0730] will not be managed by Spring
+<==        Row: 194, HHFT, HHFT, null, null, 化工料, 化工料, 溶剂, kg, 170kg/桶，175kg/桶, <<BLOB>>, null, 1
+==>  Preparing: SELECT COUNT(*) AS total FROM purchase_suppliers WHERE is_deleted = 0 AND (is_deleted = ?)
+<==        Row: 129, 1011-R02-2010-B02-0500H, 30μm深蓝数字PET胶带, B02, 30.00
+<==        Row: 193, PEG-Y02, PE管-黄色4*77*1080, null, null, 包辅材, 包辅材, 胶管, pcs, 4*77*1080, <<BLOB>>, null, 1
+==> Parameters: 0(Integer)
+<==        Row: 208, 1011-R02-2010-B05-0400, 30μm蓝色PET终止胶带, B05, 30.00
+<==        Row: 192, PEG-Y01, PE管-黄色4*77*560, null, null, 包辅材, 包辅材, 胶管, pcs, 4*77*1080, <<BLOB>>, null, 1
+<==        Row: 314, 1011-R02-2010-B05-0500, 30μm蓝色PET终止胶带, B05, 30.00
+<==        Row: 191, PETLXM-T36, 36μm离型膜非硅AB组, null, null, 离型材料, 离型材料, PET离型膜, ㎡, 1070mm*480m, <<BLOB>>, null, 1
+<==        Row: 143, 1011-R02-2010-BK01-0450, 30μm黑色PET胶带, BK01, 30.00
+<==        Row: 190, PETLXM-D36, 36μm单硅离型膜, null, null, 离型材料, 离型材料, PET离型膜, kg, 1090mm*12100m,1040mm*8100m, <<BLOB>>, null, 1
+<==        Row: 130, 1011-R02-2010-G01-0050, 30μm翠绿PET低粘胶带, G01, 30.00
+<==        Row: 189, PETLXM-D25, 25μm单硅离型膜, null, null, 离型材料, 离型材料, PET离型膜, kg, 1020mm*12000m,1000mm*12000m,1090mm*12000m, <<BLOB>>, null, 1
+<==        Row: 131, 1011-R02-2010-G01-0050H, 30μm翠绿数字PET低粘胶带, G01, 30.00
+<==        Row: 188, PELXZ-S105, 105g单硅离型纸, null, null, 离型材料, 离型材料, 离型纸, ㎡, 1070mm*4000m, <<BLOB>>, null, 1
+<==        Row: 209, 1011-R02-2010-G01-0350, 30μm翠绿PET胶带, G01, 30.00
+<==        Row: 187, PELXZ-D80H, PELXZ-D80H, null, null, 离型材料, 离型材料, 离型纸, ㎡, 1040mm*4500m, <<BLOB>>, null, 1
+<==        Row: 494, 1011-R02-2010-G01-0350-FF, 30μm绿色PET印字胶带, G01, 30.00
+<==        Row: 186, PM3030B, 3030黑, null, null, 泡棉, 泡棉, 泡棉, ㎡, 1070mm*100m,1070mm*115m,1070mm*116m, <<BLOB>>, null, 1
+<==        Row: 562, 1011-R02-2010-G01-0350-HCD1-20, 30μm翠绿PET印字胶带（HCD1-20）, G01, 30.00
+<==        Row: 185, PM3030W, 3030白, null, null, 泡棉, 泡棉, 泡棉, ㎡, 1070mm*100m,1070mm*115m,1070mm*116m, <<BLOB>>, null, 1
+<==        Row: 461, 1011-R02-2010-G01-0350-SH1-SH15, 30μm翠绿PET印字胶带（SH1-SH15）, G01, 30.00
+<==        Row: 184, PM2530B, 2530黑, null, null, 泡棉, 泡棉, 泡棉, ㎡, 1070mm*100m, <<BLOB>>, null, 1
+<==    Columns: total
+<==        Row: 63
+<==        Row: 485, 1011-R02-2010-G01-0350-SYS, 30μm绿色印字终止胶, G01, 30.00
+<==      Total: 1
+<==        Row: 183, PM2530W, 2530白, null, null, 泡棉, 泡棉, 泡棉, ㎡, 1070mm*100m, <<BLOB>>, null, 1
+<==        Row: 500, 1011-R02-2010-G01-0350-WH, 30μm翠绿PET印字胶带, G01, 30.00
+<==        Row: 182, PM2020B, 2020黑, null, null, 泡棉, 泡棉, 泡棉, ㎡, 1070mm*200m, <<BLOB>>, null, 1
+<==        Row: 210, 1011-R02-2010-G01-0350H, 30μm翠绿数字PET胶带, G01, 30.00
+<==        Row: 181, PM1530B, 1530黑, null, null, 泡棉, 泡棉, 泡棉, ㎡, 1070mm*100m, <<BLOB>>, null, 1
+<==        Row: 467, 1011-R02-2010-G01-0350HCD1-20, 1011-R02-2010-G01-0350HCD1-20, G01, 0.00
+<==        Row: 180, PM1520B, 1520黑, null, null, 泡棉, 泡棉, 泡棉, ㎡, 1070mm*200m, <<BLOB>>, null, 1
+<==        Row: 306, 1011-R02-2010-G01-0400, 30μm翠绿PET终止胶带, G01, 30.00
+<==        Row: 179, PM1520W, 1520白, null, null, 泡棉, 泡棉, 泡棉, ㎡, 1070mm*200m, <<BLOB>>, null, 1
+JDBC Connection [HikariProxyConnection@219724965 wrapping com.mysql.cj.jdbc.ConnectionImpl@1f61c6c4] will not be managed by Spring
+<==        Row: 455, 1011-R02-2010-G01-0500, 30μm翠绿PET终止胶带, G01, 30.00
+==>  Preparing: SELECT COUNT(*) AS total FROM purchase_orders po WHERE po.is_deleted = 0
+<==        Row: 178, PM1515B, 1515黑, null, null, 泡棉, 泡棉, 泡棉, ㎡, 1070mm*200m,1070mm*186m,1070mm*185m,1070*150m, <<BLOB>>, null, 1
+==> Parameters: 
+==>  Preparing: SELECT id,supplier_code,supplier_name,short_name,primary_contact_name,primary_contact_mobile,contact_email,contact_address,tax_no,bank_name,bank_account,status,remark,created_by,updated_by,created_at,updated_at,is_deleted FROM purchase_suppliers WHERE is_deleted=0 AND (is_deleted = ?) ORDER BY created_at DESC LIMIT ?
+<==        Row: 126, 1011-R02-2010-G01-0500H, 30μm翠绿数字PET胶带, G01, 30.00
+==> Parameters: 0(Integer), 1000(Long)
+<==        Row: 177, PM1515W, 1515白, null, null, 泡棉, 泡棉, 泡棉, ㎡, 1070mm*200m,1070mm*186m,1070mm*185m,1070*150m, <<BLOB>>, null, 1
+<==        Row: 361, 1011-R02-2010-G03-0400, 30μm无机翠绿PET终止胶带, G03, 30.00
+<==        Row: 176, PM1510B, 1510黑, null, null, 泡棉, 泡棉, 泡棉, ㎡, 1070mm*300m,1070mm*400m, <<BLOB>>, null, 1
+<==        Row: 148, 1011-R02-2010-G03-0500, 30μm无机翠绿PET胶带, G03, 30.00
+<==        Row: 362, 1011-R02-2010-G03-0500A, 30μm无机翠绿PET终止胶带, G03, 30.00
+<==        Row: 175, PM1510W, 1510白, null, null, 泡棉, 泡棉, 泡棉, ㎡, 1070mm*300m,1070mm*400m, <<BLOB>>, null, 1
+<==        Row: 216, 1011-R02-2010-G05-0450, 30μm墨绿PET胶带, G05, 30.00
+<==        Row: 174, PM1508B, 1508黑, null, null, 泡棉, 泡棉, 泡棉, ㎡, 1070mm*300m,1070mm*400m, <<BLOB>>, null, 1
+<==        Row: 217, 1011-R02-2010-G05-0450H, 30μm墨绿数字PET胶带, G05, 30.00
+<==        Row: 173, PM1508W, 1508白, null, null, 泡棉, 泡棉, 泡棉, ㎡, 1070mm*300m,1070mm*400m, <<BLOB>>, null, 1
+<==        Row: 297, 1011-R02-2010-G06-0500, 30μm无机翠绿终止胶带, G03, 0.00
+<==        Row: 172, PM1010B, 1010黑, null, null, 泡棉, 泡棉, 泡棉, ㎡, 1070mm*300m,1070mm*400m, <<BLOB>>, null, 1
+<==        Row: 444, 1011-R02-2010-G07-0400H, 30μm墨绿PET数字终止胶带, G07, 30.00
+<==    Columns: total
+<==        Row: 171, PM1010W, 1010白, null, null, 泡棉, 泡棉, 泡棉, ㎡, 1070mm*300m,1070mm*400m, <<BLOB>>, null, 1
+<==        Row: 102
+<==        Row: 221, 1011-R02-2010-G07-0450H, 30μm墨绿PET数字终止胶, G07, 30.00
+<==        Row: 140, 1011-R02-2010-G09-0500, 30μm含卤翠绿PET胶带, G09, 30.00
+<==        Row: 398, 1011-R02-2010-G13-0300-KXYS, 30μm草绿色PET终止胶带, G13, 30.00
+<==      Total: 1
+<==        Row: 170, PM1008B, 1008黑, null, null, 泡棉, 泡棉, 泡棉, ㎡, 1070mm*300m,1070mm*400m, <<BLOB>>, null, 1
+<==        Row: 138, 1011-R02-2010-G13-0300H, 30μm含卤草绿数字PET胶带, G13, 30.00
+<==    Columns: id, supplier_code, supplier_name, short_name, primary_contact_name, primary_contact_mobile, contact_email, contact_address, tax_no, bank_name, bank_account, status, remark, created_by, updated_by, created_at, updated_at, is_deleted
+<==        Row: 139, 1011-R02-2010-G13-0400, 30μm含卤草绿PET胶带, G13, 30.00
+==>  Preparing: SELECT po.id, po.order_no, po.supplier, po.supplier_order_no, po.buyer AS buyerUserId, po.handler AS handlerUserId, po.contact_name, po.contact_phone, COALESCE(agg.total_amount, po.total_amount, 0) AS total_amount, COALESCE(agg.total_qty, po.total_area, 0) AS total_area, po.required_area, po.reconciliation_status, po.thickness, po.width, po.order_date, po.delivery_date, po.delivery_address, po.status, po.remark, po.created_by, po.updated_by, po.created_at, po.updated_at, po.is_deleted, COALESCE(bu.real_name, '') AS buyerUserName, COALESCE(hu.real_name, '') AS handlerUserName FROM purchase_orders po LEFT JOIN ( SELECT poi.order_id, IFNULL(SUM(IFNULL(poi.amount, 0)), 0) AS total_amount, IFNULL(SUM(COALESCE(poi.stock_qty, poi.sqm, 0)), 0) AS total_qty FROM purchase_order_items poi WHERE poi.is_deleted = 0 GROUP BY poi.order_id) agg ON agg.order_id = po.id LEFT JOIN customers c ON po.supplier COLLATE utf8mb4_unicode_ci = c.customer_code COLLATE utf8mb4_unicode_ci LEFT JOIN users bu ON po.buyer = bu.id LEFT JOIN users hu ON po.handler = hu.id WHERE po.is_deleted = 0 ORDER BY po.created_at DESC LIMIT ?
+<==        Row: 169, PM1008W, 1008白, null, null, 泡棉, 泡棉, 泡棉, ㎡, 1070mm*300m,1070mm*400m, <<BLOB>>, null, 1
+==> Parameters: 10(Long)
+<==        Row: 215, 1011-R02-2010-T01-0400H, 30μm透明数字PET胶带, T01, 30.00
+<==        Row: 66, HY003, 广东鸿栎新材料有限公司, 鸿栎, 徐栩洋, , , , , , , active, , null, null, 2026-05-16 14:40:23, 2026-05-16 14:40:23, 0
+<==        Row: 213, 1011-R02-2010-T01-0450, 30μm透明PET胶带, T01, 30.00
+<==        Row: 168, PM0805B, 0805黑, null, null, 泡棉, 泡棉, 泡棉, ㎡, 1070mm*300m,1070mm*400m, <<BLOB>>, null, 1
+<==        Row: 214, 1011-R02-2010-T01-0450H, 30μm透明数字PET胶带, T01, 30.00
+<==        Row: 167, PM0805W, 0805白, null, null, 泡棉, 泡棉, 泡棉, ㎡, 1070mm*300m,1070mm*400m, <<BLOB>>, null, 1
+<==        Row: 64, YY002, 永一胶粘（中山）有限公司, 永一, 永一, , , , , , , active, , null, null, 2026-05-12 14:22:00, 2026-05-12 14:22:00, 0
+<==        Row: 128, 1011-R02-2010-T01-0500H, 30μm透明数字PET胶带, T01, 30.00
+<==        Row: 62, YX001, 四川羽玺电子科技有限公司, 羽玺, 羽玺, , , , , , , active, , null, null, 2026-05-11 05:55:25, 2026-05-11 05:55:25, 0
+<==        Row: 166, PETLXM-D50W, 50μmPET白色单硅离型膜, null, null, 离型材料, 离型材料, PET离型膜, ㎡, 1000mm*300m, <<BLOB>>, null, 1
+<==        Row: 338, 1011-R02-2010-Y01-0500-H, 30μm黄色PET数字终止胶带, Y01, 30.00
+<==        Row: 61, HS001, 浙江和顺新材料有限公司, 和顺, 和顺, , , , , , , active, , null, null, 2026-05-11 02:25:03, 2026-05-11 02:25:03, 0
+<==        Row: 165, PETLXM-S23W, 23μmPET白色双硅膜, null, null, 离型材料, 离型材料, PET离型膜, ㎡, 1040mm*6000m, <<BLOB>>, null, 1
+<==        Row: 60, JJC001, 佛山市金俊驰新材料有限公司, 金俊驰, 金俊驰, , , , , , , active, , null, null, 2026-05-11 02:24:34, 2026-05-11 02:24:34, 0
+<==        Row: 127, 1011-R02-2010-Y01-0500H, 30μm黄色数字PET胶带, Y01, 30.00
+<==        Row: 59, BZX001, 宝智兴（广东）薄膜科技有限公司, 宝智兴, 宝智兴, , , , , , , active, , null, null, 2026-05-11 02:23:51, 2026-05-11 02:23:51, 0
+<==        Row: 164, PETLXM-S75, 75μm双硅离型膜, null, null, 离型材料, 离型材料, PET离型膜, ㎡, 1080mm*4000m, <<BLOB>>, null, 1
+<==        Row: 58, FH001, 佛山市帆恒包装材料有限公司, 帆恒, 帆恒, , , , , , , active, , null, null, 2026-05-11 02:23:07, 2026-05-11 02:23:07, 0
+<==        Row: 163, PETLXM-S25, 25μm双硅离型膜5-8g, null, null, 离型材料, 离型材料, PET离型膜, ㎡, 1040mm*11000m, <<BLOB>>, null, 1
+<==        Row: 326, 1011-R02-2013-G03-0500, 33μm绿色PET终止胶带, G03, 33.00
+<==        Row: 162, PETLXM-S50W, 50μm白色双硅离型膜 内5-8g/外10-15g, null, null, 离型材料, 离型材料, PET离型膜, ㎡, 1040mm*6000m, <<BLOB>>, null, 1
+<==        Row: 57, HY002, 广东惠粤新材料有限公司, 惠粤, 光博士, , , , , , , active, , null, null, 2026-05-11 02:11:11, 2026-05-11 02:11:11, 0
+<==        Row: 161, PEG-07, PP管6*77.2*600, null, null, 包辅材, 包辅材, 胶管, pcs, 6*77.2*600, <<BLOB>>, null, 1
+<==    Columns: id, order_no, supplier, supplier_order_no, buyerUserId, handlerUserId, contact_name, contact_phone, total_amount, total_area, required_area, reconciliation_status, thickness, width, order_date, delivery_date, delivery_address, status, remark, created_by, updated_by, created_at, updated_at, is_deleted, buyerUserName, handlerUserName
+<==        Row: 327, 1011-R02-2013-G03-0500A, 33μm绿色PET终止胶带, G03, 33.00
+<==        Row: 143, CD26052104, 东莞市高鹏包装纸品有限公司, , null, null, , , 1860.00, 1000.0000, 0.00, UNRECONCILED, null, null, 2026-05-21, 2026-05-22, , pending, <<BLOB>>, liyanqin, liyanqin, 2026-05-21 16:00:33, 2026-05-21 16:00:33, 0, , 
+<==        Row: 160, PEG-06, PP管6*77.2*1080, null, null, 包辅材, 包辅材, 胶管, pcs, 6*77.2*1080, <<BLOB>>, null, 1
+<==        Row: 55, KY001, 广州康耀有机硅胶材料有限公司, 康耀, 康耀, , , , , , , active, , null, null, 2026-05-11 01:16:17, 2026-05-11 01:16:17, 0
+<==        Row: 142, CD26052103, 东莞市立汇化工贸易有限公司, , null, null, , , 12016.00, 1790.0000, 0.00, UNRECONCILED, null, null, 2026-05-21, 2026-05-22, , pending, <<BLOB>>, liyanqin, liyanqin, 2026-05-21 15:56:54, 2026-05-21 15:56:54, 0, , 
+<==        Row: 159, PEG-05, PP管6*77.2*560, null, null, 包辅材, 包辅材, 胶管, pcs, 6*77.2*560, <<BLOB>>, null, 1
+<==        Row: 242, 1011-R02-2030-C01-1200, 50μm茶色胶水PET胶带, C01, 50.00
+<==        Row: 158, PEG-04, PE管6*77*1080, null, null, 包辅材, 包辅材, 胶管, pcs, 6*77*1080, <<BLOB>>, null, 1
+<==        Row: 141, CD26052102, 东莞市御辉纸品有限公司, , null, null, , , 6065.00, 500.0000, 0.00, UNRECONCILED, null, null, 2026-05-21, 2026-05-23, , pending, <<BLOB>>, liyanqin, liyanqin, 2026-05-21 15:50:40, 2026-05-21 15:50:57, 0, , 
+<==        Row: 54, AS001, 广州奥生商贸有限公司, 奥生, 奥生, , , , , , , active, , null, null, 2026-05-11 01:10:11, 2026-05-11 01:10:28, 0
+<==        Row: 157, PEG-03, PE管6*77*560, null, null, 包辅材, 包辅材, 胶管, pcs, 6*77*560, <<BLOB>>, null, 1
+<==        Row: 424, 1011-R02-2030-C01-1200-H6, 50μm茶色胶水PET印字胶带, C01, 50.00
+<==        Row: 156, GY0101, GY0101硅油, null, null, 化工料, 化工料, 硅油, kg, 25kg/桶, <<BLOB>>, null, 1
+<==        Row: 53, TY001, 东莞市泰源电子有限公司, 泰源, 泰源, , , , , , , active, , null, null, 2026-04-24 08:19:04, 2026-04-24 08:19:04, 0
+<==        Row: 140, CD26052101, 台昌树脂（佛山）有限公司, , null, null, , , 53430.00, 3660.0000, 0.00, UNRECONCILED, null, null, 2026-05-21, 2026-05-22, , pending, <<BLOB>>, liyanqin, liyanqin, 2026-05-21 15:46:58, 2026-05-21 15:47:46, 0, , 
+<==        Row: 52, SX001, 广东双欣供应链管理有限公司（双星）, 双星, 杨先生, , , , , , , active, , null, null, 2026-04-16 08:42:42, 2026-04-16 08:42:42, 0
+<==        Row: 155, OPSM-50, 50μm透明OPS膜, null, null, 原膜, 原膜, OPS膜, kg, 940mm*4000m, <<BLOB>>, null, 1
+<==        Row: 473, 1011-R02-2031-C01-0800, 51μm茶色胶水PET胶带, C01, 51.00
+<==        Row: 154, 1530, 蓝色色浆1530, null, null, 化工料, 化工料, 色浆, kg, 20kg/桶, <<BLOB>>, null, 1
+<==        Row: 51, BDJ001, 东莞市宝的佳实业有限公司, 宝的佳, 宝的佳, , , , , , , active, , null, null, 2026-04-08 04:59:50, 2026-04-11 05:55:35, 0
+<==        Row: 139, CD26052006, 东莞市友翊化工贸易有限公司, , null, null, 友翊, , 7154.00, 1070.0000, 0.00, PARTIAL, null, null, 2026-05-20, 2026-05-21, , pending, <<BLOB>>, liyanqin, liyanqin, 2026-05-20 16:24:46, 2026-05-20 16:24:46, 0, , 
+<==        Row: 33, HQ001, 常熟市华强绝缘材料有限责任公司, 华强, , , , , , , , active, , null, null, 2026-04-08 04:59:49, 2026-04-11 05:55:36, 0
+<==        Row: 153, ML-012, 茶色色浆, null, null, 化工料, 化工料, 色浆, kg, 25kg/桶, <<BLOB>>, null, 1
+<==        Row: 265, 1011-R02-2035-C01-0800, 55μm茶色胶水PET胶带, C01, 55.00
+<==        Row: 152, FN001, 蓝色1783, null, null, 化工料, 化工料, 色浆, kg, 20kg/桶, <<BLOB>>, null, 1
+<==        Row: 32, HY001, 东莞市淏盈新材料有限公司, 淏盈, , , , , , , , active, , null, null, 2026-04-08 04:59:49, 2026-04-11 05:55:35, 0
+<==        Row: 138, CD26052005, 东莞市御辉纸品有限公司, , null, null, , , 14581.00, 1850.0000, 0.00, PARTIAL, null, null, 2026-05-20, 2026-05-22, , pending, <<BLOB>>, liyanqin, liyanqin, 2026-05-20 16:08:13, 2026-05-20 16:08:13, 0, , 
+<==        Row: 34, HH001, 潮州市华恒新材料有限公司/华业, 华恒, , , , , , , , active, , null, null, 2026-04-08 04:59:49, 2026-04-11 05:55:36, 0
+<==        Row: 151, 943-1, 943-1, null, null, 化工料, 化工料, 色浆, kg, 20kg/桶, <<BLOB>>, null, 1
+<==        Row: 308, 1011-R02-2035-C01H-0800, 55μm深茶色PET胶带, C01H, 55.00
+<==        Row: 150, YKLSJ3115, 1061色浆, null, null, 化工料, 化工料, 色浆, kg, 20kg/桶, <<BLOB>>, null, 1
+<==        Row: 137, CD26052004, 台昌树脂（佛山）有限公司, , null, null, , , 25020.00, 1800.0000, 0.00, PARTIAL, null, null, 2026-05-20, 2026-05-21, , pending, <<BLOB>>, liyanqin, liyanqin, 2026-05-20 16:01:37, 2026-05-20 16:01:37, 0, , 
+<==        Row: 149, YKLSJ3111, 1060色浆, null, null, 化工料, 化工料, 色浆, kg, 20kg/桶, <<BLOB>>, null, 1
+<==        Row: 149, 1011-R02-2304-G01-0200H, 30um翠绿数字PET终止胶带, G01, 30.00
+<==        Row: 148, YKLSJ2122, 蓝色1586, null, null, 化工料, 化工料, 固化剂, kg, 20kg/桶, <<BLOB>>, null, 1
+<==        Row: 136, CD26052003, 东莞市淏盈新材料有限公司, , null, null, , , 26480.00, 1840.0000, 0.00, PARTIAL, null, null, 2026-05-20, 2026-05-21, , pending, <<BLOB>>, liyanqin, liyanqin, 2026-05-20 16:00:33, 2026-05-20 16:00:33, 0, , 
+<==        Row: 35, HC001, 广东鸿昌化工有限公司, 鸿昌, , , , , , , , active, , null, null, 2026-04-08 04:59:49, 2026-04-11 05:55:36, 0
+<==        Row: 147, GHJTA-73, GHJTA-73, null, null, 化工料, 化工料, 胶水, kg, 1kg/桶, <<BLOB>>, null, 1
+<==        Row: 294, 1011-R02-2307-B01-0400, 30μm蓝色PET胶带, B01, 30.00
+<==        Row: 146, YKLJ0801, 亚克力胶水YKLJ0801, null, null, 化工料, 化工料, 胶水, kg, 900kg/桶, <<BLOB>>, null, 1
+<==        Row: 36, GZYH002, 遂宁誉衡化工材料有限公司, 誉衡, , , , , , , , active, , null, null, 2026-04-08 04:59:49, 2026-04-11 05:55:36, 0
+<==        Row: 135, CD26052002, 上海旭杜包装材料有限公司, , null, null, , , 2112000.00, 48000.0000, 0.00, PARTIAL, null, null, 2026-05-20, 2026-05-21, , pending, <<BLOB>>, liyanqin, liyanqin, 2026-05-20 15:00:25, 2026-05-20 15:00:25, 0, , 
+<==        Row: 37, GZSS001, 深圳市松澍科技有限公司, 松澍, , , , , , , , active, , null, null, 2026-04-08 04:59:49, 2026-04-11 05:55:36, 0
+<==        Row: 145, YKLJ0810, 亚克力胶水YKLJ0810, null, null, 化工料, 化工料, 胶水, kg, 180kg/桶，900kg/桶, <<BLOB>>, null, 1
+<==        Row: 134, 1011-R02-2307-B05-0300, 30μm蓝色PET终止胶带, B05, 30.00
+<==        Row: 144, YKLJ0808, 亚克力胶水YKLJ0808, null, null, 化工料, 化工料, 胶水, kg, 180kg/桶，900kg/桶, <<BLOB>>, null, 1
+<==        Row: 38, GP001, 东莞市高鹏包装纸品有限公司, 高鹏, , , , , , , , active, , null, null, 2026-04-08 04:59:49, 2026-04-11 05:55:36, 0
+<==        Row: 134, CD26052001, 常熟市华强绝缘材料有限责任公司, , null, null, , , 197520.96, 1485.1200, 0.00, PARTIAL, null, null, 2026-05-20, 2026-05-20, , pending, <<BLOB>>, liyanqin, liyanqin, 2026-05-20 14:55:59, 2026-05-20 14:55:59, 0, , 
+<==        Row: 39, FSHQ001, 佛山市南海区黄岐化玻有限公司, 黄岐, , , , , , , , active, , null, null, 2026-04-08 04:59:49, 2026-04-11 05:55:36, 0
+<==        Row: 143, YKLJ0805, 亚克力胶水YKLJ0805, null, null, 化工料, 化工料, 胶水, kg, 180kg/桶，900kg/桶, <<BLOB>>, null, 1
+<==        Row: 146, 1011-R02-2307-B05-0400, 30μm蓝色PET终止胶带, B05, 30.00
+<==        Row: 142, LD-88, LD-88电解液, null, null, 化工料, 化工料, 电解液, kg, 1kg/瓶, <<BLOB>>, null, 1
+<==        Row: 40, FC001, 烟台富程新材料有限公司/保立佳, 富程, , , , , , , , active, , null, null, 2026-04-08 04:59:49, 2026-04-11 05:55:36, 0
+<==      Total: 10
+<==        Row: 41, FB001, 佛山市丰贝薄膜新材料有限公司, 丰贝, , , , , , , , active, , null, null, 2026-04-08 04:59:49, 2026-04-11 05:55:36, 0
+<==        Row: 141, SM-120, SM-120, null, null, 化工料, 化工料, 树脂, kg, 25kg/袋, <<BLOB>>, null, 1
+<==        Row: 132, 1011-R02-2307-G01-0300, 30μm翠绿PET胶带, G01, 30.00
+<==        Row: 140, FN002, RZ2605, null, null, 化工料, 化工料, 色浆, kg, 18kg/桶, <<BLOB>>, null, 1
+<==        Row: 42, DZ001, 广州市铭鑫化工贸易有限公司/大众/金源, 铭鑫, , , , , , , , active, , null, null, 2026-04-08 04:59:49, 2026-04-11 05:55:36, 0
+Closing non transactional SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@622612fe]
+<==        Row: 43, DWS001, 东莞市道维斯新材料有限公司/道尔, 道维斯, , , , , , , , active, , null, null, 2026-04-08 04:59:49, 2026-04-11 05:55:36, 0
+<==        Row: 139, RZ01, 白色色浆RZ01, null, null, 化工料, 化工料, 色浆, kg, 20kg/桶, <<BLOB>>, null, 1
+<==        Row: 133, 1011-R02-2307-G01-0300H, 30μm翠绿数字PET胶带, G01, 30.00
+<==        Row: 138, RZ2612, RZ2612绿色, null, null, 化工料, 化工料, 色浆, kg, 18kg/桶, <<BLOB>>, null, 1
+<==        Row: 44, DB001, 常州都铂高分子材料股份有限公司, 都铂, , , , , , , , active, , null, null, 2026-04-08 04:59:49, 2026-04-11 05:55:36, 0
+<==        Row: 137, CSSF2133, 茶色色粉, null, null, 化工料, 化工料, 色浆, kg, 25kg/桶, <<BLOB>>, null, 1
+<==        Row: 495, 1011-R02-2307-G01-0400, 30μm翠绿PET终止胶带, G01, 30.00
+<==        Row: 136, YKLSJ2116, 蓝色RZ33A, null, null, 化工料, 化工料, 色浆, kg, 18kg/桶, <<BLOB>>, null, 1
+<==        Row: 45, CX001, 长兴材料工业（广东）有限公司, 长兴, , , , , , , , active, , null, null, 2026-04-08 04:59:49, 2026-04-11 05:55:36, 0
+<==        Row: 135, YKLSJ2115, 无卤翠绿RZ2601, null, null, 化工料, 化工料, 色浆, kg, 18kg/桶, <<BLOB>>, null, 1
+<==        Row: 211, 1011-R02-2307-G03-0350, 30μm无机翠绿PET胶带, G03, 30.00
+<==        Row: 134, YKLSJ2112, 高品蓝RZ52, null, null, 化工料, 化工料, 色浆, kg, 18kg/桶, <<BLOB>>, null, 1
+<==        Row: 46, CP001, 广州市昌鹏实业有限公司, 昌鹏, , , , , , , , active, , null, null, 2026-04-08 04:59:49, 2026-04-11 05:55:36, 0
+<==        Row: 133, YKLSJ2106, 黄色RZ12, null, null, 化工料, 化工料, 色浆, kg, 18kg/桶, <<BLOB>>, null, 1
+<==        Row: 345, 1011-R02-2307-G03-0350A, 30μm无机翠绿PET终止胶带, G03, 30.00
+<==        Row: 132, YKLSJ2104, RZ02无卤蓝色, null, null, 化工料, 化工料, 色浆, kg, 18kg/桶, <<BLOB>>, null, 1
+<==        Row: 47, CNC001, 苏州成宁昌科技新材料有限公司, 宁昌, , , , , , , , active, , null, null, 2026-04-08 04:59:49, 2026-04-11 05:55:36, 0
+<==        Row: 131, YKLSJ2102, RZ42墨绿色, null, null, 化工料, 化工料, 胶水, kg, 18kg/桶, <<BLOB>>, null, 1
+<==        Row: 212, 1011-R02-2307-G03-0350H, 30μm无机翠绿数字PET胶带, G03, 30.00
+<==        Row: 130, 3727HB, 3727HB, null, null, 化工料, 化工料, 固化剂, kg, 900kg/桶, <<BLOB>>, null, 1
+<==        Row: 48, BH001, 福建百宏高新材料实业有限公司, 百宏, 11, , , , , , , active, , null, null, 2026-04-08 04:59:49, 2026-05-07 00:48:44, 0
+<==        Row: 129, GHJ3C02, GHJ3C02, null, null, 化工料, 化工料, 固化剂, kg, 900kg/桶, <<BLOB>>, null, 1
+<==        Row: 200, 1011-R02-2307-G03-0400, 30μm无机翠绿PET胶带, G03, 30.00
+<==        Row: 128, GHJ3C45, GHJ3C45, null, null, 化工料, 化工料, 固化剂, kg, 1kg/瓶, <<BLOB>>, null, 1
+<==        Row: 49, BGG001, 上海八共根国际贸易有限公司, 八共根, , , , , , , , active, , null, null, 2026-04-08 04:59:49, 2026-04-11 05:55:36, 0
+<==        Row: 127, MJLXZG-02, 白色离型纯木浆纸管3*77*1130, null, null, 包辅材, 包辅材, 纸管, pcs, 3*77*1130, <<BLOB>>, null, 1
+<==        Row: 199, 1011-R02-2307-G03-0400H, 30μm无机翠绿数字PET胶带, G03, 30.00
+<==        Row: 126, MJLXZG-01, 白色离型纯木浆纸管2*77*1130, null, null, 包辅材, 包辅材, 纸管, pcs, 2*77*1130, <<BLOB>>, null, 1
+<==        Row: 50, BG002, 广东邦固化学科技有限公司, 邦固, , , , , , , , active, , null, null, 2026-04-08 04:59:49, 2026-04-11 05:55:36, 0
+<==        Row: 125, LXZG-02, 白色离型纸管6*152*280, null, null, 包辅材, 包辅材, 纸管, pcs, 6*152*280, <<BLOB>>, null, 1
+<==        Row: 141, 1011-R02-2505-C02-0200, 30μm茶色膜PET胶带, C02, 30.00
+<==        Row: 124, LXZG-01, 白色离型纸管6*152*300, null, null, 包辅材, 包辅材, 纸管, pcs, 6*152*300, <<BLOB>>, null, 1
+<==        Row: 31, JS001, 金旸（厦门）新材料科技有限公司, 金旸, , , , , , , , active, , null, null, 2026-04-08 04:59:49, 2026-04-11 05:55:35, 0
+<==        Row: 123, SELLOCINTA-01, SELLOCINTA印刷硬纸管3*76*1320, null, null, 包辅材, 包辅材, 纸管, pcs, 3*76*1320, <<BLOB>>, null, 1
+<==        Row: 136, 1011-R02-2505-G01-0200, 30um翠绿PET终止胶带, G01, 30.00
+<==        Row: 122, MJELJO-R01, ELJO红字纯木浆纸管4*76*1320, null, null, 包辅材, 包辅材, 纸管, pcs, 4*76*1320, <<BLOB>>, null, 1
+<==        Row: 22, MG001, 广州市梅古化工有限公司, 梅古, , , , , , , , active, , null, null, 2026-04-08 04:59:49, 2026-04-11 05:55:37, 0
+<==        Row: 121, MJFolsen-01, Folsen纯木浆纸管1寸管2*26*1320, null, null, 包辅材, 包辅材, 纸管, pcs, 2*26*1320, <<BLOB>>, null, 1
+<==        Row: 137, 1011-R02-2505-G01-0200H, 30um翠绿数字PET终止胶带, G01, 30.00
+<==        Row: 120, MJFolsenA-02, Folsen图B纯木浆纸管2*76*1120, null, null, 包辅材, 包辅材, 纸管, pcs, 2*76*1120, <<BLOB>>, null, 1
+<==        Row: 23, LT001, 浙江绿田新材料股份有限公司, 绿田, , , , , , , , active, , null, null, 2026-04-08 04:59:49, 2026-04-11 05:55:36, 0
+<==        Row: 119, MJFolsenA-01, Folsen图A纯木浆纸管2*76*1120, null, null, 包辅材, 包辅材, 纸管, pcs, 2*76*1120, <<BLOB>>, null, 1
+<==        Row: 142, 1011-R02-2505-W01-0500, 30μm白色PET终止胶带, W01, 30.00
+<==        Row: 118, FolsenB-02, Folsen图B硬纸管3*76*1100, null, null, 包辅材, 包辅材, 纸管, pcs, 3*76*1100, <<BLOB>>, null, 1
+<==        Row: 24, LH001, 东莞市立汇化工贸易有限公司, 立汇, , , , , , , , active, , null, null, 2026-04-08 04:59:49, 2026-04-11 05:55:36, 0
+<==        Row: 117, FolsenB-01, Folsen图B硬纸管3*76*1320, null, null, 包辅材, 包辅材, 纸管, pcs, 3*76*1320, <<BLOB>>, null, 1
+<==        Row: 152, 1011-R02-2510-C02-0400, 35μm茶色膜PET胶带, C02, 35.00
+<==        Row: 116, FolsenA-02, Folsen图A硬纸管3*76*1100, null, null, 包辅材, 包辅材, 纸管, pcs, 3*76*1100, <<BLOB>>, null, 1
+<==        Row: 25, LG001, 东莞市力高管业有限公司, 力高, , , , , , , , active, , null, null, 2026-04-08 04:59:49, 2026-04-11 05:55:36, 0
+<==        Row: 115, FolsenA-01, Folsen图A硬纸管3*76*1320, null, null, 包辅材, 包辅材, 纸管, pcs, 3*76*1320, <<BLOB>>, null, 1
+<==        Row: 225, 1011-R02-2510-C02-0700, 35μm茶色膜PET胶带, C02, 35.00
+<==        Row: 114, ZG-MANSOμmR, MANSOμmR硬纸管3*76*1320, null, null, 包辅材, 包辅材, 纸管, pcs, 3*76*1320, <<BLOB>>, null, 1
+<==        Row: 26, KWS001, 深圳市科维思新材料科技有限公司, 科维思, , , , , , , , active, , null, null, 2026-04-08 04:59:49, 2026-04-11 05:55:35, 0
+<==        Row: 113, ZG-ECHO, ECHO硬纸管3*76*380, null, null, 包辅材, 包辅材, 纸管, pcs, 3*76*380, <<BLOB>>, null, 1
+<==        Row: 343, 1011-R02-2510-C02Q-0700, 35μm茶色终止胶带, C02Q, 35.00
+<==        Row: 112, MJZG-01, 纯木浆纸管3*76*1120, null, null, 包辅材, 包辅材, 纸管, pcs, 3*76*1120, <<BLOB>>, null, 1
+<==        Row: 27, KWL001, 佛山市科沃珑新材料技术有限公司, 科沃珑, , , , , , , , active, , null, null, 2026-04-08 04:59:49, 2026-04-11 05:55:35, 0
+<==        Row: 111, YZG-03, 硬纸管10*76*520, null, null, 包辅材, 包辅材, 纸管, pcs, 10*76*520, <<BLOB>>, null, 1
+<==        Row: 377, 1011-R02-2510-G01-0500, 35μm翠绿PET终止胶带, G01, 35.00
+<==        Row: 110, YZG-02, 硬纸管4*76*1320, null, null, 包辅材, 包辅材, 纸管, pcs, 4*76*1320, <<BLOB>>, null, 1
+<==        Row: 28, KH001, 江苏康辉新材料科技有限公司, 康辉新材, , , , , , , , active, , null, null, 2026-04-08 04:59:49, 2026-04-11 05:55:35, 0
+<==        Row: 109, YZG-01, 硬纸管10*76*1070, null, null, 包辅材, 包辅材, 纸管, pcs, 10*76*1070, <<BLOB>>, null, 1
+<==        Row: 156, 1011-R02-2510-G03-0700, 35μm无机翠绿PET胶带, G03, 30.00
+<==        Row: 108, GHJ1901, GHJ1901, null, null, 化工料, 化工料, 固化剂, kg, 25kg/桶, <<BLOB>>, null, 1
+<==        Row: 29, KD001, 英德科迪颜料技术有限公司, 科迪, , , , , , , , active, , null, null, 2026-04-08 04:59:49, 2026-04-11 05:55:35, 0
+<==        Row: 107, GLXZ-S90Y 1：2, GLXZ-S90Y1:2, null, null, 离型材料, 离型材料, 离型纸, ㎡, 1070mm*5000m, <<BLOB>>, null, 1
+<==        Row: 161, 1011-R02-2520-G01-0450, 45μm翠绿PET胶带, G01, 45.00
+<==        Row: 106, PELXZ-S1201:4, PELXZ-S1201:4, null, null, 离型材料, 离型材料, 离型纸, ㎡, 1070mm*2000m, <<BLOB>>, null, 1
+<==        Row: 30, JY001, 佛山市南海区骏晔包装材料有限公司, 骏晔, , , , , , , , active, , null, null, 2026-04-08 04:59:49, 2026-04-11 05:55:35, 0
+<==        Row: 105, PELXZ-S1201:1, PELXZ-S1201:1, null, null, 离型材料, 离型材料, 离型纸, ㎡, 1070mm*4000m, <<BLOB>>, null, 1
+<==        Row: 162, 1011-R02-2520-G01-0450H, 45μm翠绿数字PET胶带, G01, 45.00
+<==        Row: 104, DDY, 导电液, null, null, 化工料, 化工料, 导电剂, kg, 5kg/瓶, <<BLOB>>, null, 1
+<==        Row: 2, YY001, 东莞市友翊化工贸易有限公司, 友翊, 友翊, , , , , , , active, , null, null, 2026-04-08 04:59:48, 2026-04-11 05:55:37, 0
+<==        Row: 103, W15, W15, null, null, 化工料, 化工料, 离型剂, kg, 30kg/桶, <<BLOB>>, null, 1
+<==        Row: 434, 1011-R02-2520-G03-0500, 45μm无机翠绿PET终止胶带, G03, 45.00
+<==        Row: 102, GLJ, GLJ, null, null, 化工料, 化工料, 离型剂, kg, 10kg/桶, <<BLOB>>, null, 1
+<==        Row: 101, L-70, L-70, null, null, 化工料, 化工料, 固化剂, kg, 1kg/瓶, <<BLOB>>, null, 1
+<==        Row: 100, L-50, L-50, null, null, 化工料, 化工料, 固化剂, kg, 1kg/瓶, <<BLOB>>, null, 1
+<==        Row: 99, YKLJ6011, YKLJ6011, null, null, 化工料, 化工料, 溶剂, kg, 900kg/桶, <<BLOB>>, null, 1
+<==        Row: 1, ZY001, 东莞市至壹科技有限公司, 至壹, , , , , , , , active, , null, null, 2026-04-08 04:59:48, 2026-04-11 05:55:37, 0
+<==        Row: 98, DMF, DMF, null, null, 化工料, 化工料, 溶剂, kg, 160kg/桶, <<BLOB>>, null, 1
+<==        Row: 233, 1011-R02-2520-T01-0450H, 45μm透明数字PET胶带, T01, 45.00
+<==        Row: 97, PEG-02, PE管4*77*1080, null, null, 包辅材, 包辅材, 胶管, pcs, 4*77*1080, <<BLOB>>, null, 1
+<==        Row: 3, YH001, 东莞市御辉纸品有限公司, 御辉, , , , , , , , active, , null, null, 2026-04-08 04:59:48, 2026-04-11 05:55:37, 0
+<==        Row: 96, PEG-01, PE管4*77*560, null, null, 包辅材, 包辅材, 胶管, pcs, 4*77*560, <<BLOB>>, null, 1
+<==        Row: 163, 1011-R02-2520-W01-0500, 45μm白色接胶带, W01, 45.00
+<==        Row: 95, PETM-B25, 25μm蓝色PET薄膜, null, null, 原膜, 原膜, PET膜, kg, 1040mm*12100m, <<BLOB>>, null, 1
+<==        Row: 4, YC001, 东莞市耀晨新材料科技有限公司, 耀晨, , , , , , , , active, , null, null, 2026-04-08 04:59:48, 2026-04-11 05:55:37, 0
+<==        Row: 94, PETM-C25, 25μm茶色PET薄膜, null, null, 原膜, 原膜, PET膜, kg, 1040mm*6100m, <<BLOB>>, null, 1
+<==        Row: 390, 1011-R02-2525-B01-0500, 50μm蓝色PET终止胶带, B01, 50.00
+<==        Row: 93, PETM-T19, 19μm透明PET薄膜, null, null, 原膜, 原膜, PET膜, kg, 1040mm*12100m,1040mm*18100m, <<BLOB>>, null, 1
+<==        Row: 5, YA001, 深圳市永安电工材料有限公司, 永安, , , , , , , , active, , null, null, 2026-04-08 04:59:48, 2026-04-11 05:55:37, 0
+<==        Row: 92, SDR-501, SDR-501, null, null, 化工料, 化工料, 固化剂, kg, 3.7kg/瓶, <<BLOB>>, null, 1
+<==        Row: 164, 1011-R02-2525-B01-0600, 50μm蓝色PET胶带, B01, 50.00
+<==        Row: 91, SDR-T02, SDR-T02, null, null, 化工料, 化工料, 胶水, kg, 3.7kg/瓶, <<BLOB>>, null, 1
+<==        Row: 6, XYT001, 佛山市南海区新永泰胶粘制品有限公司, 新永泰, 新永泰, , , , , , , active, , null, null, 2026-04-08 04:59:48, 2026-04-27 02:29:11, 0
+<==        Row: 90, J628, J628, null, null, 化工料, 化工料, 胶水, kg, 180kg/桶，900kg/桶, <<BLOB>>, null, 1
+<==        Row: 430, 1011-R02-2525-B01-0600A, 50μm蓝色PET终止胶带, B01, 50.00
+<==        Row: 89, PETM-T25, 25μm透明PET薄膜, null, null, 原膜, 原膜, PET膜, kg, 1040mm*10000m, <<BLOB>>, null, 1
+<==        Row: 7, XY001, 湖北祥源新材料科技股份有限公司, 祥源, , , , , , , , active, , null, null, 2026-04-08 04:59:48, 2026-04-11 05:55:37, 0
+<==        Row: 88, PETM-T20, 20μm透明PET薄膜, null, null, 原膜, 原膜, PET膜, kg, 1040mm*12000m, <<BLOB>>, null, 1
+<==        Row: 597, 1011-R02-2525-B03-0400, 50μm蓝色PET胶带, B03, 50.00
+<==        Row: 87, PETM-T15, 15μm透明PET薄膜, null, null, 原膜, 原膜, PET膜, kg, 1040mm*12000m, <<BLOB>>, null, 1
+<==        Row: 8, XXY001, 东莞市鑫玺源新材料科技有限公司, 鑫玺源, , , , , , , , active, , null, null, 2026-04-08 04:59:48, 2026-04-11 05:55:37, 0
+<==        Row: 86, 6030UJ, 无机蓝色色浆6030UJ, null, null, 化工料, 化工料, 色浆, kg, 25kg/桶, <<BLOB>>, null, 1
+<==        Row: 313, 1011-R02-2525-B03-0500, 50μm蓝色PET终止胶带, B03, 50.00
+<==        Row: 85, B6028-U, 蓝色B6028-U, null, null, 化工料, 化工料, 色浆, kg, 20kg/桶, <<BLOB>>, null, 1
+<==        Row: 9, XJY001, 东莞市喜嘉业塑胶有限公司, 喜嘉业, , , , , , , , active, , null, null, 2026-04-08 04:59:48, 2026-04-11 05:55:37, 0
+<==        Row: 84, G728-UJ, 绿G728-UJ, null, null, 化工料, 化工料, 色浆, kg, 20kg/桶, <<BLOB>>, null, 1
+<==        Row: 237, 1011-R02-2525-B04-0500, 50μm浅蓝色PET胶带, B04, 50.00
+<==        Row: 83, WJSJ2119, WJSJ2119, null, null, 化工料, 化工料, 色浆, kg, 25kg/桶, <<BLOB>>, null, 1
+<==        Row: 10, XG001, 广州鑫冠化工科技有限公司, 鑫冠, , , , , , , , active, , null, null, 2026-04-08 04:59:48, 2026-04-11 05:55:37, 0
+<==        Row: 82, PETLXM-D75, 75μm单硅透明PET离型膜 离型力5-15g, null, null, 离型材料, 离型材料, PET离型膜, ㎡, 1060mm*4100m, <<BLOB>>, null, 1
+<==        Row: 295, 1011-R02-2525-B04-0600, 50μm蓝色PET终止胶带, B05, 50.00
+<==        Row: 81, PETLXM-D50, 50μmPET单硅离型膜, null, null, 离型材料, 离型材料, PET离型膜, ㎡, 1060mm*6100m,520mm*6100m, <<BLOB>>, null, 1
+<==        Row: 11, XD001, 上海旭杜包装材料有限公司, 旭杜, , , , , , , , active, , null, null, 2026-04-08 04:59:48, 2026-04-11 05:55:37, 0
+<==        Row: 80, PETM-T36, 36μm透明PET薄膜, null, null, 原膜, 原膜, PET膜, kg, 1040mm*8100m, <<BLOB>>, null, 1
+<==        Row: 236, 1011-R02-2525-B05-0500, 50μm蓝色PET终止胶带, B05, 50.00
+<==        Row: 79, PETM-T12, 12μm透明PET薄膜, null, null, 原膜, 原膜, PET膜, kg, 1040mm*12000m, <<BLOB>>, null, 1
+<==        Row: 12, XBY001, 东莞市鑫博亿包装材料有限公司, 鑫博亿, , , , , , , , active, , null, null, 2026-04-08 04:59:48, 2026-04-11 05:55:37, 0
+<==        Row: 78, PETM-T9, 9μm透明PET薄膜, null, null, 原膜, 原膜, PET膜, kg, 1000mm*15200m, <<BLOB>>, null, 1
+<==        Row: 316, 1011-R02-2525-B05-0500A, 50μm蓝色PET终止胶带, B05, 50.00
+<==        Row: 77, PELXM-80GY1:3, 80μm绿色PE离型膜1:3, null, null, 离型材料, 离型材料, PE离型膜, ㎡, 1070mm*2500m, <<BLOB>>, null, 1
+<==        Row: 13, TC001, 台昌树脂（佛山）有限公司, 台昌, , , , , , , , active, , null, null, 2026-04-08 04:59:48, 2026-04-11 05:55:37, 0
+<==        Row: 76, PELXM-80GY, 80μm绿色PE离型膜, null, null, 离型材料, 离型材料, PE离型膜, ㎡, 1070mm*2500m, <<BLOB>>, null, 1
+<==        Row: 360, 1011-R02-2525-B05-0600, 50μm蓝色PET终止胶带, B05, 50.00
+<==        Row: 75, PELXM-120BY1:3, 120μm蓝色PE离型膜1:3, null, null, 离型材料, 离型材料, PE离型膜, ㎡, 1070mm*2000m, <<BLOB>>, null, 1
+<==        Row: 14, SS001, 新亚中宁新材料科技（衢州）有限公司, 新亚中宁, , , , , , , , active, , null, null, 2026-04-08 04:59:48, 2026-04-11 05:55:37, 0
+<==        Row: 74, PELXM-80BY1:3, 80μm蓝色PE离型膜1:3, null, null, 离型材料, 离型材料, PE离型膜, ㎡, 1070mm*2500m, <<BLOB>>, null, 1
+<==        Row: 238, 1011-R02-2525-C01-0700, 50μm茶色胶水PET胶带, C01, 50.00
+<==        Row: 73, PELXM-80BY, 80μm蓝色PE离型膜, null, null, 离型材料, 离型材料, PE离型膜, ㎡, 1070mm*2500m, <<BLOB>>, null, 1
+<==        Row: 15, SC001, 松川工业材料（无锡）有限公司, 松川, , , , , , , , active, , null, null, 2026-04-08 04:59:48, 2026-04-11 05:55:37, 0
+<==        Row: 72, PELXM-60BY, 60μm蓝色PE离型膜, null, null, 离型材料, 离型材料, PE离型膜, ㎡, 1070mm*3000m, <<BLOB>>, null, 1
+<==        Row: 239, 1011-R02-2525-C01-0800, 50μm茶色胶水PET胶带, C01, 50.00
+<==        Row: 71, FN201, FN201, null, null, 化工料, 化工料, 胶水, kg, 900kg/桶, <<BLOB>>, null, 1
+<==        Row: 16, RZH001, 佛山市瑞泽汇化工材料有限公司, 瑞泽汇, , , , , , , , active, , null, null, 2026-04-08 04:59:48, 2026-04-11 05:55:37, 0
+<==        Row: 70, 9002, 9002, null, null, 化工料, 化工料, 固化剂, kg, 1kg/瓶, <<BLOB>>, null, 1
+<==        Row: 247, 1011-R02-2525-C01-0800XRT, 50μm茶色胶水PET印字胶带, C01, 50.00
+<==        Row: 69, FY-45, FY-45, null, null, 化工料, 化工料, 胶水, kg, 1kg/瓶, <<BLOB>>, null, 1
+<==        Row: 17, RY001, 广州番禺润亿化学工业有限公司, 润亿, , , , , , , , active, , null, null, 2026-04-08 04:59:48, 2026-04-11 05:55:37, 0
+<==        Row: 68, YKLJ6013, YKLJ6013, null, null, 化工料, 化工料, 胶水, kg, 900kg/桶, <<BLOB>>, null, 1
+<==        Row: 240, 1011-R02-2525-C01-0900, 50μm茶色胶水PET胶带, C01, 50.00
+<==        Row: 67, FN301, FN301, null, null, 化工料, 化工料, 胶水, kg, 900kg/桶, <<BLOB>>, null, 1
+<==        Row: 18, RC001, 广州市荣城纸品有限公司, 荣城, , , , , , , , active, , null, null, 2026-04-08 04:59:48, 2026-04-11 05:55:37, 0
+<==        Row: 66, PIM-C50, 50μm茶色PI薄膜, null, null, 原膜, 原膜, PI膜, kg, 520mm*1010m, <<BLOB>>, null, 1
+<==        Row: 413, 1011-R02-2525-C01-0900-DX, 50μm茶色胶水PET印字胶带, C01, 50.00
+<==        Row: 65, PIM-C25-HQ, 25μm茶色PI薄膜, null, null, 原膜, 原膜, PI膜, kg, 1040mm*2040m,1040mm*2100m, <<BLOB>>, null, 1
+<==        Row: 19, PS001, 佛山平圣化工有限公司, 平圣, , , , , , , , active, , null, null, 2026-04-08 04:59:48, 2026-04-11 05:55:37, 0
+<==        Row: 64, OPSM-40, 40μm透明OPS膜, null, null, 原膜, 原膜, OPS膜, ㎡, 1000mm*4000m, <<BLOB>>, null, 1
+<==        Row: 63, HCPET16027, HCPET16027淡天蓝, null, null, 化工料, 化工料, 色浆, kg, 24kg/桶, <<BLOB>>, null, 1
+<==        Row: 420, 1011-R02-2525-C01-0900-PZX, 50μm茶色胶水PET印字胶带, C01, 50.00
+<==        Row: 248, 1011-R02-2525-C01-0900DX, 50μm茶色胶水PET印字胶带, C01, 50.00
+<==        Row: 62, HCPET1629, HCPET1629聚酯原红, null, null, 化工料, 化工料, 色浆, kg, 23kg/桶, <<BLOB>>, null, 1
+<==        Row: 20, NH001, 耐恒（广州）制品有限公司, 耐恒（广州）, , , , , , , , active, , null, null, 2026-04-08 04:59:48, 2026-04-11 05:55:38, 0
+<==        Row: 61, HCPET16028, HCPET16028聚酯浅绿, null, null, 化工料, 化工料, 色浆, kg, 22kg/桶, <<BLOB>>, null, 1
+<==        Row: 249, 1011-R02-2525-C01-0900HW, 50μm茶色胶水PET印字胶带, C01, 50.00
+<==        Row: 60, HCPET16022, HCPET16022 聚酯粉蓝, null, null, 化工料, 化工料, 色浆, kg, 21kg/桶, <<BLOB>>, null, 1
+<==        Row: 21, MX001, 东莞市明欣塑胶材料有限公司, 明欣, , , , , , , , active, , null, null, 2026-04-08 04:59:48, 2026-04-11 05:55:38, 0
+<==        Row: 59, HC17071, HC17071土黄, null, null, 化工料, 化工料, 色浆, kg, 20kg/桶, <<BLOB>>, null, 1
+<==        Row: 250, 1011-R02-2525-C01-0900PNX, 50μm茶色胶水PET印字胶带, C01, 50.00
+<==        Row: 58, HCPET1620, HCPET1620聚酯浅黄, null, null, 化工料, 化工料, 色浆, kg, 19kg/桶, <<BLOB>>, null, 1
+<==      Total: 63
+<==        Row: 57, YM0101, YM0101, null, null, 化工料, 化工料, 色浆, kg, 18kg/桶, <<BLOB>>, null, 1
+<==        Row: 251, 1011-R02-2525-C01-0900SSD, 50μm茶色胶水PET印字胶带, C01, 50.00
+<==        Row: 56, 8329, 8329, null, null, 化工料, 化工料, 胶水, kg, 180kg桶, <<BLOB>>, null, 1
+Closing non transactional SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@10dd153f]
+<==        Row: 55, 608, 608, null, null, 化工料, 化工料, 固化剂, kg, 1kg/瓶, <<BLOB>>, null, 1
+<==        Row: 241, 1011-R02-2525-C01-1200, 50μm茶色胶水PET胶带, C01, 50.00
+<==        Row: 54, 607, 607, null, null, 化工料, 化工料, 固化剂, kg, 1kg/瓶, <<BLOB>>, null, 1
+<==        Row: 570, 1011-R02-2525-C01-1200--XRY, 50μm茶色胶水PET印字胶带, C01, 50.00
+<==        Row: 507, 1011-R02-2525-C01-1200-CYZY, 50μm茶色胶水PET印字胶带, C01, 50.00
+<==        Row: 53, Y-8465, Y-8465, null, null, 化工料, 化工料, 胶水, kg, 180kg/桶，900kg/桶, <<BLOB>>, null, 1
+<==        Row: 516, 1011-R02-2525-C01-1200-F1闪电, 50μm茶色胶水PET印字胶带, C01, 50.00
+<==        Row: 52, Y-30, Y-30, null, null, 化工料, 化工料, 固化剂, kg, 1kg/瓶, <<BLOB>>, null, 1
+<==        Row: 451, 1011-R02-2525-C01-1200-X, 50μm茶色胶水PET印字胶带, C01, 50.00
+<==        Row: 501, 1011-R02-2525-C01-1200-XRY, 1011-R02-2525-C01-1200-XRY, C01, 0.00
+<==        Row: 51, 3045, 亚克力胶水3045, null, null, 化工料, 化工料, 胶水, kg, 180kg/桶，900kg/桶, <<BLOB>>, null, 1
+<==        Row: 484, 1011-R02-2525-C01-1200-闪电, 50μm茶色胶水PET印字胶带, C01, 50.00
+<==        Row: 50, LMR-1819-3, 橡胶胶水LMR-1819-3, null, null, 化工料, 化工料, 胶水, kg, 180kg/桶，900kg/桶, <<BLOB>>, null, 1
+<==        Row: 252, 1011-R02-2525-C01-1200HC, 50μm茶色胶水PET印字胶带, C01, 50.00
+<==        Row: 49, SP315, 橡胶胶水SP315, null, null, 化工料, 化工料, 胶水, kg, 180kg/桶, <<BLOB>>, null, 1
+<==        Row: 253, 1011-R02-2525-C01H-0800, 50μm茶色胶水PET胶带, C01H, 50.00
+<==        Row: 48, ZX21, 21#常规纸箱390*360*320, null, null, 包辅材, 包辅材, 纸箱, pcs, 390*360*320, <<BLOB>>, null, 1
+<==        Row: 254, 1011-R02-2525-C01H-1200, 50μm茶色胶水PET胶带, C01H, 50.00
+<==        Row: 47, ZX20, 20#常规纸箱460*250*220, null, null, 包辅材, 包辅材, 纸箱, pcs, 460*250*220, <<BLOB>>, null, 1
+<==        Row: 505, 1011-R02-2525-C02-0700, 50μm茶色膜PET胶带, C02, 50.00
+<==        Row: 46, ZX19, 19#常规纸箱400*400*240, null, null, 包辅材, 包辅材, 纸箱, pcs, 400*400*240, <<BLOB>>, null, 1
+<==        Row: 246, 1011-R02-2525-C02-1200, 50μm茶色膜PET胶带, C02, 50.00
+<==        Row: 45, ZX18, 18#常规纸箱380*380*305, null, null, 包辅材, 包辅材, 纸箱, pcs, 380*380*305, <<BLOB>>, null, 1
+<==        Row: 446, 1011-R02-2525-C05-1200, 50μm茶色PET胶带, C05, 50.00
+<==        Row: 44, ZX17, 17#常规纸箱360*360*330, null, null, 包辅材, 包辅材, 纸箱, pcs, 360*360*330, <<BLOB>>, null, 1
+<==        Row: 171, 1011-R02-2525-G01-0500, 50μm翠绿PET胶带, G01, 50.00
+<==        Row: 43, ZX16, 16#常规纸箱345*345*210, null, null, 包辅材, 包辅材, 纸箱, pcs, 345*345*210, <<BLOB>>, null, 1
+<==        Row: 339, 1011-R02-2525-W01-0800, 50μm白色PET终止胶带, W01, 50.00
+<==        Row: 42, ZX15, 15#常规纸箱345*345*320, null, null, 包辅材, 包辅材, 纸箱, pcs, 345*345*320, <<BLOB>>, null, 1
+<==        Row: 266, 1011-R02-2530-C02-1200, 55μm茶色膜PET胶带, C02, 55.00
+<==        Row: 41, ZX14, 14#常规纸箱325*325*340, null, null, 包辅材, 包辅材, 纸箱, pcs, 325*325*340, <<BLOB>>, null, 1
+<==        Row: 159, 1011-R02-3609-G01-0200, 45μm翠绿PET胶带, G01, 45.00
+<==        Row: 40, ZX13, 13#常规纸箱325*325*320, null, null, 包辅材, 包辅材, 纸箱, pcs, 325*325*320, <<BLOB>>, null, 1
+<==        Row: 158, 1011-R02-3609-G01-0200H, 45μm翠绿数字PET胶带, G01, 45.00
+<==        Row: 39, ZX12, 12#常规纸箱325*325*260, null, null, 包辅材, 包辅材, 纸箱, pcs, 325*325*260, <<BLOB>>, null, 1
+<==        Row: 160, 1011-R02-3609-T01-0400, 45μm透明PET胶带, T01, 45.00
+<==        Row: 38, ZX11, 11#常规纸箱300*300*320, null, null, 包辅材, 包辅材, 纸箱, pcs, 300*300*320, <<BLOB>>, null, 1
+<==        Row: 37, ZX10, 10#常规纸箱300*300*260, null, null, 包辅材, 包辅材, 纸箱, pcs, 300*300*260, <<BLOB>>, null, 1
+<==        Row: 503, 1011-R02-3624-T01-1200, 60μm透明PET终止胶带, T01, 72.00
+<==        Row: 36, ZX09, 9#常规纸箱270*270*320, null, null, 包辅材, 包辅材, 纸箱, pcs, 270*270*320, <<BLOB>>, null, 1
+<==        Row: 244, 1011-R04-2525-C02-0650, 50μm茶色膜PET胶带, C02, 50.00
+<==        Row: 35, ZX08, 8#常规纸箱269*269*580, null, null, 包辅材, 包辅材, 纸箱, pcs, 269*269*580, <<BLOB>>, null, 1
+<==        Row: 219, 1012-DG-2505-B05-0006, 30μm浅蓝色PET保护膜胶带, B05, 30.00
+<==        Row: 34, ZX07, 7#常规纸箱270*270*1090, null, null, 包辅材, 包辅材, 纸箱, pcs, 270*270*1090, <<BLOB>>, null, 1
+<==        Row: 218, 1012-R00-2505-B05-0006, 30μm浅蓝色PET保护膜胶带, B05, 30.00
+<==        Row: 33, ZX06, 6#常规纸箱240*240*320, null, null, 包辅材, 包辅材, 纸箱, pcs, 240*240*320, <<BLOB>>, null, 1
+<==        Row: 193, 1012-R00-5007-B01-0006, 57μm浅蓝PET保护膜胶带, B01, 57.00
+<==        Row: 186, 1012-R015-5055-B06-1300, 110μm动力电池保护膜, B08, 110.00
+<==        Row: 32, ZX05, 5#常规纸箱250*250*1090, null, null, 包辅材, 包辅材, 纸箱, pcs, 250*250*1090, <<BLOB>>, null, 1
+<==        Row: 185, 1012-R015-5055-B08-1300, 110μm动力电池保护膜, B08, 110.00
+<==        Row: 31, ZX04, 4#常规纸箱220*220*320, null, null, 包辅材, 包辅材, 纸箱, pcs, 220*220*320, <<BLOB>>, null, 1
+<==        Row: 335, 1012-R015-5060-B06-1300, 110μm蓝色PET包裹膜, B06, 110.00
+<==        Row: 30, ZX03, 3#常规纸箱220*220*300, null, null, 包辅材, 包辅材, 纸箱, pcs, 220*220*300, <<BLOB>>, null, 1
+<==        Row: 187, 1012-R02-10030-B05-1200, 130μm蓝色PET终止胶带, B05, 130.00
+<==        Row: 29, ZX02, 2#常规纸箱180*180*580, null, null, 包辅材, 包辅材, 纸箱, pcs, 180*180*580, <<BLOB>>, null, 1
+<==        Row: 380, 1012-R02-5030-B07-0900, 80μm蓝色PET终止胶带, B07, 80.00
+<==        Row: 281, 1012-R02-5030-B07-1200, 80μm深蓝色PET胶带, B07, 80.00
+<==        Row: 182, 1012-R02-5045-C05-1200, 95μm茶色胶水PET胶带, C05, 95.00
+<==        Row: 28, ZX01, 1#常规纸箱140*140*580, null, null, 包辅材, 包辅材, 纸箱, pcs, 140*140*580, <<BLOB>>, null, 1
+<==        Row: 287, 1012-R02-5050-B05-0500, 100μm蓝色PET胶带, B05, 100.00
+<==        Row: 27, AJSZ, 氨基树脂AJSZ, null, null, 化工料, 化工料, 固化剂, kg, 17kg/桶, <<BLOB>>, null, 1
+<==        Row: 414, 1012-R02-7507-G01-0200, 82μm绿色PET保护膜, G01, 82.00
+<==        Row: 26, 1117, 1117, null, null, 化工料, 化工料, 胶水, kg, 180kg/桶，900kg/桶, <<BLOB>>, null, 1
+<==        Row: 280, 1012-TE25-5030-B07-0900, 80μm深蓝色PET胶带, B07, 80.00
+<==        Row: 25, CAT-612, CAT-612, null, null, 化工料, 化工料, 固化剂, kg, 1kg/瓶, <<BLOB>>, null, 1
+<==        Row: 24, CAT-E, CAT-E, null, null, 化工料, 化工料, 固化剂, kg, 5kg/瓶, <<BLOB>>, null, 1
+<==        Row: 184, 1012-TE25-5055-B08-1300, 105μm动力电池保护膜, B08, 105.00
+<==        Row: 23, CAT-60, CAT-60, null, null, 化工料, 化工料, 固化剂, kg, 3kg/瓶, <<BLOB>>, null, 1
+<==        Row: 388, 1012-TE25-5060-B08-1300, 110μm动力电池保护膜, B08, 110.00
+<==        Row: 22, 1115A, 亚克力胶水1115A, null, null, 化工料, 化工料, 胶水, kg, 180kg/桶, <<BLOB>>, null, 1
+<==        Row: 346, 1012-TE75-5045-C05-1200, 95μm茶色胶水PET胶带（带离型膜）, C05, 95.00
+<==        Row: 21, BOPPM-T65, 65μm透明BOPP薄膜, null, null, 原膜, 原膜, BOPP膜, kg, 1040mm*3050m,1030mm*3050m, <<BLOB>>, null, 1
+<==        Row: 176, 1012-WW-55-T01-0005, 55μm透明PET保护膜, T01, 55.00
+<==        Row: 20, BOPPM-T60, 60μm透明BOPP薄膜, null, null, 原膜, 原膜, BOPP膜, kg, 1050mm*4050m, <<BLOB>>, null, 1
+<==        Row: 497, 1012C-R00-5007-B01-0006, 57μm浅蓝PET保护膜胶带, B01, 57.00
+<==        Row: 19, BOPPM-T50, 50μm透明BOPP薄膜, null, null, 原膜, 原膜, BOPP膜, kg, 1040mm*4050m, <<BLOB>>, null, 1
+<==        Row: 18, BOPPM-T28, 28μm透明BOPP薄膜, null, null, 原膜, 原膜, BOPP膜, kg, 1040mm*8000m, <<BLOB>>, null, 1
+<==        Row: 197, 1013-R075-205B, 205μm红膜双面胶带-外贸, T01, 205.00
+<==        Row: 17, BOPPM-T25, 25μm透明BOPP薄膜, null, null, 原膜, 原膜, BOPP膜, kg, 1040mm*8000m, <<BLOB>>, null, 1
+<==        Row: 340, 1013-T10-35-T01-1000-W12, 35μm透明PET热熔双面胶, T01, 35.00
+<==        Row: 16, DJBHS, 对甲苯磺酸, null, null, 化工料, 化工料, 助剂, kg, 0.5kg/瓶, <<BLOB>>, null, 1
+<==        Row: 492, 1013－TE25－1515－B05－1200, 55μm蓝色PET双面胶, B05, 55.00
+<==        Row: 15, ZRJ6000F, 阻燃剂ZRJ6000F, null, null, 化工料, 化工料, 阻燃剂, kg, 20kg/桶, <<BLOB>>, null, 1
+<==        Row: 173, 1013-TE25-15T-2020-B10-1200, 55μm浅蓝色PET双面胶带, B10, 55.00
+<==        Row: 14, ZRJ601, 阻燃剂ZRJ601, null, null, 化工料, 化工料, 阻燃剂, kg, 20kg/桶, <<BLOB>>, null, 1
+<==        Row: 349, 1013-TE25-15T-55-B01-1200, 55μm蓝色PET双面胶, B01, 55.00
+<==        Row: 13, 96B12, 96B12, null, null, 化工料, 化工料, 胶水, kg, 180kg/桶, <<BLOB>>, null, 1
+<==        Row: 172, 1013-TE25-25T-1515-B05-1200, 55μm蓝色双面PET胶带, B05, 55.00
+<==        Row: 12, 7709, 7709胶水, null, null, 化工料, 化工料, 胶水, kg, 180kg/桶, <<BLOB>>, null, 1
+<==        Row: 330, 1013-TE25-35-T01-1000, PET强弱双面胶, T01, 35.00
+<==        Row: 11, YKLJ0101, YKLJ0101亚克力胶水, null, null, 化工料, 化工料, 胶水, kg, 180kg/桶, <<BLOB>>, null, 1
+<==        Row: 299, 1016-R02-2010-B01-0300, 30蓝色胶带, B01, 30.00
+<==        Row: 10, PIM-C25-CNC, 25μm茶色PI薄膜, null, null, 原膜, 原膜, PI膜, kg, 1040mm*8100m, <<BLOB>>, null, 1
+<==        Row: 296, 1016-R02-2010-B01-0400, 30μm蓝色PET终止胶带, B01, 30.00
+<==        Row: 9, PETM-T150, 150μm透明PET薄膜, null, null, 原膜, 原膜, PET膜, kg, 1040mm*2010m, <<BLOB>>, null, 1
+<==        Row: 588, 1016-R02-2010-B01-0400-33, 30μm蓝色PET间隔胶W33, B01, 30.00
+<==        Row: 8, PETM-T23, 23μm透明PET薄膜, null, null, 原膜, 原膜, PET膜, kg, 1040mm*12100m,1000mm*12100m, <<BLOB>>, null, 1
+<==        Row: 583, 1016-R02-2010-B01-0400-38, 30μm蓝色PET间隔胶W38, B01, 30.00
+<==        Row: 7, M-168, M-168胶水, null, null, 化工料, 化工料, 胶水, kg, 25kg/桶, <<BLOB>>, null, 1
+<==        Row: 589, 1016-R02-2010-B01-0400-42, 30μm蓝色PET间隔胶W42, B01, 30.00
+<==        Row: 6, SA-1167, SA-1167固化剂, null, null, 化工料, 化工料, 固化剂, kg, 1kg/瓶, <<BLOB>>, null, 1
+<==        Row: 584, 1016-R02-2010-B01-0400-45, 30μm蓝色PET间隔胶W45, B01, 30.00
+<==        Row: 5, PSA-3310-01, PSA-3310-01胶水, null, null, 化工料, 化工料, 胶水, kg, 180kg/桶, <<BLOB>>, null, 1
+<==        Row: 585, 1016-R02-2010-B01-0400-60, 30μm蓝色PET间隔胶W60, B01, 30.00
+<==        Row: 586, 1016-R02-2010-B01-0400-69, 30μm蓝色PET间隔胶W69, B01, 30.00
+<==        Row: 4, 9181, 9181固化剂, null, null, 化工料, 化工料, 固化剂, kg, 1kg/瓶, <<BLOB>>, null, 1
+<==        Row: 587, 1016-R02-2010-B01-0400-80, 30μm蓝色PET间隔胶W80, B01, 30.00
+<==        Row: 3, 052A, 052A固化剂, null, null, 化工料, 化工料, 固化剂, kg, 1kg/瓶, <<BLOB>>, null, 1
+<==        Row: 590, 1016-R02-2010-B01-0400-84, 30μm蓝色PET间隔胶W84, B01, 30.00
+<==        Row: 2, 708, 708固化剂, null, null, 化工料, 化工料, 固化剂, kg, 1kg/瓶, <<BLOB>>, null, 1
+<==        Row: 576, 1016-R02-2010-B01-0400-90, 30μm蓝色PET间隔胶W90, B01, 30.00
+<==        Row: 1, 7058, 7058橡胶胶水, null, null, 化工料, 化工料, 胶水, kg, 180kg/桶, <<BLOB>>, null, 1
+<==        Row: 504, 1016-R02-2010-B05-0400, 30μm蓝色PET终止胶带, B05, 30.00
+<==      Total: 254
+<==        Row: 157, 1016-R02-2510-B05-0400, 35μm蓝色间隔胶带W52, B05, 35.00
+Closing non transactional SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@39f2de2f]
+<==        Row: 591, 1016-R02-2510-B05-0400-52, 30μm蓝色膜PET间隔胶W52, B05, 30.00
+<==        Row: 363, 1016-R02-2525-B03-0500, 50μm蓝色PET终止胶带, B03, 50.00
+<==        Row: 230, 102-R00-2515-W01-0400, 40μm白色PET硅胶胶带, W01, 40.00
+<==        Row: 235, 102-R00-2520-G12-0700, 45μm绿色PET硅胶带, G12, 45.00
+<==        Row: 352, 102-R00-3614-G12-0800, 50μm绿色PET硅胶, G12, 50.00
+<==        Row: 411, 102-R00-5015-Y01-0300, 65μm黄色pet硅胶带, Y01, 65.00
+<==        Row: 276, 102-R00-5015-Y01-0700, 65μm黄色PET硅胶胶带, Y01, 65.00
+<==        Row: 404, 102-TE50-5015-Y01-0300, 65μm黄色PET硅胶胶带贴合氟塑膜, Y01, 65.00
+<==        Row: 334, 103-R00-2505-T01-0002, 30μm透明PET保护膜, T01, 30.00
+<==        Row: 234, 103-R00-3807-G12-0250, 45μm绿色PET硅胶带, G12, 45.00
+<==        Row: 409, 103-R00-4508-T01-0030, 53μm透明硅胶保护膜, T01, 45.00
+<==        Row: 453, 103-R00-5005-B01-0030, 55μmPET硅胶保护膜, B01, 55.00
+<==        Row: 273, 103-R00-5010-G12-0100, 60μm绿色PET硅胶保护膜, G12, 60.00
+<==        Row: 274, 103-R00-5010-G12-0250, 60μm绿色PET硅胶保护膜, G12, 60.00
+<==        Row: 279, 103-R00-7505-T01-0010, 80μm透明硅胶PET保护膜, T01, 82.00
+<==        Row: 282, 103-R00-7515-T01-0250, 90μm透明PET硅胶保护膜, T01, 90.00
+<==        Row: 392, 103-R00-85-T01-0015, 85μm透明PET平纹硅胶保护膜, T01, 53.00
+<==        Row: 606, 103-R02-2505-T01-0005, 30μmPET硅胶带, T01, 30.00
+<==        Row: 321, 103-WW-50-B01-0020, 50μm蓝色网纹胶带, B01, 50.00
+<==        Row: 293, 103-WW-5005-B01-0015, 网纹硅胶保护膜, B01, 55.00
+<==        Row: 178, 103-WW-55-B01-0015, 55μm蓝色硅胶网纹PET保护膜, B01, 55.00
+<==        Row: 177, 103-WW-55-T01-0006, 55μm透明硅胶PET保护膜, T01, 55.00
+<==        Row: 305, 103-WW-55-T01-0015, 55μm透明网纹胶带, T01, 55.00
+<==        Row: 278, 103-WW-7505-T01-0006, 80μm透明网纹硅胶PET, T01, 80.00
+<==        Row: 348, 103-WW-85-T01-0015, 85μm硅胶网纹保护膜, T01, 85.00
+<==        Row: 226, 201-R00-2510-C03-0100, 35μm低粘PI极耳胶带, C03, 35.00
+<==        Row: 267, 201-R01-2530-C03-1000, 55μm茶色PI胶带, C03, 55.00
+<==        Row: 144, 201-R015-2505-C03-0400, 30μm茶色PI极耳胶带, C03, 32.00
+<==        Row: 150, 201-R015-2507-C03-0400, 32μm茶色PI极耳胶带, C03, 32.00
+<==        Row: 155, 201-R015-2510-C03-0400, 35μm茶色PI极耳胶带, C03, 35.00
+<==        Row: 243, 201-R015-2525-C03-0500, 50μm茶色PI极耳胶带, C03, 50.00
+<==        Row: 393, 201-R015-2525-C03-0500A, 50μm茶色PI极耳胶带, C03, 50.00
+<==        Row: 165, 201-R015-2527-C03-0500, 52μm茶色PI极耳胶带, C03, 55.00
+<==        Row: 175, 201-R015-2530-C03-0500, 55μm茶色PI极耳胶带, C03, 55.00
+<==        Row: 426, 201-R015-5030-C03-0800, 80μm茶色PI极耳胶带, C03, 80.00
+<==        Row: 488, 201-R015-5050-C03-0800, 100μm茶色PI极耳胶带, C03, 100.00
+<==        Row: 153, 201-R02-2510-C03-0500, 35μm茶色PI极耳胶带, C03, 35.00
+<==        Row: 356, 201-R02-2510-C03-0550, 35μm茶色PI极耳胶带, C03, 35.00
+<==        Row: 460, 201-R02-2525-C03-0300, 50μm茶色PI极耳胶带, C03, 50.00
+<==        Row: 166, 201-R02-2525-C03-0600, 50μm茶色PI极耳胶带, C03, 50.00
+<==        Row: 419, 201-R02-2525-C03-1000, 50μm茶色PI极耳胶带, C03, 50.00
+<==        Row: 403, 201-R02-2530-C03-0600, 55μm茶色PI极耳胶带, C03, 55.00
+<==        Row: 351, 201-R02-2530-C03-1000, 55μm茶色PI极耳胶带, C03, 55.00
+<==        Row: 301, 201-R02-2530-C03-1000A, 55μm茶色PI极耳胶带, C03, 55.00
+<==        Row: 268, 201-R02-2530-C03-1200, 55μm茶色PI胶带, C03, 55.00
+<==        Row: 302, 201-R02-5050-C03-1000, 100μm茶色PI极耳胶带, C03, 100.00
+<==        Row: 454, 201-R04-2510-C03-0700A, 35μm茶色PI极耳胶带, C03, 35.00
+<==        Row: 154, 201-R04-2510-C03-0700M, 35μm茶色PI极耳胶带, C03, 35.00
+<==        Row: 167, 201-R04-2525-C03-0700, 50μm茶色PI极耳胶带, C03, 50.00
+<==        Row: 170, 201-R04-2525-C03-0900M, 50μm茶色PI极耳胶带, C03, 55.00
+<==        Row: 595, 201-R04-2525-C03-0900M-48B, 50μm茶色PI间隔胶W48B, C03, 50.00
+<==        Row: 174, 201-R04-2530-C03-0900M, 55μm茶色PI胶带, C03, 55.00
+<==        Row: 275, 201-R04-2535-C03-0900M, 60μm茶色PI极耳胶带, C03, 60.00
+<==        Row: 286, 201-R04-5050-C03-0800, 100μm茶色PI极耳胶带, C03, 100.00
+<==        Row: 357, 201-RF-TE50-2525-C03-0900M, 50μm茶色PI抗静电胶带（带离型膜）, C03, 50.00
+<==        Row: 579, 201-RO2-2530-C03-1000A, 55μmPI极耳胶带, C03, 55.00
+<==        Row: 395, 201-TE50-2525-C03-0900M, 50μm茶色PI极耳胶带, C03, 50.00
+<==        Row: 370, 201-TE50-5050-C03-1200, 100μm茶色PI极耳胶带（带离型膜）, C03, 100.00
+<==        Row: 379, 201-TE75-2530-C03-1000, 55μm茶色PI极耳胶带（带离型膜）, C03, 55.00
+<==        Row: 374, 2011-R02-2125-BK01-1200, 40μm黑色PET胶带, BK01, 40.00
+<==        Row: 408, 2011-R02-2325-BK01-1200, 48μm黑色PET胶带, BK01, 48.00
+<==        Row: 381, 2011-R02-2525-BK01-0800, 50μm黑色PET胶带, BK01, 50.00
+<==        Row: 575, 2011-R02-2525-BK01-1000, 50um 黑色PET胶带（亚克力）, BK01, 0.00
+<==        Row: 168, 2011-R02-2525-BK01-1200, 50μm哑黑PET胶带, BK01, 50.00
+<==        Row: 376, 2011-R02-2625-BK01-1200, 51μm黑色PET胶带, BK01, 51.00
+<==        Row: 425, 2011-R02-2725-BK01-1200, 52μm黑色PET胶带, BK01, 52.00
+<==        Row: 389, 2011-R02-2825-BK01-1200, 53μm黑色PET胶带, BK01, 53.00
+<==        Row: 423, 2011-R02-7525-BK01-1200, 100μm黑色PET胶带, BK01, 110.00
+<==        Row: 378, 2011-R02-7825-BK01-1200, 103μm黑色PET胶带, BK01, 103.00
+<==        Row: 422, 202-R02-2020-BK01-1200, 40μm黑色PI胶带, BK01, 40.00
+<==        Row: 421, 202-R02-2025-BK01-1200, 45μm黑色PI胶带, BK01, 45.00
+<==        Row: 382, 202-R02-2425-BK01-1200, 49μm黑色PI胶带, BK01, 49.00
+<==        Row: 407, 202-R02-2525-BK01-1200, 52μm黑色PI胶带, BK01, 52.00
+<==        Row: 405, 202-R02-2725-BK01-1200, 52μm黑色PI胶带, BK01, 52.00
+<==        Row: 386, 202-R02-2825-BK01-1200, 53μm黑色PI胶带, BK01, 53.00
+<==        Row: 383, 202-R02-3222-BK01-1200, 55μm黑色PI胶带, BK01, 55.00
+<==        Row: 375, 202-R02-3322-BK01-1200, 55μm黑色PI胶带, BK01, 55.00
+<==        Row: 223, 202-TE50-2510-BK01-0500, 35μm哑黑PI胶带-外购, BK01, 35.00
+<==        Row: 355, 202-ZR-2530-BK01-1000, 55μm黑色PI阻燃胶带, BK01, 55.00
+<==        Row: 169, 202-ZR-R02-2427-BK01-1200, 50μm黑色PI阻燃胶带, BK01, 50.00
+<==        Row: 372, 202-ZR-R02-2525-BK01-1200, 50μm黑色PI阻燃胶带, BK01, 50.00
+<==        Row: 406, 202-ZR-R02-2530-BK01-1000, 55μm黑色PI阻燃胶带, BK01, 55.00
+<==        Row: 418, 202-ZR-R02-2624-BK01-1200, 48μm黑色PI阻燃胶带, BK01, 48.00
+<==        Row: 417, 202-ZR-R02-2711-BK01-1200, 38μm黑色PI阻燃胶带, BK01, 38.00
+<==        Row: 371, 202-ZR-R02-2812-BK01-1200, 40μm黑色PI阻燃胶带, BK01, 40.00
+<==        Row: 582, 203-R02-2525-C03-0500, 50umPI橡胶胶带, C03, 50.00
+<==        Row: 431, 205-R02-2525-C03-0800, 50μm茶色PI极耳胶带, C03, 50.00
+<==        Row: 592, 205-R02-2525-C03-0800-32A, 50μm茶色PI间隔胶W32A, C03, 50.00
+<==        Row: 593, 205-R02-2525-C03-0800-32B, 50μm茶色PI间隔胶W32B, C03, 50.00
+<==        Row: 594, 205-R04-2525-C03-0900M-48A, 50μm茶色PI间隔胶W48A, C03, 50.00
+<==        Row: 228, 301-36-T01-H, 36μm透明BOPP印字胶, T01, 36.00
+<==        Row: 231, 301-ML-3010-Y02-0500, 40μm黄色玛拉胶, Y02, 42.00
+<==        Row: 135, 301-R02-2505-G02-0200, 30μm翠绿OPP胶带, G02, 30.00
+<==        Row: 220, 301-R02-2505-T01-0300, 30um透明OPP终止胶带, T01, 30.00
+<==        Row: 151, 301-R02-2507-N01-0400, 32μm灰色BOPP终止胶带, N01, 32.00
+<==        Row: 222, 301-R02-2508-G02-0300, 33μm翠绿OPP胶带, G02, 33.00
+<==        Row: 232, 301-R02-2814-G02-0300, 42μm翠绿OPP胶带, G02, 42.00
+<==        Row: 229, 301-R02-36-G02-0300, 36μm绿色BOPP胶带, G02, 36.00
+<==        Row: 179, 301-R02-5015-Y01-0500, 65μm黄色BOPP胶带, Y01, 67.00
+<==        Row: 344, 301-RO2-2307-B05-0300, 30μm蓝色BOPP终止胶带, B05, 30.00
+<==        Row: 277, 302-R00-3830-N01-1000, 68μm咖啡极耳胶带, N01, 68.00
+<==        Row: 180, 302-R00-6012-B01-0015, 72μmBOPP保护膜胶带, B01, 72.00
+<==        Row: 181, 302-R00-6012-B01-0025, 72μmBOPP保护膜胶带, B01, 72.00
+<==        Row: 195, 302-R00-6012-T01-0025, 72μmBOPP透明胶带, T01, 72.00
+<==        Row: 284, 302-R00-6035-N01-1200, 95μm咖啡色BOPP胶带, N01, 95.00
+<==        Row: 283, 302-R00-6530-N01-1200, 95μm咖啡色BOPP胶带, N01, 95.00
+<==        Row: 596, 302-R00-6530-T01-1200, 95μm透明BOPP胶带, T01, 95.00
+<==        Row: 429, 302-R02-3830-N01-1000, 68μm咖啡极耳胶带, N01, 68.00
+<==        Row: 307, 303-DG-3650-T01-3000, 86μm透明PET易撕贴, T01, 86.00
+<==        Row: 331, 303-DG-5050-T01-3000, 100μm透明撕膜胶带, T01, 100.00
+<==        Row: 475, 303-DG-5050-T01-4000, 100μm透明BOPP撕膜胶带, T01, 35.00
+<==        Row: 319, 303-DG-5080-T01-4000, 130μm透明撕膜胶带, T01, 50.00
+<==        Row: 100, 303-R02-1204-G03-0300, 16μm无机翠绿橡胶胶带, G03, 16.00
+<==        Row: 147, 303-R02-2010-G03-0500, 30μm无机翠绿橡胶PET胶带, G03, 30.00
+<==        Row: 607, 303-R02-2525-BK01-1200, 50μm黑色PET橡胶胶带, BK01, 50.00
+<==        Row: 309, 303-R02-2525-Y01-1200, 50μm黄色撕膜胶带, Y01, 50.00
+<==        Row: 183, 303-R02-5050-T01-3000, 100μm橡胶PET胶带, T01, 100.00
+<==        Row: 608, 303-R02-RF-2525-BK-01-1200, 50μm黑色抗静电橡胶胶带, BK01, 50.00
+<==        Row: 288, 308-R00-140-T01-0600, 140μm美纹纸胶带-外购, T01, 140.00
+<==        Row: 599, 4011-1008B-4555-G08-3050, 1008双面黑色PE泡棉（80绿膜）, BK01, 800.00
+<==        Row: 578, 4011-1508W-4555-G08-3050, 1508双面白色PE泡棉（80绿膜）, W01, 800.00
+<==        Row: 598, 4011-1508W-5060-W12-30500, 1508双面白色PE泡棉（120白色纸）, W01, 800.00
+<==        Row: 600, 4011-1510B-2327-B06-1550, 1510双面黑色PE泡棉（60蓝膜）, BK01, 1000.00
+<==        Row: 292, 456-R00-17530-G09/G08-0900, 205um透明PET胶带-外贸, T01, 205.00
+<==        Row: 385, 501-100-W01-1100, 100μm白色糯米纸胶带, W01, 100.00
+<==        Row: 384, 501-130-W01-1100, 130μm白色糯米纸胶带, W01, 130.00
+<==        Row: 400, 501-90-W01-1100, 90μm白色糯米纸胶带, W01, 90.00
+<==        Row: 188, 5011-R00-4005-T01-0030, 45μm溶胀胶带, T01, 45.00
+<==        Row: 415, 5011-R00-4005-T01-0030H, 45μm透明溶胀数字胶, T01, 48.00
+<==        Row: 189, 5011-R00-4005-T01-0050, 45μm溶胀胶带, T01, 45.00
+<==        Row: 190, 5011-R00-4010-T01-0050, 50μmOPS溶胀胶带, T01, 50.00
+<==        Row: 191, 5011-R00-4010-T01-0100, 50μmOPS溶胀胶带, T01, 50.00
+<==        Row: 194, 5011-R00-5010-T01-0050, 60μmOPS溶胀胶带, T01, 60.00
+<==        Row: 476, 5012-12T-1012-T01-0400-HG09, 35μm透明PET热熔双面胶, T01, 36.00
+<==        Row: 347, 5012-12T-1012-T01-0400-W25, 35μm透明PET热熔双面胶, T01, 35.00
+<==        Row: 312, 5012-B25-50-B05-0500, 50μm蓝色热熔PET双面胶, B05, 50.00
+<==        Row: 391, 5012-TE12-0805-T01-0300, 25μm透明PET热熔胶, T01, 85.00
+<==        Row: 310, 5012-TE12-0805-T01-0300-W25, 25μm热熔PET双面胶, T01, 25.00
+<==        Row: 332, 5012-TE12-1012-T01-0400-HG09, 35μm热熔PET双面胶, T01, 35.00
+<==        Row: 300, 5012-TE12-25-T01-0300-W25, 25μm热熔PET双面胶, T01, 25.00
+<==        Row: 333, 5012-TE12-35-T01-0400-HG09, 35μm热熔PET双面胶, T01, 35.00
+<==        Row: 410, 5012-TE20-45-T01-0500-W50, 45μmPET热熔胶带, T01, 45.00
+<==        Row: 359, 5012-TE20-48-T01-0010, 48μm透明PET热熔双面胶, T01, 35.00
+<==        Row: 435, 5012-TE20-48-T01-0500, 48μm透明PET热熔双面胶, T01, 100.00
+<==        Row: 311, 5012-TE20-48-T01-0500-W50, 48μm热熔PET双面胶, T01, 48.00
+<==        Row: 192, 5016-R00-4010-T01-0100, 50μmTPU溶胀胶带, T01, 50.00
+<==        Row: 289, 801-160-T01-1500, 160μm玻纤胶带, T01, 160.00
+<==        Row: 290, 801-R00-13025-T01-0500, 160um纤维布胶带-外贸, T01, 155.00
+<==        Row: 291, 801-R00-13035-T01-0700, 165um纤维布胶带-外贸, T01, 165.00
+<==        Row: 601, BB1011-R02-2010-B01-0350, B品PET锂电终止胶带, B01, 30.00
+<==        Row: 416, BDJ-R02-11-G01-0300, 11μm翠绿色PET终止胶带, G01, 11.00
+<==        Row: 478, C301-36-T01-H, 36μm透明BOPP印字胶带, T01, 60.00
+<==        Row: 317, CML-2525-B02-0700, 50μm蓝色玛拉胶带, B02, 50.00
+<==        Row: 325, CML-2525-BK01-0800, 50μm黑色马拉胶带, BK01, 50.00
+<==        Row: 324, CML-2525-R01-0600, 50μm红色玛拉胶带, R01, 50.00
+<==        Row: 342, CML-2525-W01-0600, 50μm白色马拉胶带, W01, 50.00
+<==        Row: 493, CS1011-2530-C02-0600, 55μm茶色膜PET硅胶带, C02, 55.00
+<==        Row: 368, DY-125-BK01, 125μm黑色保护膜, BK01, 125.00
+<==        Row: 367, DY-125-W01, 125μm白色保护膜, W01, 125.00
+<==        Row: 341, ETJ-3000A25+25μ（2＋36＋2）, 50μm间隔胶, null, 50.00
+<==        Row: 354, ETJ-3000A25+25μ（3＋34＋3）, 50μm间隔胶, null, 50.00
+<==        Row: 603, fuwufei-001, 证书费/检测费, , 0.00
+<==        Row: 605, fuwufei-002, 贴管芯加工费, , 0.00
+<==        Row: 604, kema-daigongfei, 刻码代工费, , 0.00
+<==        Row: 369, KHJ-35-T01-1000, 35μm透明双面胶, T01, 25.00
+<==        Row: 402, KHJ-R03-BK01-45, 45μm黑色印刷胶带, BK01, 45.00
+<==        Row: 491, LS53HY, LS53HY, null, 0.00
+<==        Row: 257, ML-2525-B02-0700, 50μm蓝色玛拉胶带, B02, 50.00
+<==        Row: 255, ML-2525-BK01-0800, 50μm黑色马拉胶带, BK01, 50.00
+<==        Row: 258, ML-2525-R01-0600, 50μm红色玛拉胶带, R01, 50.00
+<==        Row: 256, ML-2525-Y01-0700, 50μm黄色玛拉胶带, Y01, 50.00
+<==        Row: 364, ML-2530-BK01-0800, 55μm黑色PI阻燃胶带, BK01, 55.00
+<==        Row: 365, ML-2530-R01-0600, 55μm红色玛拉胶, R01, 55.00
+<==        Row: 479, PI胶带-W50, PI胶带-W50, null, 50.00
+<==        Row: 487, PT5010A, PT5010A, null, 0.00
+<==        Row: 477, PT5010S-15（35u）, PT5010S-15（35u）, null, 35.00
+<==        Row: 490, PTS53HY, PTS53HY, null, 0.00
+<==        Row: 366, PY-0505W-PET1.0, 1mmPET泡棉胶带, W01, 1000.00
+<==        Row: 261, S1011-2525-C02-0600, 50μm茶色膜硅胶带, C02, 50.00
+<==        Row: 271, S1011-2530-C02-0600, 55μm茶色膜硅胶带, C02, 50.00
+<==        Row: 259, S1011-R00-2525-C02-0600, 50μm茶色膜PET硅胶带, C02, 50.00
+<==        Row: 262, S1011-R00-2525-C02-0700, 50μm茶色膜PET硅胶带, C02, 50.00
+<==        Row: 270, S1011-R00-2530-C02-0700, 55μm茶色膜PET硅胶带, C02, 50.00
+<==        Row: 511, S201-2510-C03-0100, 35μm茶色PI硅胶带, C03, 35.00
+<==        Row: 513, S201-2510-C03-0300, 30μmPI硅胶带, C03, 30.00
+<==        Row: 263, S201-2525-C03-0600, 50μmPI硅胶, C03, 50.00
+<==        Row: 272, S201-2530-C03-0600, 55μmPI硅胶带, C03, 55.00
+<==        Row: 227, S201-R00-2510-C03-0300, 35μmPI硅胶带, C03, 35.00
+<==        Row: 260, S201-R00-2525-C03-0600, 50μmPI硅胶, C03, 50.00
+<==        Row: 269, S201-R00-2530-C03-0600, 55μmPI硅胶, C03, 55.00
+<==        Row: 285, S201-R00-5050-C03-0500, 100μm茶色PI硅胶胶带, C03, 100.00
+<==        Row: 577, S202-R00-2530-BK01-0500, 55μmPI雅黑硅胶带, BK01, 55.00
+<==        Row: 580, TBZRA.MT-DQ80(25), 80μm透明阻燃PET单面胶, T01, 80.00
+<==        Row: 442, TE2010L3A, TE2010L3A, null, 0.00
+<==        Row: 480, W-H60-LB, W-H60-LB, null, 0.00
+<==        Row: 438, WPTR-L10-80B3, WPTR-L10-80B3, null, 0.00
+<==        Row: 489, WPTR-L20-80B3, WPTR-L20-80B3, null, 0.00
+<==        Row: 602, yunfei001, 通用运费, , 0.00
+<==        Row: 329, ZR-100-W01-1200, 100μm阻燃糯米纸胶带, W01, 100.00
+<==        Row: 328, ZR-130-W01-1200, 130μm阻燃糯米纸胶带, W01, 130.00
+<==        Row: 387, ZR-90-W01-1200, 90μm白色阻燃糯米纸胶带, W01, 90.00
+<==      Total: 412
+Closing non transactional SqlSession [org.apache.ibatis.session.defaults.DefaultSqlSession@5fdf77cc]
