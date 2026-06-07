@@ -107,13 +107,6 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
     private String lifecycleV2EnforceDate;
 
     @Override
-    public ResponseResult<?> getAllOrders(Integer current, Integer size, String orderNo, String customerKeyword, String startDate, String endDate, Boolean showFullyShipped, Boolean showCancelled, String materialCode, String customerOrderNo, Long startId, Long endId, String sortBy, String sortOrder) {
-        Page<SalesOrder> page = new Page<>(current, size);
-        IPage<SalesOrder> result = salesOrderMapper.selectOrdersWithCustomerSearch(page, orderNo, customerKeyword, startDate, endDate, showFullyShipped, showCancelled, materialCode, customerOrderNo, startId, endId, sortBy, sortOrder);
-        return ResponseResult.success(result);
-    }
-
-    @Override
     public ResponseResult<?> getAllOrders(Integer pageNum, Integer pageSize, String orderNo, String customer, String lifecycleStatus,
                                           Boolean showCompleted, Boolean showProducedCompleted, Boolean onlyUnshipped, String startDate, String endDate, String sortProp, String sortOrder) {
         try {
@@ -1729,17 +1722,22 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
                         BigDecimal thickness = getCellDecimal(getCellByHeaderOrIndex(row, headerIndexMap, 11, "厚度", "厚度/μ", "厚度(μm)", "thickness"));
                         BigDecimal width = getCellDecimal(getCellByHeaderOrIndex(row, headerIndexMap, 12, "宽度", "宽度/mm", "width"));
                         BigDecimal length = getCellDecimal(getCellByHeaderOrIndex(row, headerIndexMap, 13, "长度", "长度/m", "length"));
-                            Integer rolls = getCellInteger(getCellByHeaderOrIndex(row, headerIndexMap, 14,
+                        Integer rolls = getCellInteger(getCellByHeaderOrIndex(row, headerIndexMap, 14,
                                 "卷数", "生产数量", "生产数量(卷)", "生产数量（卷）", "生产数量卷", "数量", "rolls"));
                         BigDecimal unitPrice = getCellDecimal(getCellByHeaderOrIndex(row, headerIndexMap, 15, "单价", "unitPrice"));
-                            BigDecimal excelSqm = getCellDecimal(getCellByHeaderOrIndex(row, headerIndexMap, 16,
+                        BigDecimal excelSqm = getCellDecimal(getCellByHeaderOrIndex(row, headerIndexMap, 16,
                                 "面积", "总平方数", "总平方", "平方米", "千平方米", "平方数", "sqm"));
                         BigDecimal excelAmount = getCellDecimal(getCellByHeaderOrIndex(row, headerIndexMap, 17, "金额", "amount"));
-                            String itemRemark = getCellString(getCellByHeaderOrIndex(row, headerIndexMap, 18, "明细备注", "备注", "itemRemark"));
-                            Date coatingDate = getCellDate(getCellByHeaderOrIndex(row, headerIndexMap, 19, "涂布日期", "coatingDate"));
-                            Integer completedRolls = getCellInteger(getCellByHeaderOrIndex
-                        throw new IllegalArgumentException("客户编码不能为空");
-                    }
+                        String itemRemark = getCellString(getCellByHeaderOrIndex(row, headerIndexMap, 18, "明细备注", "备注", "itemRemark"));
+                        Date coatingDate = getCellDate(getCellByHeaderOrIndex(row, headerIndexMap, 19, "涂布日期", "coatingDate"));
+                        Integer completedRolls = getCellInteger(getCellByHeaderOrIndex(row, headerIndexMap, 20,
+                                "已完成卷数", "完成卷数", "已报工卷数", "completedRolls"));
+                        String completionStatus = getCellString(getCellByHeaderOrIndex(row, headerIndexMap, 21,
+                                "完工状态", "完成状态", "completionStatus"));
+
+                        if (customer == null || customer.isEmpty()) {
+                            throw new IllegalArgumentException("客户编码不能为空");
+                        }
                     if (orderDate == null) {
                         throw new IllegalArgumentException("下单日期不能为空，格式示例：2026-02-28");
                     }

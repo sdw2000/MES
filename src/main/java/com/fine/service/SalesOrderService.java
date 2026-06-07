@@ -12,7 +12,9 @@ public interface SalesOrderService extends IService<SalesOrder> {
     /**
      * 获取所有订单列表
      */
-    ResponseResult<?> getAllOrders(Integer pageNum, Integer pageSize, String orderNo, String customerKeyword, String startDate, String endDate, Boolean showFullyShipped, Boolean showCancelled, String materialCode, String customerOrderNo, Long startId, Long endId, String sortBy, String sortOrder);
+    ResponseResult<?> getAllOrders(Integer pageNum, Integer pageSize, String orderNo, String customer, String lifecycleStatus,
+                                   Boolean showCompleted, Boolean showProducedCompleted, Boolean onlyUnshipped,
+                                   String startDate, String endDate, String sortProp, String sortOrder);
 
     /**
      * 客户在指定时间段内的订单统计与详情

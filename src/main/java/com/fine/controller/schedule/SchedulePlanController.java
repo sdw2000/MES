@@ -148,7 +148,7 @@ public class SchedulePlanController {
             @RequestParam(value = "status", required = false) String status,
             @RequestParam(value = "orderNo", required = false) String orderNo) {
 
-        return stagePage("COATING", pageNum, pageSize, status, orderNo, null, null, null, null);
+        return stagePage("COATING", pageNum, pageSize, status, null, orderNo, null, null, null, null);
     }
 
     @GetMapping("/stage/page")
@@ -157,52 +157,15 @@ public class SchedulePlanController {
             @RequestParam(value = "pageNum", defaultValue = "1") Integer pageNum,
             @RequestParam(value = "pageSize", defaultValue = "20") Integer pageSize,
             @RequestParam(value = "status", required = false) String status,
+            @RequestParam(value = "finishState", required = false) String finishState,
             @RequestParam(value = "orderNo", required = false) String orderNo,
             @RequestParam(value = "materialCode", required = false) String materialCode,
             @RequestParam(value = "specKeyword", required = false) String specKeyword,
             @RequestParam(value = "planDateStart", required = false) String planDateStart,
             @RequestParam(value = "planDateEnd", required = false) String planDateEnd) {
 
-        QueryWrapper<SchedulePlan> q = new QueryWrapper<>();
         String normalizedStage = normalizeStage(stage);
-        q.eq("stage", normalizedStage);
-
-        if (orderNo != null && !orderNo.isEmpty()) {
-            q.like("order_no", orderNo);
-        }
-        if (materialCode != null && !materialCode.isEmpty()) {
-            q.like("material_code", materialCode);
-        }
-
-        if (specKeyword != null && !specKeyword.trim().isEmpty()) {
-            String kw = specKeyword.trim();
-            String likeVal = "%" + kw + "%";
-            q.and(w -> w
-                    .apply("CAST(thickness AS CHAR) LIKE {0}", likeVal)
-                    .or()
-                    .apply("CAST(width AS CHAR) LIKE {0}", likeVal)
-                    .or()
-                    .apply("CAST(length AS CHAR) LIKE {0}", likeVal)
-            );
-        }
-
-        if (planDateStart != null && !planDateStart.isEmpty()) {
-            q.ge("plan_date", planDateStart + " 00:00:00");
-        }
-        if (planDateEnd != null && !planDateEnd.isEmpty()) {
-            q.le("plan_date", planDateEnd + " 23:59:59");
-        }
-
-        if (status != null && !status.isEmpty()) {
-            String s = status.toUpperCase();
-            if ("SCHEDULED".equals(s) || "UNSCHEDULED".equals(s) || "IN_PROGRESS".equals(s)) {
-                q.in("status", "PLANNED", "CONFIRMED");
-            } else if ("COMPLETED".equals(s)) {
-                q.eq("status", "COMPLETED");
-            } else if ("CANCELLED".equals(s)) {
-                q.eq("status", "CANCELLED");
-            }
-        }
+        QueryWrapper<SchedulePlan> q = buildStageQuery(normalizedStage, status, finishState, orderNo, materialCode, specKeyword, planDateStart, planDateEnd);
 
         q.orderByAsc("plan_date").orderByAsc("id");
 
@@ -269,8 +232,8 @@ public class SchedulePlanController {
         List<Map<String, Object>> list = new java.util.ArrayList<>();
         for (SchedulePlan p : plans) {
             SalesOrderItem item = p.getOrderDetailId() == null ? null : orderItemMap.get(p.getOrderDetailId());
-            if (p.getOrderDetailId() != null && (item == null || Integer.valueOf(1).equals(item.getIsDeleted()))) {
-                continue;
+            if (item != null && Integer.valueOf(1).equals(item.getIsDeleted())) {
+                item = null;
             }
             ManualSchedule latestSchedule = p.getOrderDetailId() == null ? null : latestScheduleMap.get(p.getOrderDetailId());
             Integer scheduleQty = latestSchedule == null ? null : latestSchedule.getScheduleQty();
@@ -359,6 +322,99 @@ public class SchedulePlanController {
         data.put("pageNum", result.getCurrent());
         data.put("pageSize", result.getSize());
         return ResponseResult.success(data);
+    }
+
+    @GetMapping("/stage/summary")
+    public ResponseResult<Map<String, Object>> stageSummary(
+            @RequestParam("stage") String stage,
+            @RequestParam(value = "status", required = false) String status,
+            @RequestParam(value = "finishState", required = false) String finishState,
+            @RequestParam(value = "orderNo", required = false) String orderNo,
+            @RequestParam(value = "materialCode", required = false) String materialCode,
+            @RequestParam(value = "specKeyword", required = false) String specKeyword,
+            @RequestParam(value = "planDateStart", required = false) String planDateStart,
+            @RequestParam(value = "planDateEnd", required = false) String planDateEnd) {
+
+        String normalizedStage = normalizeStage(stage);
+        QueryWrapper<SchedulePlan> q = buildStageQuery(normalizedStage, status, finishState, orderNo, materialCode, specKeyword, planDateStart, planDateEnd);
+        q.select(
+                "COUNT(1) AS totalCount",
+                "COUNT(DISTINCT material_code) AS materialCodeCount",
+                "IFNULL(SUM(plan_area), 0) AS totalArea"
+        );
+
+        Map<String, Object> aggregate = schedulePlanService.getMap(q);
+        long total = toLong(getFirstNonNull(aggregate, "totalCount", "total_count", "TOTALCOUNT"));
+        long materialCodeCount = toLong(getFirstNonNull(aggregate, "materialCodeCount", "material_code_count", "MATERIALCODECOUNT"));
+        double totalArea = toDouble(getFirstNonNull(aggregate, "totalArea", "total_area", "TOTALAREA"));
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("total", total);
+        data.put("materialCodeCount", materialCodeCount);
+        data.put("totalArea", round2(totalArea));
+        data.put("reportedMaterialCodeCount", materialCodeCount);
+        data.put("reportedArea", round2(totalArea));
+        return ResponseResult.success(data);
+    }
+
+    private QueryWrapper<SchedulePlan> buildStageQuery(
+            String normalizedStage,
+            String status,
+            String finishState,
+            String orderNo,
+            String materialCode,
+            String specKeyword,
+            String planDateStart,
+            String planDateEnd) {
+        QueryWrapper<SchedulePlan> q = new QueryWrapper<>();
+        q.eq("stage", normalizedStage);
+
+        if (orderNo != null && !orderNo.isEmpty()) {
+            q.like("order_no", orderNo);
+        }
+        if (materialCode != null && !materialCode.isEmpty()) {
+            q.like("material_code", materialCode);
+        }
+
+        if (specKeyword != null && !specKeyword.trim().isEmpty()) {
+            String kw = specKeyword.trim();
+            String likeVal = "%" + kw + "%";
+            q.and(w -> w
+                    .apply("CAST(thickness AS CHAR) LIKE {0}", likeVal)
+                    .or()
+                    .apply("CAST(width AS CHAR) LIKE {0}", likeVal)
+                    .or()
+                    .apply("CAST(length AS CHAR) LIKE {0}", likeVal)
+            );
+        }
+
+        if (planDateStart != null && !planDateStart.isEmpty()) {
+            q.ge("plan_date", planDateStart + " 00:00:00");
+        }
+        if (planDateEnd != null && !planDateEnd.isEmpty()) {
+            q.le("plan_date", planDateEnd + " 23:59:59");
+        }
+
+        if (status != null && !status.isEmpty()) {
+            String s = status.toUpperCase();
+            if ("SCHEDULED".equals(s) || "UNSCHEDULED".equals(s) || "IN_PROGRESS".equals(s)) {
+                q.in("status", "PLANNED", "CONFIRMED");
+            } else if ("COMPLETED".equals(s)) {
+                q.eq("status", "COMPLETED");
+            } else if ("CANCELLED".equals(s)) {
+                q.eq("status", "CANCELLED");
+            }
+        }
+
+        if (finishState != null && !finishState.trim().isEmpty()) {
+            String fs = finishState.trim().toUpperCase();
+            if ("COMPLETED".equals(fs)) {
+                q.eq("status", "COMPLETED");
+            } else if ("UNCOMPLETED".equals(fs)) {
+                q.notIn("status", "COMPLETED", "CANCELLED");
+            }
+        }
+        return q;
     }
 
     private Map<Long, String> loadTaskNoByScheduleId(String normalizedStage, Set<Long> scheduleIds) {
@@ -461,6 +517,36 @@ public class SchedulePlanController {
         } catch (Exception e) {
             return 0D;
         }
+    }
+
+    private long toLong(Object obj) {
+        if (obj == null) {
+            return 0L;
+        }
+        if (obj instanceof Number) {
+            return ((Number) obj).longValue();
+        }
+        try {
+            return Long.parseLong(String.valueOf(obj));
+        } catch (Exception e) {
+            return 0L;
+        }
+    }
+
+    private Object getFirstNonNull(Map<String, Object> map, String... keys) {
+        if (map == null || keys == null) {
+            return null;
+        }
+        for (String key : keys) {
+            if (key == null) {
+                continue;
+            }
+            Object value = map.get(key);
+            if (value != null) {
+                return value;
+            }
+        }
+        return null;
     }
 
     private double round2(double value) {

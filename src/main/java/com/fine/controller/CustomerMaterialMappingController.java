@@ -579,7 +579,7 @@ public class CustomerMaterialMappingController {
 
     /**
      * 打印匹配接口：优先“客户+料号+厚度+宽度+长度”精确匹配；
-     * 未命中时回退“客户+料号+厚度”，再回退“客户+料号”最新启用配置。
+         * 未命中时，当规格参数不全，返回同客户同料号下“最接近”的启用配置。
      */
     @GetMapping("/match")
     @PreAuthorize("isAuthenticated()")
@@ -597,56 +597,124 @@ public class CustomerMaterialMappingController {
                 return ResponseResult.success(null);
             }
 
-            CustomerMaterialMapping hit = null;
-
-            // 1. 尝试完全匹配 (客户+料号+厚度+宽度+长度)
-            // 使用 ABS(...) < 0.001 解决 BigDecimal 精度/末尾0导致的匹配失败问题
-            if (thickness != null && width != null && length != null) {
-                QueryWrapper<CustomerMaterialMapping> exact = new QueryWrapper<>();
-                exact.eq("customer_code", c)
-                        .eq("material_code", m)
-                        .apply("ABS(thickness - {0}) < 0.001", thickness)
-                        .apply("ABS(width - {0}) < 0.001", width)
-                        .apply("ABS(length - {0}) < 0.001", length)
-                        .eq("is_active", 1)
-                        .orderByDesc("update_time")
-                        .orderByDesc("id")
-                        .last("limit 1");
-                hit = mappingMapper.selectOne(exact);
+            QueryWrapper<CustomerMaterialMapping> qw = new QueryWrapper<>();
+            qw.eq("customer_code", c)
+                    .eq("material_code", m)
+                    .eq("is_active", 1)
+                    .orderByDesc("update_time")
+                    .orderByDesc("id");
+            List<CustomerMaterialMapping> pool = mappingMapper.selectList(qw);
+            if (pool == null || pool.isEmpty()) {
+                return ResponseResult.success(null);
             }
 
-            // 2. 退而求其次：尺寸匹配 (忽略长度，但必须保证厚度和宽度正确)
-            if (hit == null && thickness != null && width != null) {
-                QueryWrapper<CustomerMaterialMapping> byDim = new QueryWrapper<>();
-                byDim.eq("customer_code", c)
-                        .eq("material_code", m)
-                        .apply("ABS(thickness - {0}) < 0.001", thickness)
-                        .apply("ABS(width - {0}) < 0.001", width)
-                        .eq("is_active", 1)
-                        .orderByDesc("update_time")
-                        .orderByDesc("id")
-                        .last("limit 1");
-                hit = mappingMapper.selectOne(byDim);
-            }
-
-            // 3. 最后保底：仅当请求中没有提供厚度和宽度时，才允许按料号模糊匹配
-            // 如果提供了厚度宽度但没匹配到，说明该规格没有配置别名，不应随意匹配其他规格的别名
-            if (hit == null && thickness == null && width == null) {
-                QueryWrapper<CustomerMaterialMapping> fallback = new QueryWrapper<>();
-                fallback.eq("customer_code", c)
-                        .eq("material_code", m)
-                        .eq("is_active", 1)
-                        .orderByDesc("update_time")
-                        .orderByDesc("id")
-                        .last("limit 1");
-                hit = mappingMapper.selectOne(fallback);
-            }
+            CustomerMaterialMapping hit = pickBestBySpec(pool, thickness, width, length);
 
             return ResponseResult.success(hit);
         } catch (Exception e) {
             e.printStackTrace();
             return ResponseResult.error("匹配客户物料映射失败: " + e.getMessage());
         }
+    }
+
+    private CustomerMaterialMapping pickBestBySpec(List<CustomerMaterialMapping> pool,
+                                                   BigDecimal thickness,
+                                                   BigDecimal width,
+                                                   BigDecimal length) {
+        if (pool == null || pool.isEmpty()) {
+            return null;
+        }
+
+        // 1) 先做“已提供参数”的精确子集匹配（严格优先）
+        List<CustomerMaterialMapping> exactSubset = new ArrayList<>();
+        for (CustomerMaterialMapping m : pool) {
+            if (m == null) continue;
+            if (!matchesProvidedSpecSubset(m, thickness, width, length)) {
+                continue;
+            }
+            exactSubset.add(m);
+        }
+        if (!exactSubset.isEmpty()) {
+            return exactSubset.get(0); // pool 已按 update_time desc, id desc 排序
+        }
+
+        // 2) 规格不全或未精确命中时，按“最近距离”挑选最接近
+        CustomerMaterialMapping best = null;
+        double bestScore = Double.MAX_VALUE;
+        for (CustomerMaterialMapping m : pool) {
+            if (m == null) continue;
+            double score = calcSpecDistanceScore(m, thickness, width, length);
+            if (score < bestScore) {
+                bestScore = score;
+                best = m;
+            }
+        }
+        return best;
+    }
+
+    private boolean matchesProvidedSpecSubset(CustomerMaterialMapping m,
+                                              BigDecimal thickness,
+                                              BigDecimal width,
+                                              BigDecimal length) {
+        if (m == null) return false;
+
+        // 两套规格口径：我司规格(thickness/width/length) 或 客户规格(customerThickness/customerWidth/customerLength)
+        boolean ownMatch = true;
+        boolean customerMatch = true;
+
+        if (thickness != null) {
+            ownMatch = ownMatch && numberEq(thickness, m.getThickness());
+            customerMatch = customerMatch && numberEq(thickness, m.getCustomerThickness());
+        }
+        if (width != null) {
+            ownMatch = ownMatch && numberEq(width, m.getWidth());
+            customerMatch = customerMatch && numberEq(width, m.getCustomerWidth());
+        }
+        if (length != null) {
+            ownMatch = ownMatch && numberEq(length, m.getLength());
+            customerMatch = customerMatch && numberEq(length, m.getCustomerLength());
+        }
+
+        return ownMatch || customerMatch;
+    }
+
+    private double calcSpecDistanceScore(CustomerMaterialMapping m,
+                                         BigDecimal thickness,
+                                         BigDecimal width,
+                                         BigDecimal length) {
+        double own = calcDistance(thickness, width, length, m.getThickness(), m.getWidth(), m.getLength());
+        double customer = calcDistance(thickness, width, length, m.getCustomerThickness(), m.getCustomerWidth(), m.getCustomerLength());
+        return Math.min(own, customer);
+    }
+
+    private double calcDistance(BigDecimal reqThickness,
+                                BigDecimal reqWidth,
+                                BigDecimal reqLength,
+                                BigDecimal mapThickness,
+                                BigDecimal mapWidth,
+                                BigDecimal mapLength) {
+        double score = 0D;
+        score += distanceForOneDim(reqThickness, mapThickness, 100D);
+        score += distanceForOneDim(reqWidth, mapWidth, 10D);
+        score += distanceForOneDim(reqLength, mapLength, 1D);
+        return score;
+    }
+
+    private double distanceForOneDim(BigDecimal req, BigDecimal map, double weight) {
+        if (req == null) {
+            return 0D;
+        }
+        if (map == null) {
+            return 100000D * weight;
+        }
+        return req.subtract(map).abs().doubleValue() * weight;
+    }
+
+    private boolean numberEq(BigDecimal a, BigDecimal b) {
+        if (a == null || b == null) {
+            return false;
+        }
+        return a.subtract(b).abs().compareTo(new BigDecimal("0.001")) <= 0;
     }
 
     @GetMapping("/all")
