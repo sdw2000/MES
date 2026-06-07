@@ -17,7 +17,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/production/label-qr-rule")
-@PreAuthorize("hasAnyAuthority('admin','sales','finance','production','packaging','plan','warehouse','quality','rd')")
+@PreAuthorize("hasAnyAuthority('admin','sales','finance','production','packaging','packing','plan','warehouse','quality','rd')")
 public class LabelQrRuleController {
 
     @Autowired
@@ -41,25 +41,58 @@ public class LabelQrRuleController {
     }
 
     @GetMapping("/get")
+    @PreAuthorize("isAuthenticated()")
     public ResponseResult<?> getRule(@RequestParam("customerCode") String customerCode,
                                      @RequestParam(value = "bizType", required = false, defaultValue = "SLITTING_OUTER_LABEL") String bizType) {
         if (isBlank(customerCode)) {
             return ResponseResult.error("customerCode不能为空");
         }
         String normalizedBizType = normalizeBizType(bizType);
+        
+        // 1. 优先尝试获取特定的规则
         String sql = "SELECT id, customer_code, biz_type, qr_template, enabled, updated_at FROM label_qr_rule WHERE customer_code=? AND biz_type=? LIMIT 1";
         List<Map<String, Object>> list = jdbcTemplate.queryForList(sql, customerCode.trim(), normalizedBizType);
-        if (list == null || list.isEmpty()) {
-            return ResponseResult.success(null);
+        
+        // 2. 如果没找到特定规则，尝试获取通用规则 (SLITTING_COMMON_LABEL)
+        if ((list == null || list.isEmpty()) && !"SLITTING_COMMON_LABEL".equals(normalizedBizType)) {
+            list = jdbcTemplate.queryForList(sql, customerCode.trim(), "SLITTING_COMMON_LABEL");
         }
-        Map<String, Object> row = list.get(0);
+        
+        // 3. 如果还是没找到，且当前不是 SLITTING_OUTER_LABEL，则尝试回退到 SLITTING_OUTER_LABEL (为了兼容旧数据)
+        if ((list == null || list.isEmpty()) && !"SLITTING_OUTER_LABEL".equals(normalizedBizType) && !"SLITTING_COMMON_LABEL".equals(normalizedBizType)) {
+            list = jdbcTemplate.queryForList(sql, customerCode.trim(), "SLITTING_OUTER_LABEL");
+        }
+
         Map<String, Object> data = new HashMap<>();
-        data.put("id", row.get("id"));
-        data.put("customerCode", row.get("customer_code"));
-        data.put("bizType", row.get("biz_type"));
-        data.put("qrTemplate", row.get("qr_template"));
-        data.put("enabled", row.get("enabled"));
-        data.put("updatedAt", row.get("updated_at"));
+
+        // 附加客户简称
+        try {
+            List<Map<String, Object>> customerList = jdbcTemplate.queryForList("SELECT short_name FROM customer WHERE customer_code = ? LIMIT 1", customerCode.trim());
+            if (customerList != null && !customerList.isEmpty()) {
+                data.put("customerShortName", customerList.get(0).get("short_name"));
+            }
+        } catch (Exception e) {
+            // 忽略客户查询失败
+        }
+
+        // 附加公司基本信息 (从 SystemConfig 或 Hardcoded 逻辑获取，这里先手动组装)
+        data.put("myCompanyName", "东莞市方恩电子材料科技有限公司");
+        data.put("myCompanyAddress", "广东省东莞市桥头镇东新路13号2号楼102室");
+        data.put("myCompanyPhone", "0769-82551118");
+
+        // 如果规则存在，填充规则详情
+        if (list != null && !list.isEmpty()) {
+            Map<String, Object> row = list.get(0);
+            data.put("id", row.get("id"));
+            data.put("customerCode", row.get("customer_code"));
+            data.put("bizType", row.get("biz_type"));
+            data.put("qrTemplate", row.get("qr_template"));
+            data.put("enabled", row.get("enabled"));
+            data.put("updatedAt", row.get("updated_at"));
+        } else {
+            data.put("qrTemplate", null);
+        }
+
         return ResponseResult.success(data);
     }
 

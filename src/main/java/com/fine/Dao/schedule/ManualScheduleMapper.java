@@ -93,6 +93,8 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "IFNULL(soi.delivered_qty, 0) AS completed_qty, " +
             "IFNULL(soi.scheduled_qty, 0) AS scheduled_qty, " +
             "IFNULL(soi.remaining_qty, (soi.rolls - IFNULL(soi.scheduled_qty, 0))) AS remaining_qty, " +
+            "IFNULL((SELECT SUM(IFNULL(msa.schedule_qty, 0)) FROM manual_schedule msa WHERE msa.order_detail_id = soi.id AND msa.status IN ('PENDING','COATING_SCHEDULED','REWINDING_SCHEDULED')), 0) AS active_schedule_qty, " +
+            "GREATEST(IFNULL(soi.remaining_qty, (soi.rolls - IFNULL(soi.scheduled_qty, 0))) - IFNULL((SELECT SUM(IFNULL(msa.schedule_qty, 0)) FROM manual_schedule msa WHERE msa.order_detail_id = soi.id AND msa.status IN ('PENDING','COATING_SCHEDULED','REWINDING_SCHEDULED')), 0), 0) AS available_schedule_qty, " +
             "o.order_date, " +
             "o.delivery_date, " +
             "o.customer, " +
@@ -125,6 +127,7 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "IFNULL(o.remark, '') AS order_remark " +
             "FROM sales_order_items soi " +
             "JOIN sales_orders o ON soi.order_id = o.id " +
+            "LEFT JOIN tape_spec ts ON ts.material_code COLLATE utf8mb4_unicode_ci = soi.material_code COLLATE utf8mb4_unicode_ci " +
             "LEFT JOIN customers c ON o.customer COLLATE utf8mb4_unicode_ci = c.customer_code COLLATE utf8mb4_unicode_ci " +
             "LEFT JOIN (" +
             "  SELECT p1.customer_id, p1.total_score " +
@@ -173,6 +176,8 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "IFNULL(soi.delivered_qty, 0) AS completed_qty, " +
             "IFNULL(soi.scheduled_qty, 0) AS scheduled_qty, " +
             "IFNULL(soi.remaining_qty, (soi.rolls - IFNULL(soi.scheduled_qty, 0))) AS remaining_qty, " +
+            "IFNULL((SELECT SUM(IFNULL(msa.schedule_qty, 0)) FROM manual_schedule msa WHERE msa.order_detail_id = soi.id AND msa.status IN ('PENDING','COATING_SCHEDULED','REWINDING_SCHEDULED')), 0) AS active_schedule_qty, " +
+            "GREATEST(IFNULL(soi.remaining_qty, (soi.rolls - IFNULL(soi.scheduled_qty, 0))) - IFNULL((SELECT SUM(IFNULL(msa.schedule_qty, 0)) FROM manual_schedule msa WHERE msa.order_detail_id = soi.id AND msa.status IN ('PENDING','COATING_SCHEDULED','REWINDING_SCHEDULED')), 0), 0) AS available_schedule_qty, " +
             "o.order_date, " +
             "o.delivery_date, " +
             "o.customer, " +
@@ -309,6 +314,8 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "IFNULL(soi.delivered_qty, 0) AS completed_qty, " +
             "IFNULL(soi.scheduled_qty, 0) AS scheduled_qty, " +
             "IFNULL(soi.remaining_qty, (soi.rolls - IFNULL(soi.scheduled_qty, 0))) AS remaining_qty, " +
+            "IFNULL((SELECT SUM(IFNULL(msa.schedule_qty, 0)) FROM manual_schedule msa WHERE msa.order_detail_id = soi.id AND msa.status IN ('PENDING','COATING_SCHEDULED','REWINDING_SCHEDULED')), 0) AS active_schedule_qty, " +
+            "GREATEST(IFNULL(soi.remaining_qty, (soi.rolls - IFNULL(soi.scheduled_qty, 0))) - IFNULL((SELECT SUM(IFNULL(msa.schedule_qty, 0)) FROM manual_schedule msa WHERE msa.order_detail_id = soi.id AND msa.status IN ('PENDING','COATING_SCHEDULED','REWINDING_SCHEDULED')), 0), 0) AS available_schedule_qty, " +
             "o.order_date, " +
             "o.delivery_date, " +
             "o.customer, " +
@@ -385,6 +392,8 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "IFNULL(soi.delivered_qty, 0) AS completed_qty, " +
             "IFNULL(soi.scheduled_qty, 0) AS scheduled_qty, " +
             "IFNULL(soi.remaining_qty, (soi.rolls - IFNULL(soi.scheduled_qty, 0))) AS remaining_qty, " +
+            "IFNULL((SELECT SUM(IFNULL(msa.schedule_qty, 0)) FROM manual_schedule msa WHERE msa.order_detail_id = soi.id AND msa.status IN ('PENDING','COATING_SCHEDULED','REWINDING_SCHEDULED')), 0) AS active_schedule_qty, " +
+            "GREATEST(IFNULL(soi.remaining_qty, (soi.rolls - IFNULL(soi.scheduled_qty, 0))) - IFNULL((SELECT SUM(IFNULL(msa.schedule_qty, 0)) FROM manual_schedule msa WHERE msa.order_detail_id = soi.id AND msa.status IN ('PENDING','COATING_SCHEDULED','REWINDING_SCHEDULED')), 0), 0) AS available_schedule_qty, " +
             "o.order_date, " +
             "o.delivery_date, " +
             "o.customer, " +
@@ -1247,9 +1256,9 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
      * 新增工序报工记录
      */
     @Insert("INSERT INTO manual_schedule_process_report(" +
-            "schedule_id, process_type, start_time, end_time, produced_qty, operator_name, proceed_next_process, remark, created_at, updated_at, is_deleted" +
+            "schedule_id, process_type, start_time, end_time, produced_qty, operator_name, proceed_next_process, source_type, source_no, source_item_id, remark, created_at, updated_at, is_deleted" +
             ") VALUES (" +
-            "#{scheduleId}, #{processType}, #{startTime}, #{endTime}, #{producedQty}, #{operatorName}, #{proceedNextProcess}, #{remark}, NOW(), NOW(), 0" +
+            "#{scheduleId}, #{processType}, #{startTime}, #{endTime}, #{producedQty}, #{operatorName}, #{proceedNextProcess}, #{sourceType}, #{sourceNo}, #{sourceItemId}, #{remark}, NOW(), NOW(), 0" +
             ")")
     int insertProcessReport(@Param("scheduleId") Long scheduleId,
                             @Param("processType") String processType,
@@ -1258,7 +1267,27 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
                             @Param("producedQty") BigDecimal producedQty,
                             @Param("operatorName") String operatorName,
                             @Param("proceedNextProcess") Integer proceedNextProcess,
+                            @Param("sourceType") String sourceType,
+                            @Param("sourceNo") String sourceNo,
+                            @Param("sourceItemId") Long sourceItemId,
                             @Param("remark") String remark);
+
+    /**
+     * 兼容旧库（尚未增加source字段）的报工插入
+     */
+    @Insert("INSERT INTO manual_schedule_process_report(" +
+            "schedule_id, process_type, start_time, end_time, produced_qty, operator_name, proceed_next_process, remark, created_at, updated_at, is_deleted" +
+            ") VALUES (" +
+            "#{scheduleId}, #{processType}, #{startTime}, #{endTime}, #{producedQty}, #{operatorName}, #{proceedNextProcess}, #{remark}, NOW(), NOW(), 0" +
+            ")")
+    int insertProcessReportLegacy(@Param("scheduleId") Long scheduleId,
+                                  @Param("processType") String processType,
+                                  @Param("startTime") java.time.LocalDateTime startTime,
+                                  @Param("endTime") java.time.LocalDateTime endTime,
+                                  @Param("producedQty") BigDecimal producedQty,
+                                  @Param("operatorName") String operatorName,
+                                  @Param("proceedNextProcess") Integer proceedNextProcess,
+                                  @Param("remark") String remark);
 
         @Select("SELECT LAST_INSERT_ID()")
         Long selectLastInsertId();
@@ -1270,7 +1299,8 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "r.id, r.schedule_id, r.process_type, " +
             "DATE_FORMAT(r.start_time, '%Y-%m-%d %H:%i:%s') AS start_time, " +
             "DATE_FORMAT(r.end_time, '%Y-%m-%d %H:%i:%s') AS end_time, " +
-            "r.produced_qty, r.operator_name, r.proceed_next_process, r.remark, " +
+            "r.produced_qty, r.operator_name, r.proceed_next_process, " +
+            "NULL AS source_type, NULL AS source_no, NULL AS source_item_id, r.remark, " +
             "ROUND(CASE " +
             "  WHEN r.process_type = 'COATING' THEN IFNULL(r.produced_qty, 0) " +
             "  ELSE IFNULL(r.produced_qty, 0) * IFNULL(soi.width, 0) / 1000 * IFNULL(soi.length, 0) " +
@@ -1291,7 +1321,8 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
     /**
      * 查询单条报工记录
      */
-    @Select("SELECT id, schedule_id, process_type, start_time, end_time, produced_qty, operator_name, proceed_next_process, remark " +
+    @Select("SELECT id, schedule_id, process_type, start_time, end_time, produced_qty, operator_name, proceed_next_process, " +
+            "NULL AS source_type, NULL AS source_no, NULL AS source_item_id, remark " +
             "FROM manual_schedule_process_report WHERE id = #{reportId} AND is_deleted = 0")
     Map<String, Object> selectProcessReportById(@Param("reportId") Long reportId);
 
@@ -1585,7 +1616,7 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
     /**
      * 查询订单明细当前待排卷数（按排程口径：rolls - scheduled_qty）
      */
-    @Select("SELECT GREATEST(IFNULL(soi.rolls, 0) - IFNULL(soi.scheduled_qty, 0), 0) " +
+        @Select("SELECT GREATEST(IFNULL(soi.remaining_qty, (IFNULL(soi.rolls, 0) - IFNULL(soi.scheduled_qty, 0))), 0) " +
             "FROM sales_order_items soi " +
             "JOIN sales_orders o ON soi.order_id = o.id " +
             "WHERE soi.id = #{orderDetailId} " +
@@ -1594,12 +1625,39 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
     BigDecimal selectPendingQtyForScheduling(@Param("orderDetailId") Long orderDetailId);
 
     /**
+     * 查询某料号全局待排卷数（与前端候选口径保持一致：优先remaining_qty）
+     */
+    @Select("SELECT IFNULL(SUM(GREATEST(IFNULL(soi.remaining_qty, (IFNULL(soi.rolls, 0) - IFNULL(soi.scheduled_qty, 0))), 0)), 0) " +
+            "FROM sales_order_items soi " +
+            "JOIN sales_orders o ON soi.order_id = o.id " +
+            "WHERE soi.material_code = #{materialCode} " +
+            "AND soi.is_deleted = 0 AND o.is_deleted = 0 " +
+            "AND (o.status IS NULL OR LOWER(o.status) NOT IN ('completed','cancelled','canceled','closed')) " +
+            "AND LOWER(IFNULL(soi.production_status, 'not_started')) <> 'completed' " +
+            "AND IFNULL(soi.delivered_qty, 0) < IFNULL(soi.rolls, 0)")
+    BigDecimal selectPendingQtySumByMaterialCode(@Param("materialCode") String materialCode);
+
+    /**
+     * 查询某料号已创建手动分切排程占用卷数（用于净需求防超排）
+     */
+    @Select("SELECT IFNULL(SUM(IFNULL(ms.schedule_qty, 0)), 0) " +
+            "FROM manual_schedule ms " +
+            "JOIN sales_order_items soi ON soi.id = ms.order_detail_id " +
+            "JOIN sales_orders o ON o.id = soi.order_id " +
+            "WHERE soi.material_code = #{materialCode} " +
+            "AND ms.schedule_type = 'SLITTING_MANUAL' " +
+            "AND ms.status IN ('PENDING','COATING_SCHEDULED','REWINDING_SCHEDULED','CONFIRMED') " +
+            "AND soi.is_deleted = 0 AND o.is_deleted = 0 " +
+            "AND (o.status IS NULL OR LOWER(o.status) NOT IN ('completed','cancelled','canceled','closed'))")
+    BigDecimal sumActiveManualSlittingQtyByMaterialCode(@Param("materialCode") String materialCode);
+
+    /**
      * 查询当前有效手工排程已占用卷数（防重复创建）
      */
     @Select("SELECT IFNULL(SUM(IFNULL(schedule_qty, 0)), 0) " +
             "FROM manual_schedule " +
             "WHERE order_detail_id = #{orderDetailId} " +
-            "AND status IN ('PENDING','COATING_SCHEDULED','REWINDING_SCHEDULED','CONFIRMED')")
+            "AND status IN ('PENDING','COATING_SCHEDULED','REWINDING_SCHEDULED')")
     BigDecimal sumActiveScheduleQtyByOrderDetailId(@Param("orderDetailId") Long orderDetailId);
 
     /**

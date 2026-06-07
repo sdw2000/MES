@@ -18,18 +18,21 @@ public class QualityDispositionController {
     private QualityDispositionService dispositionService;
 
     @GetMapping
-    public ResponseResult<?> list(@RequestParam(defaultValue = "1") Integer pageNum,
-                                  @RequestParam(defaultValue = "10") Integer pageSize,
-                                  @RequestParam(required = false) String dispositionNo,
-                                  @RequestParam(required = false) String inspectionNo,
-                                  @RequestParam(required = false) String status) {
+    public ResponseResult<?> list(@RequestParam(value = "pageNum", defaultValue = "1") Integer pageNum,
+                                  @RequestParam(value = "pageSize", defaultValue = "10") Integer pageSize,
+                                  @RequestParam(value = "dispositionNo", required = false) String dispositionNo,
+                                  @RequestParam(value = "inspectionNo", required = false) String inspectionNo,
+                                  @RequestParam(value = "dispositionMethod", required = false) String dispositionMethod,
+                                  @RequestParam(value = "startDate", required = false) String startDate,
+                                  @RequestParam(value = "endDate", required = false) String endDate,
+                                  @RequestParam(value = "status", required = false) String status) {
         Page<QualityDisposition> page = new Page<>(pageNum, pageSize);
-        IPage<QualityDisposition> data = dispositionService.list(page, dispositionNo, inspectionNo, status);
+        IPage<QualityDisposition> data = dispositionService.list(page, dispositionNo, inspectionNo, dispositionMethod, status, startDate, endDate);
         return ResponseResult.success(data);
     }
 
     @GetMapping("/{id}")
-    public ResponseResult<?> detail(@PathVariable Long id) {
+    public ResponseResult<?> detail(@PathVariable("id") Long id) {
         return ResponseResult.success(dispositionService.detail(id));
     }
 
@@ -44,15 +47,15 @@ public class QualityDispositionController {
     }
 
     @DeleteMapping("/{id}")
-    public ResponseResult<?> delete(@PathVariable Long id) {
+    public ResponseResult<?> delete(@PathVariable("id") Long id) {
         dispositionService.delete(id);
         return ResponseResult.success();
     }
 
     @PostMapping("/{id}/approve")
-    public ResponseResult<?> approve(@PathVariable Long id,
-                                     @RequestParam String status,
-                                     @RequestParam(required = false) String remark) {
+    public ResponseResult<?> approve(@PathVariable("id") Long id,
+                                     @RequestParam("status") String status,
+                                     @RequestParam(value = "remark", required = false) String remark) {
         QualityDisposition result = dispositionService.approve(id, status, remark);
         return ResponseResult.success(result);
     }

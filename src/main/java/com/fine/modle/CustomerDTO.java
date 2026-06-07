@@ -18,6 +18,8 @@ public class CustomerDTO {
     
     // 基本信息
     private String customerKeyword;
+    private String sortField;
+    private String sortOrder;
     private String customerCode;
     private String customerName;
     private String shortName;
@@ -80,6 +82,9 @@ public class CustomerDTO {
     
     // 统计信息
     private Integer contactCount;
+    private BigDecimal lastMonthSalesAmount; // 上月销售额（按自然月统计）
+    private BigDecimal thisYearSalesAmount; // 今年累计销售额（按自然年统计）
+    private BigDecimal shippedAmount; // 累计出货金额
     
     // 前端新增客户时使用的编号前缀
     private String codePrefix;

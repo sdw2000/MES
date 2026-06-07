@@ -1,6 +1,7 @@
 package com.fine.controller.production;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fine.Utils.ResponseResult;
 import com.fine.Dao.production.ScheduleCoatingMapper;
 import com.fine.Dao.production.ScheduleRewindingMapper;
@@ -8,9 +9,15 @@ import com.fine.Dao.production.ScheduleSlittingMapper;
 import com.fine.Dao.production.ScheduleOrderItemMapper;
 import com.fine.Dao.rd.TapeSpecMapper;
 import com.fine.Dao.SalesOrderItemMapper;
+import com.fine.Dao.SampleItemMapper;
+import com.fine.Dao.SampleOrderMapper;
+import com.fine.modle.SampleItem;
+import com.fine.modle.SampleOrder;
+import com.fine.modle.schedule.ManualSchedule;
 import com.fine.model.production.ScheduleCoating;
 import com.fine.model.production.ScheduleRewinding;
 import com.fine.model.production.ScheduleSlitting;
+import com.fine.service.schedule.ManualScheduleService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.format.annotation.DateTimeFormat;
 import com.fasterxml.jackson.annotation.JsonFormat;
@@ -27,6 +34,9 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
+import java.util.Comparator;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.concurrent.TimeUnit;
 
 @RestController
@@ -50,6 +60,149 @@ public class ProductionManagementController {
 
     @Autowired
     private SalesOrderItemMapper salesOrderItemMapper;
+
+    @Autowired
+    private SampleOrderMapper sampleOrderMapper;
+
+    @Autowired
+    private SampleItemMapper sampleItemMapper;
+
+    @Autowired
+    private ManualScheduleService manualScheduleService;
+
+    private static final String SAMPLE_TASK_MARKER = "[SAMPLE_TASK]";
+
+    /**
+     * 分切样板任务列表（样板信息不走排程）
+     */
+    @GetMapping("/slitting-sample-tasks")
+    public ResponseResult<Map<String, Object>> listSlittingSampleTasks(
+            @RequestParam(value = "orderNo", required = false) String orderNo,
+            @RequestParam(value = "materialCode", required = false) String materialCode,
+            @RequestParam(value = "specKeyword", required = false) String specKeyword,
+            @RequestParam(value = "planDateStart", required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") Date planDateStart,
+            @RequestParam(value = "planDateEnd", required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") Date planDateEnd,
+            @RequestParam(value = "pageNum", defaultValue = "1") Integer pageNum,
+            @RequestParam(value = "pageSize", defaultValue = "20") Integer pageSize) {
+
+        String orderNoKw = trimToNull(orderNo);
+        String materialCodeKw = trimToNull(materialCode);
+        String specKw = trimToNull(specKeyword);
+        LocalDate start = toLocalDate(planDateStart);
+        LocalDate end = toLocalDate(planDateEnd);
+
+        QueryWrapper<SampleOrder> orderWrapper = new QueryWrapper<>();
+        orderWrapper.eq("is_deleted", 0);
+        if (orderNoKw != null) {
+            orderWrapper.like("sample_no", orderNoKw);
+        }
+        if (start != null) {
+            orderWrapper.ge("send_date", start);
+        }
+        if (end != null) {
+            orderWrapper.le("send_date", end);
+        }
+        orderWrapper.orderByDesc("send_date", "id");
+        List<SampleOrder> orders = sampleOrderMapper.selectList(orderWrapper);
+
+        List<Map<String, Object>> all = new ArrayList<>();
+        for (SampleOrder order : orders) {
+            if (order == null || order.getSampleNo() == null || order.getSampleNo().trim().isEmpty()) {
+                continue;
+            }
+            List<SampleItem> items = sampleItemMapper.selectBySampleNo(order.getSampleNo());
+            if (items == null || items.isEmpty()) {
+                continue;
+            }
+            for (SampleItem item : items) {
+                if (item == null || item.getId() == null) {
+                    continue;
+                }
+                if (materialCodeKw != null && (item.getMaterialCode() == null || !item.getMaterialCode().contains(materialCodeKw))) {
+                    continue;
+                }
+                if (specKw != null && !matchSampleSpec(item, specKw)) {
+                    continue;
+                }
+
+                Long scheduleId = findSampleScheduleId(item.getId(), order.getSampleNo());
+
+                Map<String, Object> row = new HashMap<>();
+                row.put("id", scheduleId != null ? scheduleId : item.getId());
+                row.put("scheduleId", scheduleId);
+                row.put("sampleItemId", item.getId());
+                row.put("sampleNo", order.getSampleNo());
+                row.put("isSampleTask", true);
+                row.put("taskNo", "YB-" + order.getSampleNo() + "-" + item.getId());
+                row.put("type", "slitting");
+                String sampleStatus = "已完成".equals(order.getStatus()) ? "COMPLETED" : "UNCOMPLETED";
+                row.put("status", sampleStatus);
+                row.put("sampleStatus", "COMPLETED".equals(sampleStatus) ? "已完成" : "未完成");
+                row.put("scheduleStatus", scheduleId != null ? "SCHEDULED" : "UNSCHEDULED");
+                row.put("orderNo", order.getSampleNo());
+                row.put("materialCode", item.getMaterialCode());
+                row.put("materialName", item.getMaterialName());
+                // 销售样板明细 thickness 字段口径为 μm，前端规格展示也按 μm*mm*m，
+                // 这里直接使用原值，避免重复换算导致 16μm 显示为 16000μm。
+                row.put("thickness", toInteger(item.getThickness()));
+                row.put("widthMm", toInteger(item.getWidth()));
+                row.put("length", toInteger(item.getLength()));
+                row.put("qty", item.getQuantity() == null ? 0 : item.getQuantity());
+                row.put("planStartTime", toDateTimeString(order.getSendDate()));
+                row.put("planEndTime", toDateTimeString(order.getSendDate()));
+                all.add(row);
+            }
+        }
+
+        all.sort(Comparator.comparing(o -> String.valueOf(o.getOrDefault("taskNo", ""))));
+        int total = all.size();
+        int from = Math.max(0, ((pageNum == null ? 1 : pageNum) - 1) * (pageSize == null ? 20 : pageSize));
+        int to = Math.min(total, from + (pageSize == null ? 20 : pageSize));
+        List<Map<String, Object>> pageList = from >= total ? new ArrayList<>() : all.subList(from, to);
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("list", pageList);
+        result.put("total", total);
+        result.put("pageNum", pageNum);
+        result.put("pageSize", pageSize);
+        return ResponseResult.success(result);
+    }
+
+    /**
+     * 确保样板明细有可报工的排程ID（自动创建直报排程）
+     */
+    @PostMapping("/slitting-sample-tasks/ensure-schedule")
+    public ResponseResult<Map<String, Object>> ensureSlittingSampleSchedule(@RequestBody SampleScheduleRequest req) {
+        if (req == null || req.getSampleItemId() == null || req.getSampleItemId() <= 0) {
+            return ResponseResult.error("sampleItemId不能为空");
+        }
+        if (req.getSampleNo() == null || req.getSampleNo().trim().isEmpty()) {
+            return ResponseResult.error("sampleNo不能为空");
+        }
+
+        Long existed = findSampleScheduleId(req.getSampleItemId(), req.getSampleNo());
+        if (existed != null && existed > 0) {
+            Map<String, Object> result = new HashMap<>();
+            result.put("scheduleId", existed);
+            return ResponseResult.success(result);
+        }
+
+        ManualSchedule schedule = new ManualSchedule();
+        schedule.setOrderNo(req.getSampleNo().trim());
+        schedule.setMaterialCode(trimToNull(req.getMaterialCode()));
+        schedule.setMaterialName(trimToNull(req.getMaterialName()));
+        Integer qty = req.getQuantity() == null ? 0 : req.getQuantity();
+        schedule.setScheduleQty(Math.max(1, qty));
+        schedule.setShortageQty(0);
+        schedule.setScheduleType("STOCK");
+        schedule.setStatus("REWINDING_SCHEDULED");
+        schedule.setRemark(buildSampleMarker(req.getSampleItemId(), req.getSampleNo()));
+        Long scheduleId = manualScheduleService.createSchedule(schedule);
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("scheduleId", scheduleId);
+        return ResponseResult.success(result);
+    }
 
     /**
      * 查询生产任务（支持类型过滤：coating/rewinding/slitting）。
@@ -372,5 +525,73 @@ public class ProductionManagementController {
         public void setPlanDuration(Integer planDuration) { this.planDuration = planDuration; }
         public Object getQty() { return qty; }
         public void setQty(Object qty) { this.qty = qty; }
+    }
+
+    public static class SampleScheduleRequest {
+        private String sampleNo;
+        private Long sampleItemId;
+        private String materialCode;
+        private String materialName;
+        private Integer quantity;
+
+        public String getSampleNo() { return sampleNo; }
+        public void setSampleNo(String sampleNo) { this.sampleNo = sampleNo; }
+        public Long getSampleItemId() { return sampleItemId; }
+        public void setSampleItemId(Long sampleItemId) { this.sampleItemId = sampleItemId; }
+        public String getMaterialCode() { return materialCode; }
+        public void setMaterialCode(String materialCode) { this.materialCode = materialCode; }
+        public String getMaterialName() { return materialName; }
+        public void setMaterialName(String materialName) { this.materialName = materialName; }
+        public Integer getQuantity() { return quantity; }
+        public void setQuantity(Integer quantity) { this.quantity = quantity; }
+    }
+
+    private Long findSampleScheduleId(Long sampleItemId, String sampleNo) {
+        if (sampleItemId == null || sampleItemId <= 0) {
+            return null;
+        }
+        String marker = buildSampleMarker(sampleItemId, sampleNo);
+        LambdaQueryWrapper<ManualSchedule> wrapper = new LambdaQueryWrapper<>();
+        wrapper.like(ManualSchedule::getRemark, marker)
+                .orderByDesc(ManualSchedule::getId)
+                .last("LIMIT 1");
+        ManualSchedule latest = manualScheduleService.getOne(wrapper, false);
+        return latest == null ? null : latest.getId();
+    }
+
+    private String buildSampleMarker(Long sampleItemId, String sampleNo) {
+        return SAMPLE_TASK_MARKER + " sampleNo=" + (sampleNo == null ? "" : sampleNo.trim()) + ",sampleItemId=" + sampleItemId;
+    }
+
+    private static String trimToNull(String text) {
+        if (text == null) return null;
+        String t = text.trim();
+        return t.isEmpty() ? null : t;
+    }
+
+    private static boolean matchSampleSpec(SampleItem item, String keyword) {
+        String kw = keyword == null ? "" : keyword.trim();
+        if (kw.isEmpty()) return true;
+        String spec = (item.getSpecification() == null ? "" : item.getSpecification());
+        if (spec.contains(kw)) return true;
+        String combo = (toInteger(item.getThickness()) == null ? "" : toInteger(item.getThickness())) + "*"
+                + (toInteger(item.getWidth()) == null ? "" : toInteger(item.getWidth())) + "*"
+                + (toInteger(item.getLength()) == null ? "" : toInteger(item.getLength()));
+        return combo.contains(kw);
+    }
+
+    private static Integer toInteger(java.math.BigDecimal value) {
+        if (value == null) return null;
+        return value.intValue();
+    }
+
+    private static LocalDate toLocalDate(Date date) {
+        if (date == null) return null;
+        return new java.sql.Date(date.getTime()).toLocalDate();
+    }
+
+    private static String toDateTimeString(LocalDate date) {
+        LocalDateTime dt = (date == null ? LocalDate.now() : date).atTime(8, 0, 0);
+        return dt.toString().replace('T', ' ');
     }
 }

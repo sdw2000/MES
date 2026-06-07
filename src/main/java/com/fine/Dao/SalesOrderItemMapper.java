@@ -179,4 +179,23 @@ public interface SalesOrderItemMapper extends BaseMapper<SalesOrderItem> {
         @Select("SELECT COUNT(1) FROM sales_order_items WHERE id = #{itemId} AND order_id = #{orderId} AND is_deleted = 0")
         Integer countActiveByIdAndOrderId(@Param("itemId") Long itemId,
                                           @Param("orderId") Long orderId);
+
+        @Select("<script>" +
+            "SELECT " +
+            "  soi.order_id AS order_id, " +
+            "  IFNULL(SUM(GREATEST(IFNULL(soi.remaining_qty, GREATEST(IFNULL(soi.rolls, 0) - IFNULL(soi.delivered_qty, 0), 0)), 0)), 0) AS unshipped_rolls, " +
+            "  IFNULL(SUM(GREATEST(IFNULL(soi.sqm, 0) - IFNULL(soi.delivered_area, 0), 0)), 0) AS unshipped_area, " +
+            "  IFNULL(SUM(CASE " +
+            "              WHEN IFNULL(soi.sqm, 0) &gt; 0 " +
+            "                THEN GREATEST(IFNULL(soi.sqm, 0) - IFNULL(soi.delivered_area, 0), 0) * IFNULL(soi.amount, 0) / IFNULL(NULLIF(soi.sqm, 0), 1) " +
+            "              WHEN IFNULL(soi.rolls, 0) &gt; 0 " +
+            "                THEN GREATEST(IFNULL(soi.remaining_qty, GREATEST(IFNULL(soi.rolls, 0) - IFNULL(soi.delivered_qty, 0), 0)), 0) * IFNULL(soi.amount, 0) / IFNULL(NULLIF(soi.rolls, 0), 1) " +
+            "              ELSE 0 END), 0) AS unshipped_amount " +
+            "FROM sales_order_items soi " +
+            "WHERE soi.is_deleted = 0 " +
+            "  AND soi.order_id IN " +
+            "  <foreach collection='orderIds' item='orderId' open='(' separator=',' close=')'>#{orderId}</foreach> " +
+            "GROUP BY soi.order_id" +
+            "</script>")
+        List<Map<String, Object>> selectUnshippedStatsByOrderIds(@Param("orderIds") List<Long> orderIds);
 }

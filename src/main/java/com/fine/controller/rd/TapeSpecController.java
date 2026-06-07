@@ -37,8 +37,23 @@ public class TapeSpecController {
             @RequestParam(required = false) String productName,
             @RequestParam(required = false) String colorCode,
             @RequestParam(required = false) String baseMaterial,
-            @RequestParam(required = false) Integer status) {
-        return tapeSpecService.getList(page, size, materialCode, productName, colorCode, baseMaterial, status);
+            @RequestParam(required = false) Integer status,
+            @RequestParam(required = false) String sortBy,
+            @RequestParam(required = false) String sortOrder) {
+        return tapeSpecService.getList(page, size, materialCode, productName, colorCode, baseMaterial, status, sortBy, sortOrder);
+    }
+
+    /**
+     * 未生产平方统计（后端分页 + 排序）
+     */
+    @GetMapping("/unproduced/page")
+    public ResponseResult<?> getUnproducedStatsPage(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String materialCode,
+            @RequestParam(required = false) String sortBy,
+            @RequestParam(required = false) String sortOrder) {
+        return tapeSpecService.getUnproducedStatsPage(page, size, materialCode, sortBy, sortOrder);
     }
 
     /**

@@ -23,6 +23,11 @@ public interface CustomerMapper extends BaseMapper<Customer> {
      * 分页查询客户列表（带主联系人信息）
      */
     IPage<CustomerDTO> selectCustomerPage(Page<CustomerDTO> page, @Param("query") CustomerDTO query);
+
+    /**
+     * 客户分页总数（轻量COUNT）
+     */
+    Long selectCustomerPage_COUNT(@Param("query") CustomerDTO query);
     
     /**
      * 根据ID查询客户详情（带联系人列表）

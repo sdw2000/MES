@@ -11,6 +11,8 @@ public interface PurchaseOrderService extends IService<PurchaseOrder> {
 
     ResponseResult<?> getAllOrders(Integer pageNum, Integer pageSize, String orderNo, String supplier, String startDate, String endDate, String reconciliationStatus);
 
+    ResponseResult<?> getOrdersWithoutReceipt(Integer pageNum, Integer pageSize, String orderNo, String supplier);
+
     ResponseResult<?> createOrder(PurchaseOrder purchaseOrder);
 
     ResponseResult<?> updateOrder(PurchaseOrder purchaseOrder);

@@ -31,6 +31,7 @@ import com.fine.service.production.RewindingProcessParamsService;
 import com.fine.service.production.SlittingProcessParamsService;
 import com.fine.service.stock.TapeStockService;
 import com.fine.Dao.stock.TapeStockMapper;
+import com.fine.Dao.stock.TapeInboundRequestMapper;
 import com.fine.Dao.stock.ScheduleMaterialLockMapper;
 import com.fine.Dao.stock.ChemicalStockMapper;
 import com.fine.Dao.stock.ChemicalStockDetailMapper;
@@ -41,9 +42,14 @@ import com.fine.Dao.stock.FilmStockOutMapper;
 import com.fine.Dao.rd.TapeFormulaMapper;
 import com.fine.Dao.production.SalesOrderMapper;
 import com.fine.Dao.production.EquipmentDailyStatusMapper;
+import com.fine.Dao.quality.QualityInspectionRecordMapper;
 import com.fine.Dao.SalesOrderItemMapper;
+import com.fine.Dao.SampleItemMapper;
+import com.fine.Dao.SampleOrderMapper;
 import com.fine.modle.SalesOrderItem;
 import com.fine.modle.SalesOrder;
+import com.fine.modle.SampleItem;
+import com.fine.modle.SampleOrder;
 import com.fine.modle.rd.TapeFormula;
 import com.fine.modle.rd.TapeFormulaItem;
 import com.fine.modle.rd.TapeRawMaterial;
@@ -55,6 +61,7 @@ import com.fine.model.stock.ChemicalStockOut;
 import com.fine.model.stock.FilmStock;
 import com.fine.model.stock.FilmStockDetail;
 import com.fine.model.stock.FilmStockOut;
+import com.fine.model.quality.QualityInspectionRecord;
 import com.fine.Utils.RedisCache;
 import com.fine.service.schedule.SchedulePlanService;
 import org.springframework.beans.factory.annotation.Value;
@@ -90,6 +97,7 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
     private static final long DEFAULT_PREEMPT_START_PROTECT_WINDOW_MINUTES = 240L;
     private static final BigDecimal DEFAULT_PREEMPT_MIN_PROTECT_AREA = new BigDecimal("300");
     private static final BigDecimal DEFAULT_PREEMPT_MIN_PROTECT_RATIO = new BigDecimal("0.20");
+    private static final String SAMPLE_TASK_MARKER = "[SAMPLE_TASK]";
 
     /** 抢占保护：临近开工窗口（分钟） */
     @Value("${mes.schedule.urgent-preempt.start-protect-window-minutes:240}")
@@ -118,6 +126,9 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
     private TapeStockMapper tapeStockMapper;
 
     @Autowired
+    private TapeInboundRequestMapper tapeInboundRequestMapper;
+
+    @Autowired
     private ScheduleMaterialLockMapper scheduleMaterialLockMapper;
 
     @Autowired
@@ -125,6 +136,12 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
 
     @Autowired
     private SalesOrderItemMapper salesOrderItemMapper;
+
+    @Autowired
+    private SampleOrderMapper sampleOrderMapper;
+
+    @Autowired
+    private SampleItemMapper sampleItemMapper;
 
     @Autowired
     private SchedulePlanService schedulePlanService;
@@ -183,6 +200,9 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
     @Autowired
     private RedisCache redisCache;
 
+    @Autowired
+    private QualityInspectionRecordMapper qualityInspectionRecordMapper;
+
     private void ensureOrderDetailSchedulable(Long orderDetailId) {
         if (orderDetailId == null) {
             throw new RuntimeException("orderDetailId 不能为空");
@@ -238,8 +258,8 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         }
         materialCode = materialCode.trim();
 
-        BigDecimal pendingQty = scheduleMapper.selectPendingQtyForScheduling(schedule.getOrderDetailId());
-        int pendingRolls = pendingQty == null ? 0 : pendingQty.setScale(0, RoundingMode.HALF_UP).intValue();
+        BigDecimal pendingQtyByMaterial = scheduleMapper.selectPendingQtySumByMaterialCode(materialCode);
+        int pendingRolls = pendingQtyByMaterial == null ? 0 : pendingQtyByMaterial.setScale(0, RoundingMode.HALF_UP).intValue();
 
         List<TapeStock> availableStocks = tapeStockMapper.selectList(
                 new LambdaQueryWrapper<TapeStock>()
@@ -256,7 +276,14 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         }
 
         int netDemand = Math.max(0, pendingRolls - availableRolls);
-        if (netDemand <= 0) {
+        int activeManualSlittingQty = 0;
+        BigDecimal activeManualSlittingQtyDb = scheduleMapper.sumActiveManualSlittingQtyByMaterialCode(materialCode);
+        if (activeManualSlittingQtyDb != null) {
+            activeManualSlittingQty = Math.max(0, activeManualSlittingQtyDb.setScale(0, RoundingMode.HALF_UP).intValue());
+        }
+        int remainingNetDemand = Math.max(0, netDemand - activeManualSlittingQty);
+
+        if (remainingNetDemand <= 0) {
             throw new RuntimeException("成品待出库区已有可用分切库存，净需求为0，禁止重复分切排程");
         }
 
@@ -264,8 +291,8 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         if (req <= 0) {
             throw new RuntimeException("分切排程数量必须大于0");
         }
-        if (req > netDemand) {
-            throw new RuntimeException("分切排程数量超出净需求：净需求=" + netDemand + "卷，申请=" + req + "卷");
+        if (req > remainingNetDemand) {
+            throw new RuntimeException("分切排程数量超出净需求：料号=" + materialCode + "，剩余净需求=" + remainingNetDemand + "卷，申请=" + req + "卷");
         }
     }
     
@@ -867,7 +894,18 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
 
         String operatorName = (operator == null || operator.trim().isEmpty()) ? "unknown" : operator.trim();
         int proceedNext = (proceedNextProcess == null || proceedNextProcess) ? 1 : 0;
-        int affected = scheduleMapper.insertProcessReport(actualScheduleId, normalizedProcessType, start, end, producedQty, operatorName, proceedNext, remark);
+        ReportSourceMeta reportSourceMeta = resolveReportSourceMeta(schedule);
+        int affected = insertProcessReportCompat(actualScheduleId,
+            normalizedProcessType,
+            start,
+            end,
+            producedQty,
+            operatorName,
+            proceedNext,
+            reportSourceMeta.getSourceType(),
+            reportSourceMeta.getSourceNo(),
+            reportSourceMeta.getSourceItemId(),
+            remark);
         if (affected <= 0) {
             return false;
         }
@@ -880,6 +918,7 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         if ("COATING".equals(normalizedProcessType) && producedRolls != null && !producedRolls.isEmpty()) {
             persistCoatingRolls(actualScheduleId, reportId, producedRolls);
             autoCreateCoatingOrderLocks(actualScheduleId, reportId, producedRolls);
+            autoCreateCoatingProcessPendingInspections(schedule, reportId, operatorName, reportMaterialCode, reportMaterialName);
         }
 
         if (materialIssues != null && !materialIssues.isEmpty()) {
@@ -901,6 +940,7 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
             reportLengthM);
         syncScheduleCompletionFromLatestMarker(actualScheduleId, remark);
         refreshOrderCompletionAfterReport(schedule.getOrderDetailId());
+        refreshSampleOrderCompletionAfterReport(schedule, reportSourceMeta, remark);
         return true;
     }
 
@@ -924,15 +964,19 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         String operatorName = (operator == null || operator.trim().isEmpty()) ? "unknown" : operator.trim();
         LocalDateTime now = LocalDateTime.now();
         String finalRemark = (remark == null || remark.trim().isEmpty()) ? "仅领料登记" : "仅领料登记; " + remark.trim();
-        int affected = scheduleMapper.insertProcessReport(
-                schedule.getId(),
-                normalizedProcessType,
-                now,
-                now,
-                BigDecimal.ZERO,
-                operatorName,
-                1,
-                finalRemark
+        ReportSourceMeta reportSourceMeta = resolveReportSourceMeta(schedule);
+        int affected = insertProcessReportCompat(
+            schedule.getId(),
+            normalizedProcessType,
+            now,
+            now,
+            BigDecimal.ZERO,
+            operatorName,
+            1,
+            reportSourceMeta.getSourceType(),
+            reportSourceMeta.getSourceNo(),
+            reportSourceMeta.getSourceItemId(),
+            finalRemark
         );
         if (affected <= 0) {
             return false;
@@ -1134,6 +1178,112 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         tapeStockService.createInboundRequest(inboundRequest);
     }
 
+    private ReportSourceMeta resolveReportSourceMeta(ManualSchedule schedule) {
+        ReportSourceMeta meta = new ReportSourceMeta();
+        meta.setSourceType("NORMAL");
+
+        if (schedule == null) {
+            return meta;
+        }
+
+        String remark = stringVal(schedule.getRemark());
+        if (remark == null || !remark.contains(SAMPLE_TASK_MARKER)) {
+            return meta;
+        }
+
+        meta.setSourceType("SAMPLE");
+        meta.setSourceNo(extractBetween(remark, "sampleNo=", ",sampleItemId="));
+        String sampleItemIdText = extractAfter(remark, ",sampleItemId=");
+        Long sampleItemId = toLongSafe(sampleItemIdText);
+        meta.setSourceItemId(sampleItemId);
+        return meta;
+    }
+
+    private int insertProcessReportCompat(Long scheduleId,
+                                          String processType,
+                                          LocalDateTime startTime,
+                                          LocalDateTime endTime,
+                                          BigDecimal producedQty,
+                                          String operatorName,
+                                          Integer proceedNextProcess,
+                                          String sourceType,
+                                          String sourceNo,
+                                          Long sourceItemId,
+                                          String remark) {
+        try {
+            return scheduleMapper.insertProcessReport(
+                    scheduleId,
+                    processType,
+                    startTime,
+                    endTime,
+                    producedQty,
+                    operatorName,
+                    proceedNextProcess,
+                    sourceType,
+                    sourceNo,
+                    sourceItemId,
+                    remark
+            );
+        } catch (Exception ex) {
+            String msg = String.valueOf(ex.getMessage());
+            boolean sourceColumnMissing = msg.contains("source_type") || msg.contains("source_no") || msg.contains("source_item_id");
+            if (!sourceColumnMissing) {
+                throw ex;
+            }
+            return scheduleMapper.insertProcessReportLegacy(
+                    scheduleId,
+                    processType,
+                    startTime,
+                    endTime,
+                    producedQty,
+                    operatorName,
+                    proceedNextProcess,
+                    remark
+            );
+        }
+    }
+
+    private String extractBetween(String text, String start, String end) {
+        if (text == null || start == null || end == null) return null;
+        int i = text.indexOf(start);
+        if (i < 0) return null;
+        int from = i + start.length();
+        int j = text.indexOf(end, from);
+        if (j < 0 || j <= from) return null;
+        String out = text.substring(from, j).trim();
+        return out.isEmpty() ? null : out;
+    }
+
+    private String extractAfter(String text, String marker) {
+        if (text == null || marker == null) return null;
+        int i = text.indexOf(marker);
+        if (i < 0) return null;
+        String out = text.substring(i + marker.length()).trim();
+        return out.isEmpty() ? null : out;
+    }
+
+    private Long toLongSafe(String value) {
+        if (value == null || value.trim().isEmpty()) return null;
+        try {
+            return Long.parseLong(value.trim());
+        } catch (Exception ignore) {
+            return null;
+        }
+    }
+
+    private static class ReportSourceMeta {
+        private String sourceType;
+        private String sourceNo;
+        private Long sourceItemId;
+
+        public String getSourceType() { return sourceType; }
+        public void setSourceType(String sourceType) { this.sourceType = sourceType; }
+        public String getSourceNo() { return sourceNo; }
+        public void setSourceNo(String sourceNo) { this.sourceNo = sourceNo; }
+        public Long getSourceItemId() { return sourceItemId; }
+        public void setSourceItemId(Long sourceItemId) { this.sourceItemId = sourceItemId; }
+    }
+
     private boolean shouldSkipIntermediateInbound(Boolean proceedNextProcess, String reportRemark) {
         if (!Boolean.TRUE.equals(proceedNextProcess)) {
             return false;
@@ -1246,6 +1396,7 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
             if (schedule != null && schedule.getOrderDetailId() != null) {
                 refreshOrderCompletionAfterReport(schedule.getOrderDetailId());
             }
+            refreshSampleOrderCompletionAfterReport(schedule, resolveReportSourceMeta(schedule), remark);
         }
         return true;
     }
@@ -1317,6 +1468,7 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
             if (schedule != null && schedule.getOrderDetailId() != null) {
                 refreshOrderCompletionAfterReport(schedule.getOrderDetailId());
             }
+            refreshSampleOrderCompletionAfterReport(schedule, resolveReportSourceMeta(schedule), null);
         }
         return true;
     }
@@ -1601,9 +1753,55 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         LocalDate date = parseDateTime(productionDateTime).toLocalDate();
         String datePart = date.format(DateTimeFormatter.ofPattern("yyMMdd"));
         String prefix = datePart + lineNo + groupCode;
+        String scheduleMaterialCode = schedule.getMaterialCode() == null ? "" : schedule.getMaterialCode().trim();
         Integer maxSeq = scheduleMapper.selectMaxCoatingRollSeqByPrefix(prefix);
         int nextSeq = (maxSeq == null ? 0 : maxSeq) + 1;
-        return prefix + String.format("%02d", nextSeq);
+        int guard = 0;
+        while (guard < 2000) {
+            String candidate = prefix + String.format("%02d", nextSeq);
+            if (!isCoatingRollCodeOccupied(candidate, scheduleMaterialCode)) {
+                return candidate;
+            }
+            nextSeq++;
+            guard++;
+        }
+        throw new RuntimeException("生成母卷号失败：连续冲突过多，请稍后重试");
+    }
+
+    /**
+     * 判断母卷号是否已被占用：
+     * 1) 库存中已存在同批次；
+     * 2) 待审批/已审批入库申请中已存在同批次。
+     *
+     * 说明：
+     * - 即使同料号也判为占用，避免母卷号复用；
+     * - 若历史数据料号不一致，后续会触发更严格拦截，这里提前规避可减少报工失败。
+     */
+    private boolean isCoatingRollCodeOccupied(String rollCode, String scheduleMaterialCode) {
+        if (rollCode == null || rollCode.trim().isEmpty()) {
+            return true;
+        }
+        String code = rollCode.trim();
+
+        // 1) 已入库库存占用
+        TapeStock stock = tapeStockMapper.selectByBatchNo(code);
+        if (stock != null) {
+            return true;
+        }
+
+        // 2) 入库申请占用（待审批/已审批）
+        LambdaQueryWrapper<TapeInboundRequest> reqQw = new LambdaQueryWrapper<>();
+        reqQw.eq(TapeInboundRequest::getBatchNo, code)
+                .in(TapeInboundRequest::getStatus,
+                        TapeInboundRequest.STATUS_PENDING,
+                        TapeInboundRequest.STATUS_APPROVED)
+                .last("LIMIT 1");
+        TapeInboundRequest existingReq = tapeInboundRequestMapper.selectOne(reqQw);
+        if (existingReq != null) {
+            return true;
+        }
+
+        return false;
     }
 
     @Override
@@ -1737,6 +1935,16 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
                             .notIn(SchedulePlan::getStatus, Arrays.asList("CANCELLED", "COMPLETED"))
                             .set(SchedulePlan::getStatus, "COMPLETED")
             );
+            } else {
+                // 报工数量被回退（例如 130 -> 100）后，末道工序计划需要回推为未完成，
+                // 否则分切页按“未完工”过滤时会看不到本应继续报工的任务。
+                schedulePlanService.update(
+                    new LambdaUpdateWrapper<SchedulePlan>()
+                        .eq(SchedulePlan::getOrderDetailId, orderDetailId)
+                        .in(SchedulePlan::getStage, Arrays.asList("SLITTING", "PACKAGING"))
+                        .eq(SchedulePlan::getStatus, "COMPLETED")
+                        .set(SchedulePlan::getStatus, "SCHEDULED")
+                );
         }
 
         if (item.getOrderId() == null) {
@@ -1912,6 +2120,118 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         this.updateById(schedule);
     }
 
+    private void refreshSampleOrderCompletionAfterReport(ManualSchedule schedule,
+                                                         ReportSourceMeta sourceMeta,
+                                                         String currentRemark) {
+        ReportSourceMeta meta = sourceMeta;
+        if (meta == null) {
+            meta = resolveReportSourceMeta(schedule);
+        }
+        if (meta == null) {
+            return;
+        }
+        String sourceType = stringVal(meta.getSourceType());
+        if (!"SAMPLE".equalsIgnoreCase(sourceType)) {
+            return;
+        }
+
+        String sampleNo = stringVal(meta.getSourceNo());
+        if (sampleNo == null || sampleNo.trim().isEmpty()) {
+            if (schedule != null) {
+                sampleNo = extractBetween(stringVal(schedule.getRemark()), "sampleNo=", ",sampleItemId=");
+            }
+        }
+        sampleNo = sampleNo == null ? "" : sampleNo.trim();
+        if (sampleNo.isEmpty()) {
+            return;
+        }
+
+        syncSampleOrderStatusBySampleNo(sampleNo, currentRemark, schedule == null ? null : schedule.getId());
+    }
+
+    private void syncSampleOrderStatusBySampleNo(String sampleNo, String currentRemark, Long currentScheduleId) {
+        if (sampleNo == null || sampleNo.trim().isEmpty()) {
+            return;
+        }
+
+        LambdaQueryWrapper<SampleOrder> orderQw = new LambdaQueryWrapper<>();
+        orderQw.eq(SampleOrder::getSampleNo, sampleNo.trim())
+                .eq(SampleOrder::getIsDeleted, false)
+                .last("LIMIT 1");
+        SampleOrder order = sampleOrderMapper.selectOne(orderQw);
+        if (order == null) {
+            return;
+        }
+
+        List<SampleItem> items = sampleItemMapper.selectBySampleNo(sampleNo.trim());
+        if (items == null || items.isEmpty()) {
+            if (!"未完成".equals(order.getStatus())) {
+                order.setStatus("未完成");
+                sampleOrderMapper.updateById(order);
+            }
+            return;
+        }
+
+        boolean allCompleted = true;
+        for (SampleItem item : items) {
+            if (item == null || item.getId() == null) {
+                allCompleted = false;
+                break;
+            }
+            Long scheduleId = findSampleScheduleIdForSync(item.getId(), sampleNo.trim());
+            if (scheduleId == null || scheduleId <= 0) {
+                allCompleted = false;
+                break;
+            }
+
+            String marker;
+            if (currentScheduleId != null && Objects.equals(currentScheduleId, scheduleId)
+                    && currentRemark != null && !currentRemark.trim().isEmpty()) {
+                marker = currentRemark;
+            } else {
+                marker = scheduleMapper.selectLatestOrderStatusMarkerByScheduleId(scheduleId);
+            }
+
+            boolean completed;
+            String markerText = marker == null ? "" : marker.toUpperCase(Locale.ROOT);
+            if (markerText.contains("[ORDER_STATUS:COMPLETED]")) {
+                completed = true;
+            } else if (markerText.contains("[ORDER_STATUS:UNCOMPLETED]")) {
+                completed = false;
+            } else {
+                ManualSchedule sampleSchedule = this.getById(scheduleId);
+                String st = sampleSchedule == null || sampleSchedule.getStatus() == null
+                        ? ""
+                        : sampleSchedule.getStatus().trim().toUpperCase(Locale.ROOT);
+                completed = "COMPLETED".equals(st) || "DONE".equals(st);
+            }
+
+            if (!completed) {
+                allCompleted = false;
+                break;
+            }
+        }
+
+        String targetStatus = allCompleted ? "已完成" : "未完成";
+        if (!targetStatus.equals(order.getStatus())) {
+            order.setStatus(targetStatus);
+            sampleOrderMapper.updateById(order);
+        }
+    }
+
+    private Long findSampleScheduleIdForSync(Long sampleItemId, String sampleNo) {
+        if (sampleItemId == null || sampleItemId <= 0) {
+            return null;
+        }
+        String marker = SAMPLE_TASK_MARKER + " sampleNo=" + (sampleNo == null ? "" : sampleNo.trim()) + ",sampleItemId=" + sampleItemId;
+        LambdaQueryWrapper<ManualSchedule> wrapper = new LambdaQueryWrapper<>();
+        wrapper.like(ManualSchedule::getRemark, marker)
+                .orderByDesc(ManualSchedule::getId)
+                .last("LIMIT 1");
+        ManualSchedule latest = this.getOne(wrapper, false);
+        return latest == null ? null : latest.getId();
+    }
+
     private BigDecimal nvl(BigDecimal val) {
         return val == null ? BigDecimal.ZERO : val;
     }
@@ -1982,6 +2302,120 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
             );
             idx++;
         }
+    }
+
+    private void autoCreateCoatingProcessPendingInspections(ManualSchedule schedule,
+                                                            Long reportId,
+                                                            String operatorName,
+                                                            String reportMaterialCode,
+                                                            String reportMaterialName) {
+        if (reportId == null || reportId <= 0) {
+            return;
+        }
+        List<Map<String, Object>> coatingRolls = scheduleMapper.selectCoatingRollsByReportId(reportId);
+        if (coatingRolls == null || coatingRolls.isEmpty()) {
+            return;
+        }
+
+        String fallbackMaterialCode = stringVal(reportMaterialCode);
+        if (fallbackMaterialCode == null && schedule != null) {
+            fallbackMaterialCode = stringVal(schedule.getMaterialCode());
+        }
+        String fallbackMaterialName = stringVal(reportMaterialName);
+        if (fallbackMaterialName == null && schedule != null) {
+            fallbackMaterialName = stringVal(schedule.getMaterialName());
+        }
+
+        List<Map<String, Object>> motherRollsForInspection = new ArrayList<>();
+        for (Map<String, Object> roll : coatingRolls) {
+            if (roll == null) {
+                continue;
+            }
+            String rollCode = stringVal(roll.get("roll_code"));
+            if (rollCode == null) {
+                rollCode = stringVal(roll.get("rollCode"));
+            }
+            if (rollCode == null || isSmallBranchRollCode(rollCode)) {
+                continue;
+            }
+            motherRollsForInspection.add(roll);
+        }
+
+        if (motherRollsForInspection.isEmpty()) {
+            return;
+        }
+
+        int sampleCount = Math.max(1, (int) Math.ceil(motherRollsForInspection.size() * 0.03D));
+        LocalDateTime now = LocalDateTime.now();
+        for (int i = 0; i < motherRollsForInspection.size() && i < sampleCount; i++) {
+            Map<String, Object> roll = motherRollsForInspection.get(i);
+            String rollCode = stringVal(roll.get("roll_code"));
+            if (rollCode == null) {
+                rollCode = stringVal(roll.get("rollCode"));
+            }
+            if (rollCode == null) {
+                continue;
+            }
+
+            int exists = qualityInspectionRecordMapper.countCoatingProcessInspectionByRoll(rollCode);
+            if (exists > 0) {
+                continue;
+            }
+
+            QualityInspectionRecord pending = new QualityInspectionRecord();
+            pending.setInspectionNo(buildAutoPendingInspectionNo(reportId, rollCode));
+            pending.setInspectionType("process");
+            pending.setSourceOrderNo(schedule == null ? null : stringVal(schedule.getOrderNo()));
+            pending.setTaskType("COATING");
+            pending.setTaskId(schedule == null ? null : schedule.getId());
+            pending.setTaskNo(reportId == null ? null : String.valueOf(reportId));
+            pending.setBatchNo(stringVal(roll.get("batch_no")));
+            pending.setRollCode(rollCode);
+            pending.setMaterialCode(fallbackMaterialCode);
+            pending.setMaterialName(fallbackMaterialName);
+            pending.setSampleQty(3);
+            pending.setPassQty(0);
+            pending.setFailQty(0);
+            pending.setOverallResult("pending");
+            pending.setInspectorName(null);
+            pending.setInspectionTime(now);
+            pending.setDefectType(null);
+            pending.setDefectDesc(null);
+            pending.setRemark("auto-created pending by coating offline sample 3%; reportId=" + reportId
+                    + "; operator=" + (operatorName == null ? "system" : operatorName)
+                    + "; sampleIndex=" + (i + 1) + "/" + sampleCount
+                    + "; motherRollCount=" + motherRollsForInspection.size());
+            pending.setProcessNode("coating");
+            pending.setProcessSnapshot(null);
+            pending.setCreatedAt(now);
+            pending.setUpdatedAt(now);
+            pending.setIsDeleted(0);
+            qualityInspectionRecordMapper.insert(pending);
+        }
+    }
+
+    private boolean isSmallBranchRollCode(String rollCode) {
+        if (rollCode == null) {
+            return true;
+        }
+        String code = rollCode.trim();
+        if (code.isEmpty()) {
+            return true;
+        }
+        return code.matches(".*[-_/\\\\]\\d{3,}$");
+    }
+
+    private String buildAutoPendingInspectionNo(Long reportId, String rollCode) {
+        String datePart = LocalDate.now().format(DateTimeFormatter.ofPattern("yyMMdd"));
+        String reportPart = reportId == null ? "0" : String.valueOf(reportId);
+        String rollPart = rollCode == null ? "X" : rollCode.replaceAll("[^A-Za-z0-9]", "");
+        if (rollPart.isEmpty()) {
+            rollPart = "X";
+        }
+        if (rollPart.length() > 16) {
+            rollPart = rollPart.substring(rollPart.length() - 16);
+        }
+        return "PQC" + datePart + "-A" + reportPart + "-" + rollPart;
     }
 
     private Integer resolveRollSequenceNo(Map<String, Object> roll, String rollCode, int fallbackIdx) {
@@ -2902,7 +3336,7 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         try {
             SchedulePlan plan = new SchedulePlan();
             plan.setOrderDetailId(schedule.getOrderDetailId());
-            plan.setOrderNo(schedule.getOrderNo());
+            plan.setOrderNo(getOfficialOrderNo(schedule.getOrderDetailId(), schedule.getOrderNo()));
             if (item != null) {
                 plan.setMaterialCode(item.getMaterialCode());
                 plan.setMaterialName(item.getMaterialName());
@@ -3151,6 +3585,9 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         if (schedule.getOrderDetailId() != null) {
             ensureOrderDetailScheduleQuota(schedule.getOrderDetailId(), schedule.getScheduleQty());
             ensureSlittingNetDemandQuota(schedule);
+
+            // 自动同步官方订单号，修正可能的传参偏差（如从合并列表中带入错误的单号）
+            schedule.setOrderNo(getOfficialOrderNo(schedule.getOrderDetailId(), schedule.getOrderNo()));
         }
         if (schedule.getPackagingTeam() != null) {
             schedule.setPackagingTeam(schedule.getPackagingTeam().trim());
@@ -3206,6 +3643,23 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         throw new RuntimeException("生成手工订单号失败：今日编号已满");
     }
 
+    private String getOfficialOrderNo(Long orderDetailId, String fallbackOrderNo) {
+        if (orderDetailId == null) {
+            return fallbackOrderNo;
+        }
+        try {
+            SalesOrderItem item = salesOrderItemMapper.selectById(orderDetailId);
+            if (item != null && item.getOrderId() != null) {
+                SalesOrder order = salesOrderMapper.selectById(item.getOrderId());
+                if (order != null && order.getOrderNo() != null && !order.getOrderNo().trim().isEmpty()) {
+                    return order.getOrderNo().trim();
+                }
+            }
+        } catch (Exception ignore) {
+        }
+        return fallbackOrderNo;
+    }
+
     private void upsertSlittingPlanForManualSchedule(ManualSchedule schedule) {
         if (schedule == null || schedule.getOrderDetailId() == null) {
             return;
@@ -3218,7 +3672,10 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
 
             SchedulePlan plan = new SchedulePlan();
             plan.setOrderDetailId(schedule.getOrderDetailId());
-            plan.setOrderNo(schedule.getOrderNo());
+
+            // 优先使用销售订单的官方订单号，防止手动录入偏差/历史数据漂移导致找不到任务
+            plan.setOrderNo(getOfficialOrderNo(schedule.getOrderDetailId(), schedule.getOrderNo()));
+
             plan.setMaterialCode(schedule.getMaterialCode() != null ? schedule.getMaterialCode() : item.getMaterialCode());
             plan.setMaterialName(schedule.getMaterialName() != null ? schedule.getMaterialName() : item.getMaterialName());
             plan.setThickness(item.getThickness() == null ? null : item.getThickness().intValue());
@@ -3405,7 +3862,7 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         try {
             SchedulePlan plan = new SchedulePlan();
             plan.setOrderDetailId(schedule.getOrderDetailId());
-            plan.setOrderNo(schedule.getOrderNo());
+            plan.setOrderNo(getOfficialOrderNo(schedule.getOrderDetailId(), schedule.getOrderNo()));
             SalesOrderItem item = salesOrderItemMapper.selectById(schedule.getOrderDetailId());
             if (item != null) {
                 plan.setMaterialCode(item.getMaterialCode());
@@ -3422,6 +3879,41 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
             plan.setPlanArea(schedule.getRewindingScheduledArea());
             plan.setStatus("CONFIRMED");
             schedulePlanService.upsertPlan(plan);
+
+            // 兜底补齐分切计划：部分历史/够料(STOCK)排程不会主动写入 SLITTING，导致生产任务页缺行
+            SchedulePlan slittingPlan = new SchedulePlan();
+            slittingPlan.setOrderDetailId(schedule.getOrderDetailId());
+            slittingPlan.setOrderNo(getOfficialOrderNo(schedule.getOrderDetailId(), schedule.getOrderNo()));
+            if (item != null) {
+                slittingPlan.setMaterialCode(item.getMaterialCode());
+                slittingPlan.setMaterialName(item.getMaterialName());
+                slittingPlan.setThickness(item.getThickness() != null ? item.getThickness().intValue() : null);
+                slittingPlan.setWidth(item.getWidth() != null ? item.getWidth().intValue() : null);
+                slittingPlan.setLength(item.getLength() != null ? item.getLength().intValue() : null);
+            }
+            slittingPlan.setStage("SLITTING");
+            if (schedule.getSlittingScheduleDate() != null) {
+                slittingPlan.setPlanDate(schedule.getSlittingScheduleDate().atStartOfDay());
+            } else if (schedule.getPackagingDate() != null) {
+                slittingPlan.setPlanDate(schedule.getPackagingDate().atStartOfDay());
+            } else if (schedule.getRewindingDate() != null) {
+                slittingPlan.setPlanDate(schedule.getRewindingDate().atStartOfDay());
+            } else {
+                slittingPlan.setPlanDate(LocalDateTime.now());
+            }
+            slittingPlan.setEquipment(schedule.getRewindingEquipment());
+            BigDecimal slittingArea = schedule.getRewindingScheduledArea();
+            if ((slittingArea == null || slittingArea.compareTo(BigDecimal.ZERO) <= 0)
+                    && item != null && item.getWidth() != null && item.getLength() != null && schedule.getScheduleQty() != null) {
+                slittingArea = item.getWidth()
+                        .divide(new BigDecimal("1000"), 8, RoundingMode.HALF_UP)
+                        .multiply(item.getLength())
+                        .multiply(BigDecimal.valueOf(schedule.getScheduleQty()))
+                        .setScale(2, RoundingMode.HALF_UP);
+            }
+            slittingPlan.setPlanArea(slittingArea);
+            slittingPlan.setStatus("CONFIRMED");
+            schedulePlanService.upsertPlan(slittingPlan);
         } catch (Exception e) {
             System.err.println("写入复卷计划失败: " + e.getMessage());
         }
@@ -4613,7 +5105,7 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
             try {
                 SchedulePlan plan = new SchedulePlan();
                 plan.setOrderDetailId(schedule.getOrderDetailId());
-                plan.setOrderNo(schedule.getOrderNo());
+                plan.setOrderNo(getOfficialOrderNo(schedule.getOrderDetailId(), schedule.getOrderNo()));
                 SalesOrderItem item = salesOrderItemMapper.selectById(schedule.getOrderDetailId());
                 if (item != null) {
                     plan.setMaterialCode(item.getMaterialCode());

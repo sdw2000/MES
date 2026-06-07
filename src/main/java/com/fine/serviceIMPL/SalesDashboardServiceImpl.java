@@ -162,10 +162,19 @@ public class SalesDashboardServiceImpl implements SalesDashboardService {
             "CASE WHEN (COALESCE(soi.remaining_qty, 0) <= 0 OR LOWER(COALESCE(soi.production_status, '')) = 'completed') " +
                 "THEN COALESCE(soi.sqm, 0) ELSE 0 END",
             monthStart, today, loginUser, salesFilter, docFilter);
-        // 当年订单未出货平米数
+        // 当年订单未出货平米数（真实口径）
+        // 1) 优先使用 remaining_qty（业务维护口径，最稳定）按卷折算面积
+        // 2) 无法折算时回退到 sqm-delivered_area
+        // 3) 排除已完结状态，避免把已收货/已关闭订单计入未出货
         BigDecimal unshippedArea = sumOrderAreaByExpr(
-                "GREATEST(COALESCE(soi.sqm, 0) - COALESCE(soi.delivered_area, 0), 0)",
-                yearStart, today, loginUser, salesFilter, docFilter);
+            "CASE " +
+                "WHEN UPPER(COALESCE(so.status, '')) IN ('RECEIVED','SHIPPED_FULL','PAID','CLOSED','CANCELLED','CANCELED','COMPLETED') THEN 0 " +
+                "WHEN COALESCE(soi.rolls, 0) > 0 AND COALESCE(soi.sqm, 0) > 0 " +
+                "  THEN GREATEST(COALESCE(soi.remaining_qty, GREATEST(COALESCE(soi.rolls, 0) - COALESCE(soi.delivered_qty, 0), 0)), 0) * COALESCE(soi.sqm, 0) / COALESCE(NULLIF(soi.rolls, 0), 1) " +
+                "WHEN COALESCE(soi.sqm, 0) > 0 " +
+                "  THEN GREATEST(COALESCE(soi.sqm, 0) - COALESCE(soi.delivered_area, 0), 0) " +
+                "ELSE 0 END",
+            yearStart, today, loginUser, salesFilter, docFilter);
 
         result.put("shippedArea", shippedArea);
         result.put("completedArea", completedArea);

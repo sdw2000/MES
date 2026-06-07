@@ -51,6 +51,18 @@ public class MaterialScanController {
         }
     }
 
+    /**
+     * 实现“仓库发料-车间接受-扫码完成报工入库”的一键逻辑
+     */
+    @PostMapping("/report-by-issue")
+    public ResponseResult<?> reportByIssue(@RequestBody Map<String, Object> payload) {
+        try {
+            return ResponseResult.success("报工入库成功", materialScanService.reportWorkByScan(payload));
+        } catch (Exception e) {
+            return ResponseResult.error("报工入库失败: " + e.getMessage());
+        }
+    }
+
     @GetMapping("/txn/list")
     public ResponseResult<?> txnList(
             @RequestParam(defaultValue = "1") int page,

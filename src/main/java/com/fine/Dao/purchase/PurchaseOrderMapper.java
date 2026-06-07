@@ -72,6 +72,28 @@ public interface PurchaseOrderMapper extends BaseMapper<PurchaseOrder> {
     @Select("SELECT * FROM purchase_orders WHERE order_no = #{orderNo} AND is_deleted = 0 LIMIT 1")
     PurchaseOrder selectByOrderNo(@Param("orderNo") String orderNo);
 
+    @Select("<script>"
+            + "SELECT po.* FROM purchase_orders po "
+            + "WHERE po.is_deleted = 0 "
+            + "AND NOT EXISTS ("
+            + "  SELECT 1 FROM purchase_receipts pr "
+            + "  WHERE pr.is_deleted = 0 "
+            + "    AND pr.purchase_order_no = po.order_no"
+            + ") "
+            + "<if test='orderNo != null and orderNo != \"\"'> "
+            + "  AND po.order_no LIKE CONCAT('%', #{orderNo}, '%') "
+            + "</if>"
+            + "<if test='supplierKeyword != null and supplierKeyword != \"\"'> "
+            + "  AND po.supplier LIKE CONCAT('%', #{supplierKeyword}, '%') "
+            + "</if>"
+            + "ORDER BY po.created_at DESC"
+            + "</script>")
+    IPage<PurchaseOrder> selectOrdersWithoutReceipt(
+            Page<PurchaseOrder> page,
+            @Param("orderNo") String orderNo,
+            @Param("supplierKeyword") String supplierKeyword
+    );
+
     @Select("SELECT DISTINCT po.* FROM purchase_orders po "
             + "INNER JOIN purchase_order_items poi ON po.id = poi.order_id "
             + "WHERE poi.is_deleted = 0 AND po.is_deleted = 0 AND poi.id = #{itemId}")

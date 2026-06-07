@@ -287,8 +287,27 @@ public class SystemMessageServiceImpl implements SystemMessageService {
 
         Map<String, Object> receipt = jdbcTemplate.queryForMap(
                 "SELECT supplier FROM purchase_receipts WHERE id = ? LIMIT 1", receiptId);
-        String supplierCode = Objects.toString(receipt.get("supplier"), "");
-        String supplierName = resolveSupplierDisplayName(supplierCode);
+        String supplierCodeRaw = Objects.toString(receipt.get("supplier"), "");
+        // 修改：消息通知原本显示供应商简名，现在改为代码。
+        // 在此处通过 SQL 解析 supplierCode
+        String supplierName = supplierCodeRaw;
+        if (StringUtils.hasText(supplierCodeRaw)) {
+            try {
+                String val = supplierCodeRaw.trim();
+                List<Map<String, Object>> suppliers = jdbcTemplate.queryForList(
+                        "SELECT supplier_code FROM purchase_suppliers WHERE is_deleted=0 AND (supplier_code=? OR supplier_name=? OR short_name=?) LIMIT 1",
+                        val, val, val);
+                if (!suppliers.isEmpty()) {
+                    supplierName = Objects.toString(suppliers.get(0).get("supplier_code"), val);
+                } else {
+                    // 如果没找到，尝试提取括号内的内容（如：供应商名称(CODE) -> CODE）
+                    String inner = extractInnerAlias(val);
+                    if (StringUtils.hasText(inner)) {
+                        supplierName = inner;
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
 
         if (itemId == null) {
             return supplierName + "的到货信息已更新，请查收。";

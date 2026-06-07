@@ -16,4 +16,6 @@ public interface SlittingCartonSpecService {
     ResponseResult<?> update(SlittingCartonSpec spec, String operator);
 
     ResponseResult<?> delete(Long id);
+
+    ResponseResult<?> syncFromPackageStock(String operator);
 }

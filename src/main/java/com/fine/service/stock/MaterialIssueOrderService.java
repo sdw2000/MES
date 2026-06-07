@@ -28,4 +28,15 @@ public interface MaterialIssueOrderService {
                                           LocalDate planDate,
                                           String orderNo,
                                           String materialCode);
+
+    void receiveIssueOrder(String issueNo, String operator) throws Exception;
+
+    void cancelIssueOrder(Long id, String operator) throws Exception;
+
+    void updateIssueOrder(MaterialIssueOrder order);
+
+    /**
+     * 获取车间存量统计 (状态为 RECEIVED 的物料)
+     */
+    List<Map<String, Object>> getWorkshopStock(String workshop);
 }

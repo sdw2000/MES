@@ -246,7 +246,6 @@ public class QuotationServiceImpl extends ServiceImpl<QuotationMapper, Quotation
             List<QuotationItem> savedItems = saveQuotationItems(quotation, quotation.getItems(), currentUser, now);
             quotation.setItems(savedItems);
             applyExpiryInfo(quotation);
-            closePreviousAcceptedIfNeeded(quotation, currentUser, now);
             appendChangeLog("sales", quotation.getId(), quotation.getQuotationNo(), "NEW_QUOTATION", currentUser, "新报价");
             return new ResponseResult<>(200, "创建报价单成功", quotation);
         } catch (Exception e) {
@@ -309,7 +308,6 @@ public class QuotationServiceImpl extends ServiceImpl<QuotationMapper, Quotation
             List<QuotationItem> savedItems = saveQuotationItems(existingQuotation, quotation.getItems(), currentUser, now);
             existingQuotation.setItems(savedItems);
             applyExpiryInfo(existingQuotation);
-            closePreviousAcceptedIfNeeded(existingQuotation, currentUser, now);
             appendChangeLog("sales", existingQuotation.getId(), existingQuotation.getQuotationNo(), "MODIFY_QUOTATION", currentUser, "修改报价");
             return new ResponseResult<>(200, "更新报价单成功", existingQuotation);
         } catch (Exception e) {
@@ -1745,23 +1743,6 @@ public class QuotationServiceImpl extends ServiceImpl<QuotationMapper, Quotation
             return null;
         }
         return new Date(base.getTime() + EDIT_WINDOW_MILLIS);
-    }
-
-    private void closePreviousAcceptedIfNeeded(Quotation current, String currentUser, Date now) {
-        if (current == null || !"accepted".equalsIgnoreCase(current.getStatus()) || normalizeText(current.getCustomer()) == null) {
-            return;
-        }
-        Date closedDate = toDate(LocalDate.now().minusDays(1));
-        LambdaUpdateWrapper<Quotation> closeWrapper = new LambdaUpdateWrapper<>();
-        closeWrapper.eq(Quotation::getIsDeleted, 0)
-                .eq(Quotation::getCustomer, current.getCustomer())
-                .eq(Quotation::getStatus, "accepted")
-                .ne(Quotation::getId, current.getId())
-                .set(Quotation::getStatus, "expired")
-                .set(Quotation::getValidUntil, closedDate)
-                .set(Quotation::getUpdatedBy, currentUser)
-                .set(Quotation::getUpdatedAt, now);
-        quotationMapper.update(null, closeWrapper);
     }
 
     private boolean hasText(String value) {

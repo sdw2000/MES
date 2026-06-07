@@ -10,6 +10,7 @@ import com.fine.model.stock.FilmStock;
 import com.fine.model.stock.FilmStockDetail;
 import com.fine.model.stock.FilmStockOut;
 import com.fine.service.stock.FilmStockService;
+import com.fine.service.stock.StocktakeRecordService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.Row;
@@ -52,6 +53,9 @@ public class FilmStockController {
 
     @Autowired
     private FilmStockDetailMapper filmStockDetailMapper;
+
+    @Autowired
+    private StocktakeRecordService stocktakeRecordService;
     
     /** 查询所有薄膜库存 */
     @GetMapping("/list")
@@ -208,6 +212,71 @@ public class FilmStockController {
             return new ResponseResult<>(20000, "删除成功", true);
         } catch (Exception e) {
             return new ResponseResult<>(50000, "删除失败: " + e.getMessage(), null);
+        }
+    }
+
+    /** 薄膜库存明细盘点 */
+    @PostMapping("/{id}/details/{detailId}/stocktake")
+    @PreAuthorize("hasAnyAuthority('admin','warehouse')")
+    public ResponseResult<FilmStockDetail> stocktakeDetail(@PathVariable Long id,
+                                                           @PathVariable Long detailId,
+                                                           @RequestBody Map<String, Object> payload) {
+        try {
+            FilmStock stock = filmStockService.getById(id);
+            FilmStockDetail before = filmStockDetailMapper.selectById(detailId);
+            if (stock == null || before == null || before.getIsDeleted() != null && before.getIsDeleted() == 1) {
+                return new ResponseResult<>(50000, "库存明细不存在", null);
+            }
+            if (!id.equals(before.getFilmStockId())) {
+                return new ResponseResult<>(50000, "明细与库存不匹配", null);
+            }
+
+            BigDecimal actualQuantity = toBigDecimal(payload == null ? null : payload.get("actualQuantity"));
+            if (actualQuantity == null || actualQuantity.compareTo(BigDecimal.ZERO) < 0) {
+                return new ResponseResult<>(50000, "实盘数量必须大于等于0", null);
+            }
+            String operator = payload == null || payload.get("operator") == null ? null : String.valueOf(payload.get("operator"));
+            String reason = payload == null || payload.get("reason") == null ? null : String.valueOf(payload.get("reason"));
+
+            FilmStockDetail update = new FilmStockDetail();
+            update.setBatchNo(before.getBatchNo());
+            update.setRollNo(before.getRollNo());
+            update.setThickness(before.getThickness());
+            update.setWidth(before.getWidth());
+            update.setLength(before.getLength());
+            update.setArea(actualQuantity);
+            update.setPackUom(before.getPackUom());
+            update.setPackCount(before.getPackCount());
+            update.setStdUom(before.getStdUom());
+            update.setStdQtyPerPack(before.getStdQtyPerPack());
+            update.setQcStatus(before.getQcStatus());
+            update.setLocation(before.getLocation());
+            update.setSupplier(before.getSupplier());
+            update.setInboundDate(before.getInboundDate());
+            update.setStatus(before.getStatus());
+            update.setRemark(before.getRemark());
+
+            FilmStockDetail updated = filmStockService.updateDetail(id, detailId, update);
+            stocktakeRecordService.record(
+                    "FILM",
+                    id,
+                    detailId,
+                    before.getMaterialCode(),
+                    stock.getMaterialName(),
+                    stock.getSpecDesc(),
+                    before.getBatchNo(),
+                    before.getRollNo(),
+                    before.getLocation(),
+                    "㎡",
+                    before.getArea(),
+                    actualQuantity,
+                    operator,
+                    reason,
+                    "薄膜仓库存明细盘点"
+            );
+            return new ResponseResult<>(20000, "盘点成功", updated);
+        } catch (Exception e) {
+            return new ResponseResult<>(50000, "盘点失败: " + e.getMessage(), null);
         }
     }
     
@@ -519,6 +588,11 @@ public class FilmStockController {
         for (FilmStock stock : records) {
             List<FilmStockDetail> details = filmStockService.getDetailsByFilmStockId(stock.getId());
             for (FilmStockDetail detail : details) {
+                // 仅导出在库数据（面积 > 0 且状态非 used）
+                if ("used".equalsIgnoreCase(detail.getStatus()) || 
+                    detail.getArea() == null || detail.getArea().compareTo(BigDecimal.ZERO) <= 0) {
+                    continue;
+                }
                 Row row = sheet.createRow(rowIndex++);
                 row.createCell(0).setCellValue(detail.getMaterialCode() == null ? "" : detail.getMaterialCode());
                 row.createCell(1).setCellValue(detail.getBatchNo() == null ? "" : detail.getBatchNo());
@@ -542,6 +616,49 @@ public class FilmStockController {
 
         response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         response.setHeader("Content-Disposition", "attachment;filename=" + URLEncoder.encode("薄膜库存明细导出-可回导.xlsx", "UTF-8"));
+        workbook.write(response.getOutputStream());
+        workbook.close();
+    }
+
+    /** 导出薄膜盘点表 */
+    @GetMapping("/export/stocktake")
+    @PreAuthorize("hasAnyAuthority('admin','warehouse')")
+    public void exportStocktake(
+            @RequestParam(required = false) Integer thickness,
+            @RequestParam(required = false) String materialCode,
+            HttpServletResponse response) throws IOException {
+        IPage<FilmStock> page = filmStockService.getFilmStockPage(1, 100000, thickness, materialCode, "createTime", "descending");
+        List<FilmStock> records = page == null ? java.util.Collections.emptyList() : page.getRecords();
+        Workbook workbook = new XSSFWorkbook();
+        Sheet sheet = workbook.createSheet("薄膜仓盘点表");
+        Row header = sheet.createRow(0);
+        String[] headers = {"物料代码", "名称", "规格", "库存数量", "存放位置", "实盘数量"};
+        for (int i = 0; i < headers.length; i++) {
+            header.createCell(i).setCellValue(headers[i]);
+        }
+        int rowIndex = 1;
+        for (FilmStock stock : records) {
+            List<FilmStockDetail> details = filmStockService.getDetailsByFilmStockId(stock.getId());
+            for (FilmStockDetail detail : details) {
+                // 仅导出在库数据（面积 > 0 且状态非 used）
+                if ("used".equalsIgnoreCase(detail.getStatus()) || 
+                    detail.getArea() == null || detail.getArea().compareTo(BigDecimal.ZERO) <= 0) {
+                    continue;
+                }
+                Row row = sheet.createRow(rowIndex++);
+                row.createCell(0).setCellValue(detail.getMaterialCode() == null ? "" : detail.getMaterialCode());
+                row.createCell(1).setCellValue(stock.getMaterialName() == null ? "" : stock.getMaterialName());
+                row.createCell(2).setCellValue(stock.getSpecDesc() == null ? "" : stock.getSpecDesc());
+                row.createCell(3).setCellValue(detail.getArea() == null ? 0 : detail.getArea().doubleValue());
+                row.createCell(4).setCellValue(detail.getLocation() == null ? "" : detail.getLocation());
+                row.createCell(5).setCellValue("");
+            }
+        }
+        for (int i = 0; i < headers.length; i++) {
+            sheet.autoSizeColumn(i);
+        }
+        response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        response.setHeader("Content-Disposition", "attachment;filename=" + URLEncoder.encode("薄膜仓盘点表.xlsx", "UTF-8"));
         workbook.write(response.getOutputStream());
         workbook.close();
     }

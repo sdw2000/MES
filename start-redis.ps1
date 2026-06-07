@@ -1,8 +1,8 @@
 # Redis 启动脚本（使用 PATH 中的 redis-server）
-# 使用方法: 在PowerShell中运行 .\start-redis.ps1
+# 使用方法: 在 PowerShell 中运行 .\start-redis.ps1
 
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "   启动Redis服务器" -ForegroundColor Cyan
+Write-Host "   启动 Redis 服务器" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 

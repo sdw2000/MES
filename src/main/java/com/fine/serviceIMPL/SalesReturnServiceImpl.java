@@ -63,7 +63,7 @@ public class SalesReturnServiceImpl extends ServiceImpl<SalesReturnMapper, Sales
 
     @Override
     public ResponseResult<?> getAllReturns(Integer pageNum, Integer pageSize, String returnNo, String customer,
-                                           String startDate, String endDate, String status) {
+                                           String startDate, String endDate, String status, String sortField, String sortOrder) {
         try {
             ensureReturnTables();
             Page<SalesReturn> page = new Page<>(pageNum, pageSize);
@@ -98,7 +98,10 @@ public class SalesReturnServiceImpl extends ServiceImpl<SalesReturnMapper, Sales
             if (endDate != null && !endDate.trim().isEmpty()) {
                 wrapper.le(SalesReturn::getReturnDate, endDate.trim());
             }
-            wrapper.orderByDesc(SalesReturn::getCreatedAt);
+            boolean appliedSort = applyReturnSort(wrapper, sortField, sortOrder);
+            if (!appliedSort) {
+                wrapper.orderByDesc(SalesReturn::getCreatedAt);
+            }
 
             Page<SalesReturn> result = salesReturnMapper.selectPage(page, wrapper);
 
@@ -111,6 +114,50 @@ public class SalesReturnServiceImpl extends ServiceImpl<SalesReturnMapper, Sales
         } catch (Exception e) {
             e.printStackTrace();
             return new ResponseResult<>(500, "查询退货单失败: " + e.getMessage(), null);
+        }
+    }
+
+    private boolean applyReturnSort(LambdaQueryWrapper<SalesReturn> wrapper, String sortField, String sortOrder) {
+        if (wrapper == null) {
+            return false;
+        }
+        String field = sortField == null ? "" : sortField.trim();
+        if (field.isEmpty()) {
+            return false;
+        }
+        String order = sortOrder == null ? "" : sortOrder.trim().toLowerCase();
+        boolean isAsc = "asc".equals(order) || "ascending".equals(order);
+
+        switch (field) {
+            case "returnNo":
+                wrapper.orderBy(true, isAsc, SalesReturn::getReturnNo);
+                return true;
+            case "customer":
+                wrapper.orderBy(true, isAsc, SalesReturn::getCustomer);
+                return true;
+            case "returnDate":
+                wrapper.orderBy(true, isAsc, SalesReturn::getReturnDate);
+                return true;
+            case "totalArea":
+                wrapper.orderBy(true, isAsc, SalesReturn::getTotalArea);
+                return true;
+            case "totalAmount":
+                wrapper.orderBy(true, isAsc, SalesReturn::getTotalAmount);
+                return true;
+            case "statementAmount":
+                wrapper.orderBy(true, isAsc, SalesReturn::getStatementAmount);
+                return true;
+            case "status":
+                wrapper.orderBy(true, isAsc, SalesReturn::getStatus);
+                return true;
+            case "createdAt":
+                wrapper.orderBy(true, isAsc, SalesReturn::getCreatedAt);
+                return true;
+            case "updatedAt":
+                wrapper.orderBy(true, isAsc, SalesReturn::getUpdatedAt);
+                return true;
+            default:
+                return false;
         }
     }
 

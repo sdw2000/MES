@@ -56,4 +56,10 @@ public class SlittingCartonSpecController {
     public ResponseResult<?> delete(@PathVariable Long id) {
         return slittingCartonSpecService.delete(id);
     }
+
+    @PostMapping("/sync-from-stock")
+    @PreAuthorize("hasAnyAuthority('admin','rd')")
+    public ResponseResult<?> syncFromStock() {
+        return slittingCartonSpecService.syncFromPackageStock("admin");
+    }
 }

@@ -175,12 +175,13 @@ public class FinanceAccountingServiceImpl implements FinanceAccountingService {
         Map<String, Object> factor = getFormulaCostFactor(normalizedMonth);
         BigDecimal electricUnitCost = toDecimal(factor.get("electricUnitCost"));
         BigDecimal laborUnitCost = toDecimal(factor.get("laborUnitCost"));
+        BigDecimal rentUnitCost = toDecimal(factor.get("rentUnitCost"));
         BigDecimal freightUnitCost = toDecimal(factor.get("freightUnitCost"));
         BigDecimal taxRate = toDecimal(factor.get("taxRate"));
 
         List<Map<String, Object>> formulas = jdbcTemplate.queryForList(
                 "SELECT id, material_code AS materialCode, product_name AS productName, formula_no AS formulaNo, version, " +
-                        "coating_area AS coatingArea, total_weight AS totalWeight, status, DATE_FORMAT(update_time, '%Y-%m-%d %H:%i:%s') AS updateTime " +
+                "coating_area AS coatingArea, coating_thickness AS coatingThickness, total_weight AS totalWeight, status, DATE_FORMAT(update_time, '%Y-%m-%d %H:%i:%s') AS updateTime " +
                         "FROM tape_formula WHERE status = 1 ORDER BY update_time DESC, id DESC"
         );
 
@@ -362,7 +363,7 @@ public class FinanceAccountingServiceImpl implements FinanceAccountingService {
 
         Map<String, Map<String, Object>> tapeSpecMap = new HashMap<>();
         List<Map<String, Object>> specRows = jdbcTemplate.queryForList(
-                "SELECT material_code AS materialCode, base_thickness AS baseThickness, base_material AS baseMaterial " +
+            "SELECT material_code AS materialCode, base_thickness AS baseThickness, glue_thickness AS glueThickness, base_material AS baseMaterial " +
                         "FROM tape_spec WHERE status = 1"
         );
         for (Map<String, Object> row : specRows) {
@@ -418,11 +419,13 @@ public class FinanceAccountingServiceImpl implements FinanceAccountingService {
             String productName = asString(formula.get("productName"));
             String formulaNo = asString(formula.get("formulaNo"));
             BigDecimal coatingArea = toDecimal(formula.get("coatingArea"));
+            BigDecimal coatingThickness = toDecimal(formula.get("coatingThickness"));
             BigDecimal totalWeight = toDecimal(formula.get("totalWeight"));
             List<Map<String, Object>> formulaItems = formulaId == null ? Collections.emptyList() : itemMap.getOrDefault(formulaId, Collections.emptyList());
             boolean useKgBasis = coatingArea.compareTo(BigDecimal.ZERO) <= 0 && totalWeight.compareTo(BigDecimal.ZERO) > 0;
 
             BigDecimal baseThickness = BigDecimal.ZERO;
+            BigDecimal glueThickness = BigDecimal.ZERO;
             BigDecimal baseDensity = BigDecimal.ZERO;
             String baseMaterial = "";
                 Map<String, Object> specRow = hasText(materialCode)
@@ -430,10 +433,16 @@ public class FinanceAccountingServiceImpl implements FinanceAccountingService {
                     : null;
             if (specRow != null) {
                 baseThickness = toDecimal(specRow.get("baseThickness"));
+                glueThickness = toDecimal(specRow.get("glueThickness"));
                 baseMaterial = asString(specRow.get("baseMaterial"));
                 if (hasText(baseMaterial)) {
                     baseDensity = resolveBaseDensity(baseMaterial, densityMap);
                 }
+            }
+
+            // 涂胶厚度优先取配方表；若配方缺失则回退到规格表 glue_thickness
+            if (coatingThickness.compareTo(BigDecimal.ZERO) <= 0 && glueThickness.compareTo(BigDecimal.ZERO) > 0) {
+                coatingThickness = glueThickness;
             }
 
             List<String> problemList = new ArrayList<>();
@@ -534,16 +543,12 @@ public class FinanceAccountingServiceImpl implements FinanceAccountingService {
                     }
                 } else {
                     // AREA报价
-                    if (filmLikeItem) {
-                        if (coatingArea.compareTo(BigDecimal.ZERO) <= 0) {
-                            problemList.add("物料[" + rawCode + "]为㎡报价，但标准面积<=0，无法参与计算");
-                            continue;
-                        }
-                        chargeQty = coatingArea;
-                    } else {
-                        problemList.add("物料[" + rawCode + "]为㎡报价但不是薄膜项，无法参与计算");
+                    if (coatingArea.compareTo(BigDecimal.ZERO) <= 0) {
+                        problemList.add("物料[" + rawCode + "]为㎡报价，但标准面积<=0，无法参与计算");
                         continue;
                     }
+                    // 显式㎡报价优先：按面积直接计价（适用于泡棉等编码不含薄膜关键词的场景）
+                    chargeQty = coatingArea;
                 }
                 materialCost = materialCost.add(chargeQty.multiply(unitPrice));
             }
@@ -576,16 +581,27 @@ public class FinanceAccountingServiceImpl implements FinanceAccountingService {
                 continue;
             }
 
-                BigDecimal basisQty = useKgBasis ? totalWeight : coatingArea;
-                BigDecimal materialUnitCost = basisQty.compareTo(BigDecimal.ZERO) <= 0
+            BigDecimal basisQty = useKgBasis ? totalWeight : coatingArea;
+            BigDecimal materialUnitCost = basisQty.compareTo(BigDecimal.ZERO) <= 0
                     ? BigDecimal.ZERO
                     : materialCost.divide(basisQty, 6, RoundingMode.HALF_UP);
-                BigDecimal preTaxUnitCost = useKgBasis
+
+            BigDecimal rowElectricUnitCost = electricUnitCost;
+            BigDecimal rowLaborUnitCost = laborUnitCost;
+            BigDecimal rowRentUnitCost = rentUnitCost;
+            if (!useKgBasis) {
+                Map<String, BigDecimal> ruleUnitCost = resolveThicknessRuleUnitCost(factor, coatingThickness);
+                rowElectricUnitCost = ruleUnitCost.getOrDefault("electricUnitCost", electricUnitCost);
+                rowLaborUnitCost = ruleUnitCost.getOrDefault("laborUnitCost", laborUnitCost);
+                rowRentUnitCost = ruleUnitCost.getOrDefault("rentUnitCost", rentUnitCost);
+            }
+
+            BigDecimal preTaxUnitCost = useKgBasis
                     ? materialUnitCost
-                    : materialUnitCost.add(electricUnitCost).add(laborUnitCost).add(freightUnitCost);
-                BigDecimal taxUnitCost = useKgBasis ? BigDecimal.ZERO : preTaxUnitCost.multiply(taxRate);
+                    : materialUnitCost.add(rowElectricUnitCost).add(rowLaborUnitCost).add(rowRentUnitCost).add(freightUnitCost);
+            BigDecimal taxUnitCost = useKgBasis ? BigDecimal.ZERO : preTaxUnitCost.multiply(taxRate);
             BigDecimal totalUnitCost = preTaxUnitCost.add(taxUnitCost);
-                BigDecimal standardTotalCost = totalUnitCost.multiply(basisQty);
+            BigDecimal standardTotalCost = totalUnitCost.multiply(basisQty);
 
             completeCount++;
             totalStandardArea = totalStandardArea.add(coatingArea);
@@ -600,12 +616,14 @@ public class FinanceAccountingServiceImpl implements FinanceAccountingService {
                 row.put("formulaNo", formulaNo);
                 row.put("version", formula.get("version"));
                 row.put("coatingArea", coatingArea.setScale(2, RoundingMode.HALF_UP));
+                row.put("coatingThickness", coatingThickness.setScale(4, RoundingMode.HALF_UP));
                 row.put("totalWeight", totalWeight.setScale(3, RoundingMode.HALF_UP));
                 row.put("itemCount", formulaItems.size());
                 row.put("materialCost", materialCost.setScale(2, RoundingMode.HALF_UP));
                 row.put("materialUnitCost", materialUnitCost.setScale(4, RoundingMode.HALF_UP));
-                row.put("electricUnitCost", (useKgBasis ? BigDecimal.ZERO : electricUnitCost).setScale(4, RoundingMode.HALF_UP));
-                row.put("laborUnitCost", (useKgBasis ? BigDecimal.ZERO : laborUnitCost).setScale(4, RoundingMode.HALF_UP));
+                row.put("electricUnitCost", (useKgBasis ? BigDecimal.ZERO : rowElectricUnitCost).setScale(4, RoundingMode.HALF_UP));
+                row.put("laborUnitCost", (useKgBasis ? BigDecimal.ZERO : rowLaborUnitCost).setScale(4, RoundingMode.HALF_UP));
+                row.put("rentUnitCost", (useKgBasis ? BigDecimal.ZERO : rowRentUnitCost).setScale(4, RoundingMode.HALF_UP));
                 row.put("freightUnitCost", (useKgBasis ? BigDecimal.ZERO : freightUnitCost).setScale(4, RoundingMode.HALF_UP));
                 row.put("taxRate", taxRate.setScale(4, RoundingMode.HALF_UP));
                 row.put("taxUnitCost", taxUnitCost.setScale(4, RoundingMode.HALF_UP));
@@ -655,7 +673,11 @@ public class FinanceAccountingServiceImpl implements FinanceAccountingService {
         String normalizedMonth = normalizeMonth(month);
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
                 "SELECT month_key AS month, electric_unit_cost AS electricUnitCost, labor_unit_cost AS laborUnitCost, " +
-                        "freight_unit_cost AS freightUnitCost, tax_rate AS taxRate, remark " +
+                "rent_unit_cost AS rentUnitCost, freight_unit_cost AS freightUnitCost, tax_rate AS taxRate, " +
+                "thickness_tier1_max AS thicknessTier1Max, thickness_tier2_max AS thicknessTier2Max, thickness_tier3_max AS thicknessTier3Max, " +
+                "tier1_electric_unit_cost AS tier1ElectricUnitCost, tier1_labor_unit_cost AS tier1LaborUnitCost, tier1_rent_unit_cost AS tier1RentUnitCost, " +
+                "tier2_electric_unit_cost AS tier2ElectricUnitCost, tier2_labor_unit_cost AS tier2LaborUnitCost, tier2_rent_unit_cost AS tier2RentUnitCost, " +
+                "tier3_electric_unit_cost AS tier3ElectricUnitCost, tier3_labor_unit_cost AS tier3LaborUnitCost, tier3_rent_unit_cost AS tier3RentUnitCost, remark " +
                         "FROM finance_formula_cost_factor WHERE is_deleted = 0 AND month_key = ? LIMIT 1",
                 normalizedMonth
         );
@@ -663,15 +685,41 @@ public class FinanceAccountingServiceImpl implements FinanceAccountingService {
         factor.put("month", normalizedMonth);
         factor.put("electricUnitCost", BigDecimal.ZERO.setScale(4, RoundingMode.HALF_UP));
         factor.put("laborUnitCost", BigDecimal.ZERO.setScale(4, RoundingMode.HALF_UP));
+        factor.put("rentUnitCost", BigDecimal.ZERO.setScale(4, RoundingMode.HALF_UP));
         factor.put("freightUnitCost", BigDecimal.ZERO.setScale(4, RoundingMode.HALF_UP));
         factor.put("taxRate", BigDecimal.ZERO.setScale(4, RoundingMode.HALF_UP));
+        factor.put("thicknessTier1Max", new BigDecimal("10.0000"));
+        factor.put("thicknessTier2Max", new BigDecimal("35.0000"));
+        factor.put("thicknessTier3Max", new BigDecimal("60.0000"));
+        factor.put("tier1ElectricUnitCost", new BigDecimal("0.1000"));
+        factor.put("tier1LaborUnitCost", new BigDecimal("0.2000"));
+        factor.put("tier1RentUnitCost", new BigDecimal("0.1000"));
+        factor.put("tier2ElectricUnitCost", new BigDecimal("0.1600"));
+        factor.put("tier2LaborUnitCost", new BigDecimal("0.3200"));
+        factor.put("tier2RentUnitCost", new BigDecimal("0.1600"));
+        factor.put("tier3ElectricUnitCost", new BigDecimal("0.5000"));
+        factor.put("tier3LaborUnitCost", new BigDecimal("1.0000"));
+        factor.put("tier3RentUnitCost", new BigDecimal("0.5000"));
         factor.put("remark", "");
         if (!rows.isEmpty()) {
             Map<String, Object> row = rows.get(0);
             factor.put("electricUnitCost", toDecimal(row.get("electricUnitCost")).setScale(4, RoundingMode.HALF_UP));
             factor.put("laborUnitCost", toDecimal(row.get("laborUnitCost")).setScale(4, RoundingMode.HALF_UP));
+            factor.put("rentUnitCost", toDecimal(row.get("rentUnitCost")).setScale(4, RoundingMode.HALF_UP));
             factor.put("freightUnitCost", toDecimal(row.get("freightUnitCost")).setScale(4, RoundingMode.HALF_UP));
             factor.put("taxRate", toDecimal(row.get("taxRate")).setScale(4, RoundingMode.HALF_UP));
+            factor.put("thicknessTier1Max", toDecimal(row.get("thicknessTier1Max")).setScale(4, RoundingMode.HALF_UP));
+            factor.put("thicknessTier2Max", toDecimal(row.get("thicknessTier2Max")).setScale(4, RoundingMode.HALF_UP));
+            factor.put("thicknessTier3Max", toDecimal(row.get("thicknessTier3Max")).setScale(4, RoundingMode.HALF_UP));
+            factor.put("tier1ElectricUnitCost", toDecimal(row.get("tier1ElectricUnitCost")).setScale(4, RoundingMode.HALF_UP));
+            factor.put("tier1LaborUnitCost", toDecimal(row.get("tier1LaborUnitCost")).setScale(4, RoundingMode.HALF_UP));
+            factor.put("tier1RentUnitCost", toDecimal(row.get("tier1RentUnitCost")).setScale(4, RoundingMode.HALF_UP));
+            factor.put("tier2ElectricUnitCost", toDecimal(row.get("tier2ElectricUnitCost")).setScale(4, RoundingMode.HALF_UP));
+            factor.put("tier2LaborUnitCost", toDecimal(row.get("tier2LaborUnitCost")).setScale(4, RoundingMode.HALF_UP));
+            factor.put("tier2RentUnitCost", toDecimal(row.get("tier2RentUnitCost")).setScale(4, RoundingMode.HALF_UP));
+            factor.put("tier3ElectricUnitCost", toDecimal(row.get("tier3ElectricUnitCost")).setScale(4, RoundingMode.HALF_UP));
+            factor.put("tier3LaborUnitCost", toDecimal(row.get("tier3LaborUnitCost")).setScale(4, RoundingMode.HALF_UP));
+            factor.put("tier3RentUnitCost", toDecimal(row.get("tier3RentUnitCost")).setScale(4, RoundingMode.HALF_UP));
             factor.put("remark", row.get("remark"));
         }
         return factor;
@@ -684,9 +732,32 @@ public class FinanceAccountingServiceImpl implements FinanceAccountingService {
         String month = normalizeMonth(asString(payload.get("month")));
         BigDecimal electricUnitCost = toDecimal(payload.get("electricUnitCost"));
         BigDecimal laborUnitCost = toDecimal(payload.get("laborUnitCost"));
+        BigDecimal rentUnitCost = toDecimal(payload.get("rentUnitCost"));
         BigDecimal freightUnitCost = toDecimal(payload.get("freightUnitCost"));
         BigDecimal taxRate = toDecimal(payload.get("taxRate"));
+        BigDecimal thicknessTier1Max = toDecimal(payload.get("thicknessTier1Max"));
+        BigDecimal thicknessTier2Max = toDecimal(payload.get("thicknessTier2Max"));
+        BigDecimal thicknessTier3Max = toDecimal(payload.get("thicknessTier3Max"));
+        BigDecimal tier1ElectricUnitCost = toDecimal(payload.get("tier1ElectricUnitCost"));
+        BigDecimal tier1LaborUnitCost = toDecimal(payload.get("tier1LaborUnitCost"));
+        BigDecimal tier1RentUnitCost = toDecimal(payload.get("tier1RentUnitCost"));
+        BigDecimal tier2ElectricUnitCost = toDecimal(payload.get("tier2ElectricUnitCost"));
+        BigDecimal tier2LaborUnitCost = toDecimal(payload.get("tier2LaborUnitCost"));
+        BigDecimal tier2RentUnitCost = toDecimal(payload.get("tier2RentUnitCost"));
+        BigDecimal tier3ElectricUnitCost = toDecimal(payload.get("tier3ElectricUnitCost"));
+        BigDecimal tier3LaborUnitCost = toDecimal(payload.get("tier3LaborUnitCost"));
+        BigDecimal tier3RentUnitCost = toDecimal(payload.get("tier3RentUnitCost"));
         String remark = asString(payload.get("remark"));
+
+        if (thicknessTier1Max.compareTo(BigDecimal.ZERO) <= 0) {
+            thicknessTier1Max = new BigDecimal("10");
+        }
+        if (thicknessTier2Max.compareTo(BigDecimal.ZERO) <= 0) {
+            thicknessTier2Max = new BigDecimal("35");
+        }
+        if (thicknessTier3Max.compareTo(BigDecimal.ZERO) <= 0) {
+            thicknessTier3Max = new BigDecimal("60");
+        }
 
         Integer exists = jdbcTemplate.queryForObject(
                 "SELECT COUNT(1) FROM finance_formula_cost_factor WHERE is_deleted = 0 AND month_key = ?",
@@ -695,15 +766,34 @@ public class FinanceAccountingServiceImpl implements FinanceAccountingService {
         );
         if (exists != null && exists > 0) {
             jdbcTemplate.update(
-                    "UPDATE finance_formula_cost_factor SET electric_unit_cost = ?, labor_unit_cost = ?, freight_unit_cost = ?, tax_rate = ?, remark = ?, updated_by = ?, updated_at = NOW() " +
+                "UPDATE finance_formula_cost_factor SET electric_unit_cost = ?, labor_unit_cost = ?, rent_unit_cost = ?, freight_unit_cost = ?, tax_rate = ?, " +
+                    "thickness_tier1_max = ?, thickness_tier2_max = ?, thickness_tier3_max = ?, " +
+                    "tier1_electric_unit_cost = ?, tier1_labor_unit_cost = ?, tier1_rent_unit_cost = ?, " +
+                    "tier2_electric_unit_cost = ?, tier2_labor_unit_cost = ?, tier2_rent_unit_cost = ?, " +
+                    "tier3_electric_unit_cost = ?, tier3_labor_unit_cost = ?, tier3_rent_unit_cost = ?, " +
+                    "remark = ?, updated_by = ?, updated_at = NOW() " +
                             "WHERE month_key = ? AND is_deleted = 0",
-                    electricUnitCost, laborUnitCost, freightUnitCost, taxRate, remark, getCurrentUsername(), month
+                electricUnitCost, laborUnitCost, rentUnitCost, freightUnitCost, taxRate,
+                thicknessTier1Max, thicknessTier2Max, thicknessTier3Max,
+                tier1ElectricUnitCost, tier1LaborUnitCost, tier1RentUnitCost,
+                tier2ElectricUnitCost, tier2LaborUnitCost, tier2RentUnitCost,
+                tier3ElectricUnitCost, tier3LaborUnitCost, tier3RentUnitCost,
+                remark, getCurrentUsername(), month
             );
         } else {
             jdbcTemplate.update(
-                    "INSERT INTO finance_formula_cost_factor(month_key, electric_unit_cost, labor_unit_cost, freight_unit_cost, tax_rate, remark, created_by, updated_by) " +
-                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    month, electricUnitCost, laborUnitCost, freightUnitCost, taxRate, remark, getCurrentUsername(), getCurrentUsername()
+                "INSERT INTO finance_formula_cost_factor(month_key, electric_unit_cost, labor_unit_cost, rent_unit_cost, freight_unit_cost, tax_rate, " +
+                    "thickness_tier1_max, thickness_tier2_max, thickness_tier3_max, " +
+                    "tier1_electric_unit_cost, tier1_labor_unit_cost, tier1_rent_unit_cost, " +
+                    "tier2_electric_unit_cost, tier2_labor_unit_cost, tier2_rent_unit_cost, " +
+                    "tier3_electric_unit_cost, tier3_labor_unit_cost, tier3_rent_unit_cost, remark, created_by, updated_by) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                month, electricUnitCost, laborUnitCost, rentUnitCost, freightUnitCost, taxRate,
+                thicknessTier1Max, thicknessTier2Max, thicknessTier3Max,
+                tier1ElectricUnitCost, tier1LaborUnitCost, tier1RentUnitCost,
+                tier2ElectricUnitCost, tier2LaborUnitCost, tier2RentUnitCost,
+                tier3ElectricUnitCost, tier3LaborUnitCost, tier3RentUnitCost,
+                remark, getCurrentUsername(), getCurrentUsername()
             );
         }
         return getFormulaCostFactor(month);
@@ -1145,8 +1235,21 @@ public class FinanceAccountingServiceImpl implements FinanceAccountingService {
                                 "month_key VARCHAR(7) NOT NULL," +
                                 "electric_unit_cost DECIMAL(12,4) NOT NULL DEFAULT 0," +
                                 "labor_unit_cost DECIMAL(12,4) NOT NULL DEFAULT 0," +
+                                "rent_unit_cost DECIMAL(12,4) NOT NULL DEFAULT 0," +
                                 "freight_unit_cost DECIMAL(12,4) NOT NULL DEFAULT 0," +
                                 "tax_rate DECIMAL(8,4) NOT NULL DEFAULT 0," +
+                                "thickness_tier1_max DECIMAL(12,4) NOT NULL DEFAULT 10," +
+                                "thickness_tier2_max DECIMAL(12,4) NOT NULL DEFAULT 35," +
+                                "thickness_tier3_max DECIMAL(12,4) NOT NULL DEFAULT 60," +
+                                "tier1_electric_unit_cost DECIMAL(12,4) NOT NULL DEFAULT 0.1," +
+                                "tier1_labor_unit_cost DECIMAL(12,4) NOT NULL DEFAULT 0.2," +
+                                "tier1_rent_unit_cost DECIMAL(12,4) NOT NULL DEFAULT 0.1," +
+                                "tier2_electric_unit_cost DECIMAL(12,4) NOT NULL DEFAULT 0.16," +
+                                "tier2_labor_unit_cost DECIMAL(12,4) NOT NULL DEFAULT 0.32," +
+                                "tier2_rent_unit_cost DECIMAL(12,4) NOT NULL DEFAULT 0.16," +
+                                "tier3_electric_unit_cost DECIMAL(12,4) NOT NULL DEFAULT 0.5," +
+                                "tier3_labor_unit_cost DECIMAL(12,4) NOT NULL DEFAULT 1.0," +
+                                "tier3_rent_unit_cost DECIMAL(12,4) NOT NULL DEFAULT 0.5," +
                                 "remark VARCHAR(500) NULL," +
                                 "created_by VARCHAR(64) NULL," +
                                 "updated_by VARCHAR(64) NULL," +
@@ -1157,6 +1260,33 @@ public class FinanceAccountingServiceImpl implements FinanceAccountingService {
                                 "INDEX idx_fin_formula_factor_del(is_deleted)" +
                                 ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
                         );
+
+                    addColumnIfMissing("finance_formula_cost_factor", "rent_unit_cost",
+                        "ALTER TABLE finance_formula_cost_factor ADD COLUMN rent_unit_cost DECIMAL(12,4) NOT NULL DEFAULT 0");
+                    addColumnIfMissing("finance_formula_cost_factor", "thickness_tier1_max",
+                        "ALTER TABLE finance_formula_cost_factor ADD COLUMN thickness_tier1_max DECIMAL(12,4) NOT NULL DEFAULT 10");
+                    addColumnIfMissing("finance_formula_cost_factor", "thickness_tier2_max",
+                        "ALTER TABLE finance_formula_cost_factor ADD COLUMN thickness_tier2_max DECIMAL(12,4) NOT NULL DEFAULT 35");
+                    addColumnIfMissing("finance_formula_cost_factor", "thickness_tier3_max",
+                        "ALTER TABLE finance_formula_cost_factor ADD COLUMN thickness_tier3_max DECIMAL(12,4) NOT NULL DEFAULT 60");
+                    addColumnIfMissing("finance_formula_cost_factor", "tier1_electric_unit_cost",
+                        "ALTER TABLE finance_formula_cost_factor ADD COLUMN tier1_electric_unit_cost DECIMAL(12,4) NOT NULL DEFAULT 0.1");
+                    addColumnIfMissing("finance_formula_cost_factor", "tier1_labor_unit_cost",
+                        "ALTER TABLE finance_formula_cost_factor ADD COLUMN tier1_labor_unit_cost DECIMAL(12,4) NOT NULL DEFAULT 0.2");
+                    addColumnIfMissing("finance_formula_cost_factor", "tier1_rent_unit_cost",
+                        "ALTER TABLE finance_formula_cost_factor ADD COLUMN tier1_rent_unit_cost DECIMAL(12,4) NOT NULL DEFAULT 0.1");
+                    addColumnIfMissing("finance_formula_cost_factor", "tier2_electric_unit_cost",
+                        "ALTER TABLE finance_formula_cost_factor ADD COLUMN tier2_electric_unit_cost DECIMAL(12,4) NOT NULL DEFAULT 0.16");
+                    addColumnIfMissing("finance_formula_cost_factor", "tier2_labor_unit_cost",
+                        "ALTER TABLE finance_formula_cost_factor ADD COLUMN tier2_labor_unit_cost DECIMAL(12,4) NOT NULL DEFAULT 0.32");
+                    addColumnIfMissing("finance_formula_cost_factor", "tier2_rent_unit_cost",
+                        "ALTER TABLE finance_formula_cost_factor ADD COLUMN tier2_rent_unit_cost DECIMAL(12,4) NOT NULL DEFAULT 0.16");
+                    addColumnIfMissing("finance_formula_cost_factor", "tier3_electric_unit_cost",
+                        "ALTER TABLE finance_formula_cost_factor ADD COLUMN tier3_electric_unit_cost DECIMAL(12,4) NOT NULL DEFAULT 0.5");
+                    addColumnIfMissing("finance_formula_cost_factor", "tier3_labor_unit_cost",
+                        "ALTER TABLE finance_formula_cost_factor ADD COLUMN tier3_labor_unit_cost DECIMAL(12,4) NOT NULL DEFAULT 1.0");
+                    addColumnIfMissing("finance_formula_cost_factor", "tier3_rent_unit_cost",
+                        "ALTER TABLE finance_formula_cost_factor ADD COLUMN tier3_rent_unit_cost DECIMAL(12,4) NOT NULL DEFAULT 0.5");
 
             jdbcTemplate.execute(
                     "CREATE TABLE IF NOT EXISTS finance_salary_record (" +
@@ -1221,6 +1351,19 @@ public class FinanceAccountingServiceImpl implements FinanceAccountingService {
             throw new RuntimeException("月份格式应为yyyy-MM");
         }
         return month.trim();
+    }
+
+    private void addColumnIfMissing(String tableName, String columnName, String alterSql) {
+        Integer exists = jdbcTemplate.queryForObject(
+                "SELECT COUNT(1) FROM information_schema.COLUMNS " +
+                        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?",
+                Integer.class,
+                tableName,
+                columnName
+        );
+        if (exists == null || exists == 0) {
+            jdbcTemplate.execute(alterSql);
+        }
     }
 
     private Object[] appendArgs(List<Object> args, Object... tail) {
@@ -1316,7 +1459,8 @@ public class FinanceAccountingServiceImpl implements FinanceAccountingService {
         }
 
         String[] filmKeywords = new String[] {
-                "PET", "PI", "BOPP", "OPP", "CPP", "PVC", "TPU", "OPS", "PEFOAM", "TISSUE", "FIBERGLASS", "薄膜", "膜"
+            "PET", "PI", "BOPP", "OPP", "CPP", "PVC", "TPU", "OPS", "PEFOAM", "FOAM", "EPE", "IXPE", "XPE",
+            "泡棉", "TISSUE", "FIBERGLASS", "薄膜", "膜"
         };
         for (String keyword : filmKeywords) {
             if (code.contains(keyword) || name.contains(keyword)) {
@@ -1519,7 +1663,7 @@ public class FinanceAccountingServiceImpl implements FinanceAccountingService {
         String field = sortField.trim();
         Set<String> allowed = new HashSet<>(Arrays.asList(
                 "materialCode", "productName", "formulaNo", "coatingArea",
-                "materialUnitCost", "electricUnitCost", "laborUnitCost", "freightUnitCost",
+            "coatingThickness", "materialUnitCost", "electricUnitCost", "laborUnitCost", "rentUnitCost", "freightUnitCost",
                 "taxRate", "totalUnitCost", "standardTotalCost", "materialCost", "totalWeight", "updateTime"
         ));
         if (!allowed.contains(field)) {
@@ -1540,6 +1684,42 @@ public class FinanceAccountingServiceImpl implements FinanceAccountingService {
             comparator = comparator.reversed();
         }
         records.sort(comparator);
+    }
+
+    private Map<String, BigDecimal> resolveThicknessRuleUnitCost(Map<String, Object> factor, BigDecimal coatingThickness) {
+        Map<String, BigDecimal> data = new HashMap<>();
+        BigDecimal defaultElectric = toDecimal(factor.get("electricUnitCost"));
+        BigDecimal defaultLabor = toDecimal(factor.get("laborUnitCost"));
+        BigDecimal defaultRent = toDecimal(factor.get("rentUnitCost"));
+        data.put("electricUnitCost", defaultElectric);
+        data.put("laborUnitCost", defaultLabor);
+        data.put("rentUnitCost", defaultRent);
+
+        if (coatingThickness == null || coatingThickness.compareTo(BigDecimal.ZERO) <= 0) {
+            return data;
+        }
+
+        BigDecimal t1 = toDecimal(factor.get("thicknessTier1Max"));
+        BigDecimal t2 = toDecimal(factor.get("thicknessTier2Max"));
+        BigDecimal t3 = toDecimal(factor.get("thicknessTier3Max"));
+        if (t1.compareTo(BigDecimal.ZERO) <= 0) t1 = new BigDecimal("10");
+        if (t2.compareTo(BigDecimal.ZERO) <= 0) t2 = new BigDecimal("35");
+        if (t3.compareTo(BigDecimal.ZERO) <= 0) t3 = new BigDecimal("60");
+
+        if (coatingThickness.compareTo(t1) <= 0) {
+            data.put("electricUnitCost", toDecimal(factor.get("tier1ElectricUnitCost")));
+            data.put("laborUnitCost", toDecimal(factor.get("tier1LaborUnitCost")));
+            data.put("rentUnitCost", toDecimal(factor.get("tier1RentUnitCost")));
+        } else if (coatingThickness.compareTo(t2) <= 0) {
+            data.put("electricUnitCost", toDecimal(factor.get("tier2ElectricUnitCost")));
+            data.put("laborUnitCost", toDecimal(factor.get("tier2LaborUnitCost")));
+            data.put("rentUnitCost", toDecimal(factor.get("tier2RentUnitCost")));
+        } else if (coatingThickness.compareTo(t3) <= 0) {
+            data.put("electricUnitCost", toDecimal(factor.get("tier3ElectricUnitCost")));
+            data.put("laborUnitCost", toDecimal(factor.get("tier3LaborUnitCost")));
+            data.put("rentUnitCost", toDecimal(factor.get("tier3RentUnitCost")));
+        }
+        return data;
     }
 
     private Long toLong(Object value) {

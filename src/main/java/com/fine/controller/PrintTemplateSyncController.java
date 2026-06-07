@@ -28,10 +28,10 @@ import java.util.Set;
 
 @RestController
 @RequestMapping("/api/print-template")
-@PreAuthorize("isAuthenticated()")
 public class PrintTemplateSyncController {
 
     @GetMapping("/manifest")
+    @PreAuthorize("permitAll()")
     public ResponseResult<List<Map<String, Object>>> manifest(HttpServletRequest request) {
         try {
             File root = resolveTemplateRoot();
@@ -75,18 +75,25 @@ public class PrintTemplateSyncController {
     }
 
     @GetMapping("/file/{fileName:.+}")
+    @PreAuthorize("permitAll()")
     public ResponseEntity<Resource> download(@PathVariable String fileName) {
         try {
-            if (fileName == null || fileName.contains("..") || fileName.contains("/") || fileName.contains("\\")) {
+            if (fileName == null || fileName.contains("/") || fileName.contains("\\")) {
                 return ResponseEntity.badRequest().build();
             }
             String name = fileName.trim();
+            if (name.isEmpty()) {
+                return ResponseEntity.badRequest().build();
+            }
             if (!name.toLowerCase(Locale.ROOT).endsWith(".btw")) {
                 return ResponseEntity.badRequest().build();
             }
 
-            File root = resolveTemplateRoot();
-            File target = new File(root, name);
+            File root = resolveTemplateRoot().getCanonicalFile();
+            File target = new File(root, name).getCanonicalFile();
+            if (!target.getPath().startsWith(root.getPath() + File.separator)) {
+                return ResponseEntity.badRequest().build();
+            }
             if (!target.exists() || !target.isFile()) {
                 return ResponseEntity.notFound().build();
             }

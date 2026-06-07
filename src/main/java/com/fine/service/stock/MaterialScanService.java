@@ -20,4 +20,11 @@ public interface MaterialScanService {
                                       String orderNo,
                                       Long scheduleId,
                                       String qrCode);
+
+    /**
+     * 通过扫发料单(ISSUE_ORDER)完成报工入库
+     * @param payload 含 qrCode(issueNo), producedQty, operator 等
+     * @return 结果
+     */
+    Map<String, Object> reportWorkByScan(Map<String, Object> payload) throws Exception;
 }

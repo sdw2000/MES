@@ -59,12 +59,19 @@ public class TapeSpecServiceImpl implements TapeSpecService {
 
     @Override
     public ResponseResult<?> getList(int page, int size, String materialCode, String productName,
-                                     String colorCode, String baseMaterial, Integer status) {
+                                     String colorCode, String baseMaterial, Integer status,
+                                     String sortBy, String sortOrder) {
         int safePage = Math.max(page, 1);
         int safeSize = size <= 0 ? 20 : Math.min(size, 200);
         int offset = (safePage - 1) * safeSize;
         String normalizedBaseMaterial = normalizeBaseMaterialCode(baseMaterial);
-        List<TapeSpec> list = tapeSpecMapper.selectList(materialCode, productName, colorCode, normalizedBaseMaterial, status, offset, safeSize);
+        String orderBy = resolveTapeSpecSortColumn(sortBy);
+        String direction = "asc".equalsIgnoreCase(sortOrder) ? "ASC" : "DESC";
+
+        List<TapeSpec> list = tapeSpecMapper.selectList(
+                materialCode, productName, colorCode, normalizedBaseMaterial, status,
+                offset, safeSize, orderBy, direction
+        );
         fillMissingColorNameForList(list);
         int total = tapeSpecMapper.selectCount(materialCode, productName, colorCode, normalizedBaseMaterial, status);
 
@@ -74,6 +81,93 @@ public class TapeSpecServiceImpl implements TapeSpecService {
         result.put("page", safePage);
         result.put("size", safeSize);
 
+        return new ResponseResult<>(20000, "查询成功", result);
+    }
+
+    @Override
+    public ResponseResult<?> getUnproducedStatsPage(int page, int size, String materialCode, String sortBy, String sortOrder) {
+        int safePage = Math.max(page, 1);
+        int safeSize = size <= 0 ? 20 : Math.min(size, 200);
+        int offset = (safePage - 1) * safeSize;
+        String keyword = materialCode == null ? null : materialCode.trim();
+
+        String pendingSubSql =
+                "SELECT soi.material_code AS material_code, " +
+                "ROUND(SUM(CASE " +
+                "  WHEN IFNULL(soi.remaining_qty, (soi.rolls - IFNULL(soi.scheduled_qty, 0))) > 0 THEN " +
+            "    CASE WHEN IFNULL(soi.width, 0) > 0 AND IFNULL(soi.length, 0) > 0 THEN " +
+            "      (soi.width / 1000.0) * soi.length * IFNULL(soi.remaining_qty, (soi.rolls - IFNULL(soi.scheduled_qty, 0))) " +
+            "    ELSE 0 END " +
+                "  ELSE 0 " +
+                "END), 2) AS unproduced_area " +
+                "FROM sales_order_items soi " +
+                "JOIN sales_orders o ON soi.order_id = o.id " +
+                "LEFT JOIN ( " +
+                "  SELECT m1.* FROM manual_schedule m1 " +
+                "  INNER JOIN (SELECT order_detail_id, MAX(id) AS max_id FROM manual_schedule GROUP BY order_detail_id) m2 " +
+                "    ON m1.order_detail_id = m2.order_detail_id AND m1.id = m2.max_id " +
+                ") ms ON ms.order_detail_id = soi.id " +
+                "WHERE (o.status IS NULL OR LOWER(o.status) NOT IN ('completed','cancelled','canceled','closed')) " +
+                "  AND o.is_deleted = 0 AND soi.is_deleted = 0 " +
+                "  AND LOWER(IFNULL(soi.production_status, 'not_started')) <> 'completed' " +
+                "  AND IFNULL(soi.delivered_qty, 0) < IFNULL(soi.rolls, 0) " +
+                "  AND IFNULL(soi.remaining_qty, (soi.rolls - IFNULL(soi.scheduled_qty, 0))) > 0 " +
+                "  AND (ms.packaging_date IS NULL AND ms.slitting_schedule_date IS NULL) ";
+
+        List<Object> countArgs = new ArrayList<>();
+        if (keyword != null && !keyword.isEmpty()) {
+            pendingSubSql += " AND soi.material_code LIKE CONCAT('%', ?, '%') ";
+            countArgs.add(keyword);
+        }
+        pendingSubSql += "GROUP BY soi.material_code";
+
+        String countSql = "SELECT COUNT(1) FROM (" + pendingSubSql + ") p " +
+            "LEFT JOIN (SELECT material_code, ROUND(COALESCE(SUM(available_area), 0), 2) AS stock_area FROM tape_stock WHERE status = 1 GROUP BY material_code) s " +
+            "  ON CONVERT(s.material_code USING utf8mb4) COLLATE utf8mb4_unicode_ci = CONVERT(p.material_code USING utf8mb4) COLLATE utf8mb4_unicode_ci " +
+            "WHERE IFNULL(p.unproduced_area, 0) > IFNULL(s.stock_area, 0)";
+        Long totalObj = jdbcTemplate.queryForObject(countSql, Long.class, countArgs.toArray());
+        long total = totalObj == null ? 0L : totalObj;
+
+        List<Map<String, Object>> records = Collections.emptyList();
+        if (total > 0) {
+            String sortColumn = resolveUnproducedSortColumn(sortBy);
+            String direction = "desc".equalsIgnoreCase(sortOrder) ? "DESC" : "ASC";
+
+            String dataSql =
+                    "SELECT " +
+                    "  p.material_code AS materialCode, " +
+                    "  COALESCE(NULLIF(ts.product_name, ''), p.material_code) AS productName, " +
+                    "  ROUND(IFNULL(p.unproduced_area, 0), 2) AS oweArea, " +
+                    "  ROUND(IFNULL(p.unproduced_area, 0), 2) AS unproducedArea, " +
+                    "  ROUND(IFNULL(s.stock_area, 0), 2) AS stockArea, " +
+                    "  ROUND(GREATEST(IFNULL(p.unproduced_area, 0) - IFNULL(s.stock_area, 0), 0), 2) AS shortageArea, " +
+                    "  ROUND(IFNULL(p.unproduced_area, 0) - IFNULL(s.stock_area, 0), 2) AS gapArea " +
+                    "FROM (" + pendingSubSql + ") p " +
+                    "LEFT JOIN ( " +
+                    "  SELECT material_code, COALESCE(MAX(product_name), '') AS product_name " +
+                    "  FROM tape_spec GROUP BY material_code " +
+                    ") ts ON CONVERT(ts.material_code USING utf8mb4) COLLATE utf8mb4_unicode_ci = " +
+                    "       CONVERT(p.material_code USING utf8mb4) COLLATE utf8mb4_unicode_ci " +
+                    "LEFT JOIN ( " +
+                    "  SELECT material_code, ROUND(COALESCE(SUM(available_area), 0), 2) AS stock_area " +
+                    "  FROM tape_stock WHERE status = 1 GROUP BY material_code " +
+                    ") s ON CONVERT(s.material_code USING utf8mb4) COLLATE utf8mb4_unicode_ci = " +
+                    "      CONVERT(p.material_code USING utf8mb4) COLLATE utf8mb4_unicode_ci " +
+                    "WHERE IFNULL(p.unproduced_area, 0) > IFNULL(s.stock_area, 0) " +
+                    "ORDER BY " + sortColumn + " " + direction + ", p.material_code ASC " +
+                    "LIMIT ?, ?";
+
+            List<Object> dataArgs = new ArrayList<>(countArgs);
+            dataArgs.add(offset);
+            dataArgs.add(safeSize);
+            records = jdbcTemplate.queryForList(dataSql, dataArgs.toArray());
+        }
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("records", records);
+        result.put("total", total);
+        result.put("page", safePage);
+        result.put("size", safeSize);
         return new ResponseResult<>(20000, "查询成功", result);
     }
 
@@ -256,7 +350,7 @@ public class TapeSpecServiceImpl implements TapeSpecService {
     public void exportExcel(HttpServletResponse response, String materialCode, String productName,
                             String colorCode, String baseMaterial) {
         try {
-            List<TapeSpec> list = tapeSpecMapper.selectList(materialCode, productName, colorCode, baseMaterial, null, 0, 10000);
+            List<TapeSpec> list = tapeSpecMapper.selectList(materialCode, productName, colorCode, baseMaterial, null, 0, 10000, "create_time", "DESC");
             fillMissingColorNameForList(list);
 
             Workbook workbook = new XSSFWorkbook();
@@ -847,5 +941,52 @@ public class TapeSpecServiceImpl implements TapeSpecService {
                 .replace("＜", "<")
                 .replace("≥", ">=")
                 .replace("≤", "<=");
+    }
+
+    private String resolveUnproducedSortColumn(String sortBy) {
+        if (sortBy == null || sortBy.trim().isEmpty()) {
+            return "p.unproduced_area";
+        }
+        String key = sortBy.trim();
+        if ("materialCode".equalsIgnoreCase(key) || "material_code".equalsIgnoreCase(key)) {
+            return "p.material_code";
+        }
+        if ("stockArea".equalsIgnoreCase(key) || "stock_area".equalsIgnoreCase(key)) {
+            return "s.stock_area";
+        }
+        if ("oweArea".equalsIgnoreCase(key) || "owe_area".equalsIgnoreCase(key)
+                || "unproducedArea".equalsIgnoreCase(key) || "unproduced_area".equalsIgnoreCase(key)) {
+            return "p.unproduced_area";
+        }
+        if ("shortageArea".equalsIgnoreCase(key) || "shortage_area".equalsIgnoreCase(key)) {
+            return "(GREATEST(IFNULL(p.unproduced_area, 0) - IFNULL(s.stock_area, 0), 0))";
+        }
+        if ("gapArea".equalsIgnoreCase(key) || "gap_area".equalsIgnoreCase(key)) {
+            return "(IFNULL(p.unproduced_area, 0) - IFNULL(s.stock_area, 0))";
+        }
+        return "p.unproduced_area";
+    }
+
+    private String resolveTapeSpecSortColumn(String sortBy) {
+        if (sortBy == null || sortBy.trim().isEmpty()) {
+            return "create_time";
+        }
+        String key = sortBy.trim();
+        if ("materialCode".equalsIgnoreCase(key) || "material_code".equalsIgnoreCase(key)) return "material_code";
+        if ("productName".equalsIgnoreCase(key) || "product_name".equalsIgnoreCase(key)) return "product_name";
+        if ("colorCode".equalsIgnoreCase(key) || "color_code".equalsIgnoreCase(key)) return "color_code";
+        if ("baseThickness".equalsIgnoreCase(key) || "base_thickness".equalsIgnoreCase(key)) return "base_thickness";
+        if ("baseMaterial".equalsIgnoreCase(key) || "base_material".equalsIgnoreCase(key)) return "base_material";
+        if ("glueMaterial".equalsIgnoreCase(key) || "glue_material".equalsIgnoreCase(key)) return "glue_material";
+        if ("glueThickness".equalsIgnoreCase(key) || "glue_thickness".equalsIgnoreCase(key)) return "glue_thickness";
+        if ("totalThickness".equalsIgnoreCase(key) || "total_thickness".equalsIgnoreCase(key)) return "total_thickness";
+        if ("totalThicknessMin".equalsIgnoreCase(key) || "total_thickness_min".equalsIgnoreCase(key)) return "total_thickness_min";
+        if ("initialTackMin".equalsIgnoreCase(key) || "initial_tack_min".equalsIgnoreCase(key)) return "initial_tack_min";
+        if ("peelStrengthMin".equalsIgnoreCase(key) || "peel_strength_min".equalsIgnoreCase(key)) return "peel_strength_min";
+        if ("extraQcItem3Standard".equalsIgnoreCase(key) || "extra_qc_item3_standard".equalsIgnoreCase(key)) return "extra_qc_item3_standard";
+        if ("status".equalsIgnoreCase(key)) return "status";
+        if ("updateTime".equalsIgnoreCase(key) || "update_time".equalsIgnoreCase(key)) return "update_time";
+        if ("createTime".equalsIgnoreCase(key) || "create_time".equalsIgnoreCase(key)) return "create_time";
+        return "create_time";
     }
 }

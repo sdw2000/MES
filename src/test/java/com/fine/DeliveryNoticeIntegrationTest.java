@@ -83,14 +83,14 @@ public class DeliveryNoticeIntegrationTest {
         when(salesOrderMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(Arrays.asList(order));
         IPage<SalesOrder> mockPage = new Page<>(1, 10);
         mockPage.setRecords(Arrays.asList(order));
-        when(salesOrderMapper.selectOrdersWithCustomerSearch(any(Page.class), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(salesOrderMapper.selectOrdersWithCustomerSearch(any(Page.class), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
             .thenReturn(mockPage);
         when(salesOrderMapper.selectById(eq(orderId))).thenReturn(order);
         
         when(salesOrderItemMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(orderItems);
         when(deliveryNoticeItemMapper.getShippedQuantityByOrderItemId(item1.getId())).thenReturn(0);
 
-        ResponseResult<?> orderResult = salesOrderService.getAllOrders(1, 10, null, null, null, null, null, null, null, null);
+        ResponseResult<?> orderResultAfterShip = salesOrderService.getAllOrders(1, 10, null, null, null, null, null, null, null, null, null, null, null, null);
         IPage<SalesOrder> pageInfo = (IPage<SalesOrder>) orderResult.getData();
         List<SalesOrder> orders = pageInfo.getRecords();
         assertNotNull(orders);
@@ -118,7 +118,7 @@ public class DeliveryNoticeIntegrationTest {
 
         when(deliveryNoticeItemMapper.getShippedQuantityByOrderItemId(item1.getId())).thenReturn(40);
         
-        ResponseResult<?> orderResultAfterShip = salesOrderService.getAllOrders(1, 10, null, null, null, null, null, null, null, null);
+        ResponseResult<?> orderResultAfterShip = salesOrderService.getAllOrders(1, 10, null, null, null, null, null, null, null, null, null, null, null, null);
         IPage<SalesOrder> pageInfoAfter = (IPage<SalesOrder>) orderResultAfterShip.getData();
         assertNotNull(pageInfoAfter);
         

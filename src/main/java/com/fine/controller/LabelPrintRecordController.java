@@ -18,7 +18,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/production/label-print-record")
-@PreAuthorize("hasAnyAuthority('admin','sales','finance','production','packaging','plan','warehouse','quality','rd')")
+@PreAuthorize("hasAnyAuthority('admin','sales','finance','production','packaging','packing','plan','warehouse','quality','rd')")
 public class LabelPrintRecordController {
 
     @Autowired

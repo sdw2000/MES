@@ -26,7 +26,7 @@ import java.util.Locale;
  * author Fine
  * date 2026-01-06
  */
-@PreAuthorize("hasAnyAuthority('admin','sales','finance')")
+@PreAuthorize("hasAnyAuthority('admin','sales','finance','warehouse')")
 @RestController
 @RequestMapping("/api/sales/customers")
 @CrossOrigin
@@ -47,7 +47,9 @@ public class CustomerController {
             @RequestParam(name = "customerType", required = false) String customerType,
             @RequestParam(name = "customerLevel", required = false) String customerLevel,
             @RequestParam(name = "status", required = false) String status,
-            @RequestParam(name = "salesUserId", required = false) Long salesUserId
+            @RequestParam(name = "salesUserId", required = false) Long salesUserId,
+            @RequestParam(name = "sortField", required = false) String sortField,
+            @RequestParam(name = "sortOrder", required = false) String sortOrder
     ) {
         CustomerDTO query = new CustomerDTO();
         query.setCustomerKeyword(customerKeyword);
@@ -57,6 +59,8 @@ public class CustomerController {
         query.setCustomerLevel(customerLevel);
         query.setStatus(status);
         query.setSalesUserId(salesUserId);
+        query.setSortField(sortField);
+        query.setSortOrder(sortOrder);
 
         LoginUser loginUser = getLoginUser();
         boolean isAdmin = hasRole(loginUser, "admin");
@@ -79,8 +83,17 @@ public class CustomerController {
      * 根据ID查询客户详情
      */
     @GetMapping("/{id}")
-    public ResponseResult<CustomerDTO> getCustomerDetail(@PathVariable("id") Long id) {
-        CustomerDTO customer = customerService.getCustomerDetailById(id);
+    @PreAuthorize("hasAnyAuthority('admin','sales','finance','production','packaging','packing','plan','quality','rd')")
+    public ResponseResult<CustomerDTO> getCustomerDetail(@PathVariable("id") String idOrCode) {
+        CustomerDTO customer = null;
+        try {
+            Long id = Long.parseLong(idOrCode);
+            customer = customerService.getCustomerDetailById(id);
+        } catch (NumberFormatException e) {
+            // If not a number, try searching by code
+            customer = customerService.getCustomerByCode(idOrCode);
+        }
+        
         if (customer == null) {
             return new ResponseResult<>(40004, "客户不存在", null);
         }
@@ -357,7 +370,12 @@ public class CustomerController {
 
     private boolean canAccessCustomer(LoginUser loginUser, CustomerDTO customer) {
         if (loginUser == null) return false;
-        if (hasRole(loginUser, "admin") || hasRole(loginUser, "finance")) return true;
+        if (hasRole(loginUser, "admin") || hasRole(loginUser, "finance")
+                || hasRole(loginUser, "production") || hasRole(loginUser, "packaging")
+                || hasRole(loginUser, "packing") || hasRole(loginUser, "plan")
+                || hasRole(loginUser, "quality") || hasRole(loginUser, "rd")) {
+            return true;
+        }
         Long userId = getCurrentUserId(loginUser);
         if (userId == null) return false;
         return userId.equals(customer.getSalesUserId()) || userId.equals(customer.getDocumentationPersonUserId());

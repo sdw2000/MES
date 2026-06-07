@@ -95,7 +95,7 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
     private static final String RECON_BASIS_SHIPPED = "SHIPPED";
     private static final String RECON_BASIS_RECEIVED = "RECEIVED";
     private static final String RP_CUSTOMER_CODE_KEYWORD = "RP";
-    private static final long OVERVIEW_CACHE_TTL_MS = 60_000L;
+    private static final long OVERVIEW_CACHE_TTL_MS = 600_000L;
     private final ConcurrentMap<String, OverviewCacheEntry> overviewCache = new ConcurrentHashMap<>();
 
     private static class OverviewCacheEntry {
@@ -119,6 +119,7 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
             ensureDeliveryConfirmTable();
             ensureDeliverySplitTable();
             ensureReturnConfirmTable();
+            ensureStatementMonthConfirmTable();
             if (customerCode == null || customerCode.trim().isEmpty()) {
                 return new ResponseResult<>(400, "客户不能为空", null);
             }
@@ -146,8 +147,9 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
             LocalDate periodStart = getStatementPeriodStart(month, reconciliationDay);
             LocalDate periodEnd = getStatementPeriodEnd(month, reconciliationDay);
 
+            boolean excludeLegacyYearDeliveries = shouldExcludeLegacyYearDeliveries(customerCode, month);
             List<Map<String, Object>> detailRows = new ArrayList<>();
-            detailRows.addAll(queryDeliveryRows(new ArrayList<>(customerKeys), month, periodStart, periodEnd, reconciliationDay, reconciliationBasis, rpNaturalMonthLocked));
+            detailRows.addAll(queryDeliveryRows(new ArrayList<>(customerKeys), month, periodStart, periodEnd, reconciliationDay, reconciliationBasis, rpNaturalMonthLocked, excludeLegacyYearDeliveries));
             detailRows.addAll(queryReturnRows(new ArrayList<>(customerKeys), month, rpNaturalMonthLocked));
             detailRows.sort(Comparator.comparing((Map<String, Object> row) -> String.valueOf(row.get("bizDate") == null ? "" : row.get("bizDate")))
                     .thenComparing((Map<String, Object> row) -> String.valueOf(row.get("documentNo") == null ? "" : row.get("documentNo"))));
@@ -183,12 +185,18 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
                             .orderByDesc(SalesStatementHistory::getInvoiceDate)
             );
 
-            List<SalesStatementHistory> printHistories = new ArrayList<>();
+                appendAutoPreviousMonthHistory(histories, customerCode.trim(), month);
+
+            List<SalesStatementHistory> visibleHistories = new ArrayList<>();
             for (SalesStatementHistory history : histories) {
                 if (history != null && hasText(history.getStatementMonth()) && history.getStatementMonth().compareTo(month) <= 0) {
-                    printHistories.add(history);
+                    visibleHistories.add(history);
                 }
             }
+            visibleHistories.sort(Comparator.comparing(SalesStatementHistory::getStatementMonth).reversed());
+
+            List<SalesStatementHistory> printHistories = new ArrayList<>();
+            printHistories.addAll(visibleHistories);
             printHistories.sort(Comparator.comparing(SalesStatementHistory::getStatementMonth));
 
             Map<String, Object> summary = new HashMap<>();
@@ -216,6 +224,21 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
             String reconciliationStatus = (currentPendingDeliveryCount == 0) ? "RECONCILED" : "UNRECONCILED";
             String reconciliationStatusLabel = "RECONCILED".equals(reconciliationStatus) ? "已对账" : "未对账";
 
+            Map<String, Object> monthConfirmInfo = loadStatementMonthConfirmInfo(customerCode.trim(), month);
+            LoginUser loginUser = getLoginUser();
+            boolean financeView = isFinanceUser(loginUser);
+            String salesConfirmedAt = safeTrim(String.valueOf(monthConfirmInfo.getOrDefault("salesConfirmedAt", "")));
+            String financeConfirmedAt = safeTrim(String.valueOf(monthConfirmInfo.getOrDefault("financeConfirmedAt", "")));
+            if (financeView && !hasText(salesConfirmedAt)) {
+                return new ResponseResult<>(403, "销售未确认，财务暂不可查看该对账单", null);
+            }
+
+            // 当以财务身份查看时，详情页的对账状态应以财务确认为准，避免展示与总览不一致的状态
+            if (financeView) {
+                reconciliationStatus = hasText(financeConfirmedAt) ? "RECONCILED" : "UNRECONCILED";
+                reconciliationStatusLabel = hasText(financeConfirmedAt) ? "财务已确认" : "销售已确认，财务未确认";
+            }
+
             Map<String, Object> data = new HashMap<>();
             data.put("customerCode", customerCode.trim());
             data.put("customerName", customer != null && hasText(customer.getCustomerName()) ? customer.getCustomerName() : customerCode.trim());
@@ -227,7 +250,7 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
             data.put("periodStart", periodStart.toString());
             data.put("periodEnd", periodEnd.toString());
             data.put("detailRows", detailRows);
-            data.put("historyRows", histories);
+            data.put("historyRows", visibleHistories);
             data.put("printHistoryRows", printHistories);
             data.put("summary", summary);
             data.put("reconciliationStatus", reconciliationStatus);
@@ -235,6 +258,7 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
             data.put("currentDeliveryCount", currentDeliveryCount);
             data.put("confirmedDeliveryCount", currentConfirmedDeliveryCount);
             data.put("pendingDeliveryCount", currentPendingDeliveryCount);
+            data.putAll(monthConfirmInfo);
             return new ResponseResult<>(200, "查询成功", data);
         } catch (Exception e) {
             e.printStackTrace();
@@ -247,60 +271,97 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
         try {
             ensureHistoryTable();
             ensureDeliveryConfirmTable();
+            ensureStatementMonthConfirmTable();
             ensureReturnConfirmTable();
+
             if (!hasText(month) || !month.matches("\\d{4}-\\d{2}")) {
                 return new ResponseResult<>(400, "月份格式应为yyyy-MM", null);
             }
-            String normalizedCustomerCode = hasText(customerCode) ? customerCode.trim() : "";
-            if (hasText(normalizedCustomerCode) && !canAccessCustomer(normalizedCustomerCode)) {
-                return new ResponseResult<>(403, "无权限访问该客户", null);
-            }
+            LoginUser loginUser = getLoginUser();
+            boolean isAdmin = hasRole(loginUser, "admin");
+            boolean financeUser = isFinanceUser(loginUser);
 
             int safeCurrent = (current == null || current <= 0) ? 1 : current;
             int safeSize = (size == null || size <= 0) ? 20 : Math.min(size, 200);
-            String safeSortProp = hasText(sortProp) ? sortProp.trim() : "reconciliationStatus";
-            String safeSortOrder = hasText(sortOrder) ? sortOrder.trim().toLowerCase(Locale.ROOT) : "ascending";
-            boolean desc = "descending".equals(safeSortOrder) || "desc".equals(safeSortOrder);
 
-            String normalizedMonth = month.trim();
-            String cacheKey = buildOverviewCacheKey(normalizedMonth);
-            List<Map<String, Object>> rows = getOrBuildOverviewRows(cacheKey, normalizedMonth);
-            rows = new ArrayList<>(rows);
-            if (hasText(normalizedCustomerCode)) {
-                rows = rows.stream()
-                        .filter(row -> normalizedCustomerCode.equals(String.valueOf(row.getOrDefault("customerCode", "")).trim()))
-                        .collect(Collectors.toList());
+            String cacheKey = buildOverviewCacheKey(month);
+            Set<String> scopedCustomerCodes = null;
+            if (hasText(customerCode)) {
+                scopedCustomerCodes = new LinkedHashSet<>();
+                scopedCustomerCodes.add(customerCode.trim());
             }
-            if (hasText(reconciledStatus)) {
-                rows = rows.stream()
-                        .filter(row -> reconciledStatus.equals(String.valueOf(row.getOrDefault("reconciliationStatus", "")).trim()))
-                        .collect(Collectors.toList());
+            List<Map<String, Object>> allRows = (scopedCustomerCodes == null || scopedCustomerCodes.isEmpty())
+                    ? getOrBuildOverviewRows(cacheKey, month)
+                    : getOrBuildOverviewRows(cacheKey, month, scopedCustomerCodes, false);
+
+            String keyword = hasText(customerCode) ? customerCode.trim() : "";
+            String statusFilter = hasText(reconciledStatus) ? reconciledStatus.trim().toUpperCase(Locale.ROOT) : "";
+
+            List<Map<String, Object>> filtered = new ArrayList<>();
+            for (Map<String, Object> row : allRows) {
+                String rowCustomerCode = String.valueOf(row.getOrDefault("customerCode", ""));
+                String rowCustomerName = String.valueOf(row.getOrDefault("customerName", ""));
+                String salesConfirmedAt = safeTrim(String.valueOf(row.getOrDefault("salesConfirmedAt", "")));
+                String financeConfirmedAt = safeTrim(String.valueOf(row.getOrDefault("financeConfirmedAt", "")));
+
+                if (financeUser && !isAdmin && !hasText(salesConfirmedAt)) {
+                    continue;
+                }
+
+                if (hasText(keyword)) {
+                    String k = keyword.toLowerCase(Locale.ROOT);
+                    if (!rowCustomerCode.toLowerCase(Locale.ROOT).contains(k)
+                            && !rowCustomerName.toLowerCase(Locale.ROOT).contains(k)) {
+                        continue;
+                    }
+                }
+
+                if (hasText(statusFilter)) {
+                    if ("RECONCILED".equals(statusFilter)) {
+                        if (!hasText(financeConfirmedAt)) {
+                            continue;
+                        }
+                    } else if ("UNRECONCILED".equals(statusFilter)) {
+                        if (financeUser && !isAdmin) {
+                            if (!hasText(salesConfirmedAt) || hasText(financeConfirmedAt)) {
+                                continue;
+                            }
+                        } else {
+                            if (hasText(salesConfirmedAt) || hasText(financeConfirmedAt)) {
+                                continue;
+                            }
+                        }
+                    } else if ("SALES_CONFIRMED".equals(statusFilter)) {
+                        if (!hasText(salesConfirmedAt) || hasText(financeConfirmedAt)) {
+                            continue;
+                        }
+                    }
+                }
+
+                filtered.add(row);
             }
 
-            Comparator<Map<String, Object>> comparator = buildOverviewComparator(safeSortProp, desc);
-            rows.sort(comparator);
+            String safeSortProp = hasText(sortProp) ? sortProp.trim() : "statementAmount";
+            String safeSortOrder = hasText(sortOrder) ? sortOrder.trim().toLowerCase(Locale.ROOT) : "descending";
+            boolean isDesc = "descending".equals(safeSortOrder) || "desc".equals(safeSortOrder);
+            filtered.sort(buildOverviewComparator(safeSortProp, isDesc));
 
-            int total = rows.size();
+            int total = filtered.size();
             int fromIndex = Math.max(0, (safeCurrent - 1) * safeSize);
             int toIndex = Math.min(total, fromIndex + safeSize);
-            List<Map<String, Object>> pageRows = fromIndex >= total
-                    ? Collections.emptyList()
-                    : new ArrayList<>(rows.subList(fromIndex, toIndex));
+            List<Map<String, Object>> pageRows = fromIndex >= total ? Collections.emptyList() : filtered.subList(fromIndex, toIndex);
 
             Map<String, Object> data = new HashMap<>();
-            data.put("month", month.trim());
+            data.put("month", month);
             data.put("current", safeCurrent);
             data.put("size", safeSize);
             data.put("total", total);
-            data.put("sortProp", safeSortProp);
-            data.put("sortOrder", desc ? "descending" : "ascending");
-            data.put("customerCode", normalizedCustomerCode);
-            data.put("rows", pageRows);
             data.put("records", pageRows);
-            return new ResponseResult<>(200, "查询成功", data);
+            data.put("rows", pageRows);
+            return ResponseResult.success(data);
         } catch (Exception e) {
             e.printStackTrace();
-            return new ResponseResult<>(500, "查询对账总览失败: " + e.getMessage(), null);
+            return new ResponseResult<>(500, "查询概览失败: " + e.getMessage(), null);
         }
     }
 
@@ -309,56 +370,58 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
     }
 
     private List<Map<String, Object>> getOrBuildOverviewRows(String cacheKey, String month) {
+        return getOrBuildOverviewRows(cacheKey, month, null, true);
+    }
+
+    private List<Map<String, Object>> getOrBuildOverviewRows(String cacheKey, String month, Set<String> scopedCustomerCodes, boolean useCache) {
+        if (!useCache || (scopedCustomerCodes != null && !scopedCustomerCodes.isEmpty())) {
+            return buildOverviewRows(month, scopedCustomerCodes);
+        }
+
         long now = System.currentTimeMillis();
         OverviewCacheEntry cached = overviewCache.get(cacheKey);
         if (cached != null && !cached.isExpired(now)) {
             return cached.rows;
         }
 
-        List<Map<String, Object>> rebuilt = buildOverviewRows(month);
+        List<Map<String, Object>> rebuilt = buildOverviewRows(month, null);
         overviewCache.put(cacheKey, new OverviewCacheEntry(rebuilt, now + OVERVIEW_CACHE_TTL_MS));
         return rebuilt;
     }
 
     private List<Map<String, Object>> buildOverviewRows(String month) {
+        return buildOverviewRows(month, null);
+    }
+
+    private List<Map<String, Object>> buildOverviewRows(String month, Set<String> scopedCustomerCodes) {
         List<Customer> customers = loadAccessibleCustomersForOverview();
         if (customers == null || customers.isEmpty()) {
             return Collections.emptyList();
         }
 
-        Map<String, Customer> customerByCode = new LinkedHashMap<>();
-        Map<String, String> identifierToCode = new LinkedHashMap<>();
-        Set<String> identifiers = new LinkedHashSet<>();
-        Set<String> customerCodes = new LinkedHashSet<>();
-        Map<String, Integer> reconciliationDayMap = new HashMap<>();
-        Map<String, String> reconciliationBasisMap = new HashMap<>();
+        Set<String> scoped = null;
+        if (scopedCustomerCodes != null && !scopedCustomerCodes.isEmpty()) {
+            scoped = scopedCustomerCodes.stream()
+                    .filter(this::hasText)
+                    .map(String::trim)
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+        }
 
-        LocalDate globalStart = null;
-        LocalDate globalEnd = null;
+        Map<String, Customer> customerByCode = new LinkedHashMap<>();
+        Set<String> customerCodes = new LinkedHashSet<>();
         for (Customer customer : customers) {
             if (customer == null || !hasText(customer.getCustomerCode())) {
                 continue;
             }
             String code = customer.getCustomerCode().trim();
+            if (scoped != null && !scoped.contains(code)) {
+                continue;
+            }
             customerByCode.put(code, customer);
             customerCodes.add(code);
-
-            int reconciliationDay = resolveEffectiveReconciliationDay(customer, code);
-            String reconciliationBasis = normalizeReconciliationBasis(customer.getReconciliationBasis());
-            reconciliationDayMap.put(code, reconciliationDay);
-            reconciliationBasisMap.put(code, reconciliationBasis);
-
-            LocalDate periodStart = getStatementPeriodStart(month, reconciliationDay);
-            LocalDate periodEnd = getStatementPeriodEnd(month, reconciliationDay);
-            globalStart = globalStart == null || periodStart.isBefore(globalStart) ? periodStart : globalStart;
-            globalEnd = globalEnd == null || periodEnd.isAfter(globalEnd) ? periodEnd : globalEnd;
-
-            addCustomerIdentifier(code, code, identifiers, identifierToCode);
-            addCustomerIdentifier(code, customer.getCustomerName(), identifiers, identifierToCode);
-            addCustomerIdentifier(code, customer.getShortName(), identifiers, identifierToCode);
         }
 
-        if (customerByCode.isEmpty() || identifiers.isEmpty() || globalStart == null || globalEnd == null) {
+        if (customerByCode.isEmpty()) {
             return Collections.emptyList();
         }
 
@@ -367,111 +430,82 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
             aggregateMap.put(customerCode, new OverviewAggregate());
         }
 
-        // 1) 批量拉取发货明细并在内存聚合
-        String keyPlaceholders = buildPlaceholders(identifiers.size());
-        List<Object> deliveryArgs = new ArrayList<>(identifiers);
-        deliveryArgs.add(java.sql.Date.valueOf(globalStart));
-        deliveryArgs.add(java.sql.Date.valueOf(globalEnd));
-        deliveryArgs.add(month);
-        String deliverySql = "SELECT dn.customer AS customerKey, " +
-                "DATE_FORMAT(dn.delivery_date, '%Y-%m-%d') AS bizDate, " +
-                "dni.id AS noticeItemId, " +
-                "dn.status AS noticeStatus, " +
-                "COALESCE(dni.quantity, 0) AS quantity, " +
-                "COALESCE(dni.area_size, 0) AS areaSize, " +
-                "COALESCE(NULLIF(soi.unit, ''), '㎡') AS priceUnit, " +
-                "COALESCE(soi.unit_price, 0) AS unitPrice, " +
-                "soi.length AS length, " +
-                "soi.rolls AS orderItemRolls, " +
-                "soi.sqm AS orderItemSqm, " +
-                "soi.amount AS orderItemAmount, " +
-                "c.statement_month AS confirmedMonth " +
-                "FROM delivery_notice_items dni " +
-                "INNER JOIN delivery_notices dn ON dn.id = dni.notice_id " +
-                "LEFT JOIN sales_order_items soi ON dni.order_item_id = soi.id " +
-                "LEFT JOIN sales_statement_delivery_confirm c ON c.notice_item_id = dni.id AND c.is_deleted = 0 " +
-                "WHERE dn.is_deleted = 0 " +
-                "AND (dn.status IS NULL OR dn.status NOT IN ('cancelled', '已作废')) " +
-                "AND dn.customer IN (" + keyPlaceholders + ") " +
-                "AND ((dn.delivery_date BETWEEN ? AND ?) OR c.statement_month = ?)";
-        List<Map<String, Object>> deliveryRows = jdbcTemplate.queryForList(deliverySql, deliveryArgs.toArray());
-        // 诊断：检查是否存在对应 notice_item_id 在确认表中但被标记为已删除（is_deleted != 0）
-        try {
-            List<Long> drIds = new ArrayList<>();
-            for (Map<String, Object> r : deliveryRows) {
-                Long id = getLong(r.get("noticeItemId"));
-                if (id != null) drIds.add(id);
-            }
-            if (!drIds.isEmpty()) {
-                String ph = buildPlaceholders(drIds.size());
-                List<Object> qargs = new ArrayList<>(drIds);
-                List<Map<String, Object>> bad = jdbcTemplate.queryForList(
-                        "SELECT notice_item_id, statement_month, is_deleted FROM sales_statement_delivery_confirm WHERE notice_item_id IN (" + ph + ") AND is_deleted != 0",
-                        qargs.toArray()
-                );
-                if (bad != null && !bad.isEmpty()) {
-                    for (Map<String, Object> br : bad) {
-                        logger.warn("overview: found deleted confirm row notice_item_id={} statement_month={} is_deleted={}", br.get("notice_item_id"), br.get("statement_month"), br.get("is_deleted"));
-                    }
+        Map<String, Map<String, Object>> monthConfirmMap = new HashMap<>();
+        if (!customerCodes.isEmpty()) {
+            String confirmPlaceholders = buildPlaceholders(customerCodes.size());
+            List<Object> confirmArgs = new ArrayList<>();
+            confirmArgs.add(month);
+            confirmArgs.addAll(customerCodes);
+            List<Map<String, Object>> confirmRows = jdbcTemplate.queryForList(
+                    "SELECT customer_code AS customerCode, " +
+                            "IFNULL(sales_confirmed_by,'') AS salesConfirmedBy, " +
+                            "DATE_FORMAT(sales_confirmed_at, '%Y-%m-%d %H:%i:%s') AS salesConfirmedAt, " +
+                            "IFNULL(finance_confirmed_by,'') AS financeConfirmedBy, " +
+                            "DATE_FORMAT(finance_confirmed_at, '%Y-%m-%d %H:%i:%s') AS financeConfirmedAt " +
+                            "FROM sales_statement_month_confirm WHERE statement_month = ? AND customer_code IN (" + confirmPlaceholders + ")",
+                    confirmArgs.toArray()
+            );
+            for (Map<String, Object> row : confirmRows) {
+                String code = row.get("customerCode") == null ? "" : String.valueOf(row.get("customerCode")).trim();
+                if (hasText(code)) {
+                    monthConfirmMap.put(code, row);
                 }
             }
-        } catch (Exception ex) {
-            logger.warn("overview diagnostic query failed: {}", ex.getMessage());
         }
 
-        for (Map<String, Object> row : deliveryRows) {
-            String customerCode = resolveOverviewCustomerCode(row.get("customerKey"), identifierToCode);
-            if (!hasText(customerCode)) {
-                continue;
+        // 1) 按客户复用详情同口径计算（含拆分顺延/退货/计价规则），避免总览与详情不一致
+        for (Map.Entry<String, Customer> entry : customerByCode.entrySet()) {
+            String customerCode = entry.getKey();
+            Customer customer = entry.getValue();
+
+            Set<String> customerKeys = new LinkedHashSet<>();
+            customerKeys.add(customerCode);
+            if (customer != null) {
+                if (hasText(customer.getCustomerName())) {
+                    customerKeys.add(customer.getCustomerName().trim());
+                }
+                if (hasText(customer.getShortName())) {
+                    customerKeys.add(customer.getShortName().trim());
+                }
             }
 
-            String reconciliationBasis = reconciliationBasisMap.getOrDefault(customerCode, RECON_BASIS_SHIPPED);
-            if (RECON_BASIS_RECEIVED.equals(reconciliationBasis)
-                    && !isReceivedDeliveryStatus(String.valueOf(row.getOrDefault("noticeStatus", "")))) {
-                continue;
-            }
+            int reconciliationDay = resolveEffectiveReconciliationDay(customer, customerCode);
+            String reconciliationBasis = normalizeReconciliationBasis(customer == null ? null : customer.getReconciliationBasis());
+            boolean rpNaturalMonthLocked = isRpCustomer(customer, customerCode);
+            boolean excludeLegacyYearDeliveries = shouldExcludeLegacyYearDeliveries(customerCode, month);
+            LocalDate periodStart = getStatementPeriodStart(month, reconciliationDay);
+            LocalDate periodEnd = getStatementPeriodEnd(month, reconciliationDay);
 
-            String bizDate = row.get("bizDate") == null ? "" : String.valueOf(row.get("bizDate"));
-            if (!hasText(bizDate)) {
-                continue;
-            }
-            int reconciliationDay = reconciliationDayMap.getOrDefault(customerCode, 25);
-            String defaultMonth = resolveDefaultStatementMonth(bizDate, reconciliationDay);
-            String confirmedMonth = row.get("confirmedMonth") == null ? "" : String.valueOf(row.get("confirmedMonth")).trim();
-            boolean rpNaturalMonthLocked = isRpCustomerCode(customerCode);
-            String targetMonth = rpNaturalMonthLocked ? defaultMonth : (hasText(confirmedMonth) ? confirmedMonth : defaultMonth);
-            if (!month.equals(targetMonth)) {
-                continue;
-            }
+            List<Map<String, Object>> detailRows = new ArrayList<>();
+            detailRows.addAll(queryDeliveryRows(
+                    new ArrayList<>(customerKeys),
+                    month,
+                    periodStart,
+                    periodEnd,
+                    reconciliationDay,
+                    reconciliationBasis,
+                    rpNaturalMonthLocked,
+                    excludeLegacyYearDeliveries
+            ));
+            detailRows.addAll(queryReturnRows(new ArrayList<>(customerKeys), month, rpNaturalMonthLocked));
 
             OverviewAggregate agg = aggregateMap.computeIfAbsent(customerCode, k -> new OverviewAggregate());
-            agg.currentDeliveryCount++;
-            if (hasText(confirmedMonth)) {
-                agg.confirmedDeliveryCount++;
+            for (Map<String, Object> row : detailRows) {
+                if (!Boolean.TRUE.equals(row.get("includeInCurrentStatement"))) {
+                    continue;
+                }
+                String bizType = String.valueOf(row.getOrDefault("bizType", "")).trim();
+                BigDecimal amount = toDecimal(row.get("amount"));
+                if ("delivery".equals(bizType)) {
+                    agg.currentDeliveryCount++;
+                    if (Boolean.TRUE.equals(row.get("isConfirmed"))) {
+                        agg.confirmedDeliveryCount++;
+                    }
+                    agg.deliveryAmount = agg.deliveryAmount.add(amount);
+                } else if ("return".equals(bizType)) {
+                    agg.returnAmount = agg.returnAmount.add(amount);
+                }
             }
-            agg.deliveryAmount = agg.deliveryAmount.add(calculateDeliveryAmount(row));
-        }
-
-        // 2) 批量拉取当月退货金额并聚合
-        List<Object> returnArgs = new ArrayList<>();
-        returnArgs.add(month);
-        returnArgs.add(month);
-        returnArgs.addAll(identifiers);
-        String returnSql = "SELECT sro.customer AS customerKey, -COALESCE(sri.amount, 0) AS amount " +
-                "FROM sales_return_orders sro " +
-                "INNER JOIN sales_return_items sri ON sro.id = sri.return_id " +
-            "LEFT JOIN sales_statement_return_confirm rc ON rc.return_item_id = sri.id AND rc.is_deleted = 0 " +
-                "WHERE sro.is_deleted = 0 AND sri.is_deleted = 0 " +
-            "AND (sro.statement_month = ? OR rc.statement_month = ?) " +
-                "AND sro.customer IN (" + keyPlaceholders + ")";
-        List<Map<String, Object>> returnRows = jdbcTemplate.queryForList(returnSql, returnArgs.toArray());
-        for (Map<String, Object> row : returnRows) {
-            String customerCode = resolveOverviewCustomerCode(row.get("customerKey"), identifierToCode);
-            if (!hasText(customerCode)) {
-                continue;
-            }
-            OverviewAggregate agg = aggregateMap.computeIfAbsent(customerCode, k -> new OverviewAggregate());
-            agg.returnAmount = agg.returnAmount.add(toDecimal(row.get("amount")));
         }
 
         // 3) 批量拉取当月开票金额
@@ -494,6 +528,31 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
             }
         }
 
+        // 4) 批量拉取历史欠账/开票汇总，确保与详情页期末应付口径一致
+        Map<String, BigDecimal> historyUnpaidMap = new HashMap<>();
+        Map<String, BigDecimal> historyInvoiceMap = new HashMap<>();
+        if (!customerCodes.isEmpty()) {
+            String codePlaceholders = buildPlaceholders(customerCodes.size());
+            List<Object> historyArgs = new ArrayList<>();
+            historyArgs.add(month);
+            historyArgs.addAll(customerCodes);
+            String historySql = "SELECT customer_code AS customerCode, " +
+                    "COALESCE(SUM(unpaid_amount), 0) AS totalUnpaid, " +
+                    "COALESCE(SUM(invoice_amount), 0) AS totalInvoice " +
+                    "FROM sales_statement_history " +
+                    "WHERE is_deleted = 0 AND statement_month <= ? AND customer_code IN (" + codePlaceholders + ") " +
+                    "GROUP BY customer_code";
+            List<Map<String, Object>> historyRows = jdbcTemplate.queryForList(historySql, historyArgs.toArray());
+            for (Map<String, Object> row : historyRows) {
+                String code = row.get("customerCode") == null ? "" : String.valueOf(row.get("customerCode")).trim();
+                if (!hasText(code)) {
+                    continue;
+                }
+                historyUnpaidMap.put(code, toDecimal(row.get("totalUnpaid")).setScale(2, RoundingMode.HALF_UP));
+                historyInvoiceMap.put(code, toDecimal(row.get("totalInvoice")).setScale(2, RoundingMode.HALF_UP));
+            }
+        }
+
         List<Map<String, Object>> rows = new ArrayList<>();
         for (Map.Entry<String, Customer> entry : customerByCode.entrySet()) {
             String customerCode = entry.getKey();
@@ -502,7 +561,6 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
 
             BigDecimal statementAmount = agg.deliveryAmount.add(agg.returnAmount).setScale(2, RoundingMode.HALF_UP);
             int pendingDeliveryCount = Math.max(0, agg.currentDeliveryCount - agg.confirmedDeliveryCount);
-            String reconciliationStatus = (pendingDeliveryCount == 0) ? "RECONCILED" : "UNRECONCILED";
 
             Map<String, Object> row = new HashMap<>();
             row.put("customerCode", customerCode);
@@ -511,14 +569,151 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
             row.put("statementAmount", statementAmount);
             row.put("invoiceAmount", invoiceMap.getOrDefault(customerCode, BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP)));
             row.put("receivedAmount", BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP));
-            row.put("reconciliationStatus", reconciliationStatus);
-            row.put("reconciliationStatusLabel", "RECONCILED".equals(reconciliationStatus) ? "已对账" : "未对账");
+            BigDecimal historyUnpaid = historyUnpaidMap.getOrDefault(customerCode, BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP));
+            BigDecimal historyInvoice = historyInvoiceMap.getOrDefault(customerCode, BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP));
+            BigDecimal totalBalance = statementAmount.add(historyUnpaid).subtract(historyInvoice).setScale(2, RoundingMode.HALF_UP);
+            row.put("totalBalance", totalBalance);
             row.put("pendingDeliveryCount", pendingDeliveryCount);
             row.put("confirmedDeliveryCount", agg.confirmedDeliveryCount);
             row.put("currentDeliveryCount", agg.currentDeliveryCount);
+
+            Map<String, Object> confirm = monthConfirmMap.get(customerCode);
+            String salesConfirmedBy = confirm == null ? "" : safeTrim(String.valueOf(confirm.getOrDefault("salesConfirmedBy", "")));
+            String salesConfirmedAt = confirm == null ? "" : safeTrim(String.valueOf(confirm.getOrDefault("salesConfirmedAt", "")));
+            String financeConfirmedBy = confirm == null ? "" : safeTrim(String.valueOf(confirm.getOrDefault("financeConfirmedBy", "")));
+            String financeConfirmedAt = confirm == null ? "" : safeTrim(String.valueOf(confirm.getOrDefault("financeConfirmedAt", "")));
+            row.put("salesConfirmedBy", salesConfirmedBy);
+            row.put("salesConfirmedAt", salesConfirmedAt);
+            row.put("financeConfirmedBy", financeConfirmedBy);
+            row.put("financeConfirmedAt", financeConfirmedAt);
+            boolean financeConfirmed = hasText(financeConfirmedAt);
+            boolean salesConfirmed = hasText(salesConfirmedAt);
+            row.put("reconciliationStatus", financeConfirmed ? "RECONCILED" : "UNRECONCILED");
+            
+            if (financeConfirmed) {
+                row.put("reconciliationStatusLabel", "财务已确认");
+            } else if (salesConfirmed) {
+                row.put("reconciliationStatusLabel", "待财务确认");
+            } else {
+                row.put("reconciliationStatusLabel", pendingDeliveryCount == 0 ? "已对账" : "未对账");
+            }
+
+            if (hasText(financeConfirmedAt)) {
+                row.put("confirmStage", "FINANCE");
+            } else if (hasText(salesConfirmedAt)) {
+                row.put("confirmStage", "SALES");
+            } else {
+                row.put("confirmStage", "UNCONFIRMED");
+            }
             rows.add(row);
         }
         return rows;
+    }
+
+    private Set<String> loadSalesConfirmedCustomerCodes(String month) {
+        if (!hasText(month)) {
+            return Collections.emptySet();
+        }
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                "SELECT DISTINCT customer_code AS customerCode FROM sales_statement_month_confirm " +
+                        "WHERE statement_month = ? AND sales_confirmed_at IS NOT NULL",
+                month.trim()
+        );
+        Set<String> result = new LinkedHashSet<>();
+        for (Map<String, Object> row : rows) {
+            String code = row == null ? "" : safeTrim(String.valueOf(row.getOrDefault("customerCode", "")));
+            if (hasText(code)) {
+                result.add(code);
+            }
+        }
+        return result;
+    }
+
+    private void appendAutoPreviousMonthHistory(List<SalesStatementHistory> histories, String customerCode, String month) {
+        if (histories == null || !hasText(customerCode) || !hasText(month)) {
+            return;
+        }
+
+        BigDecimal totalUnpaid = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        try {
+            BigDecimal orderUnpaid = jdbcTemplate.queryForObject(
+                    "SELECT COALESCE(SUM(unpaid_amount), 0) FROM finance_ar_order_payment_status WHERE is_deleted = 0 AND customer_code = ?",
+                    BigDecimal.class,
+                    customerCode.trim()
+            );
+            BigDecimal historyUnpaid = jdbcTemplate.queryForObject(
+                    "SELECT COALESCE(SUM(unpaid_amount), 0) FROM sales_statement_history WHERE is_deleted = 0 AND customer_code = ?",
+                    BigDecimal.class,
+                    customerCode.trim()
+            );
+            if (orderUnpaid != null) {
+                totalUnpaid = totalUnpaid.add(orderUnpaid);
+            }
+            if (historyUnpaid != null) {
+                totalUnpaid = totalUnpaid.add(historyUnpaid);
+            }
+        } catch (Exception ex) {
+            // ignore and continue
+        }
+        if (totalUnpaid.compareTo(BigDecimal.ZERO) <= 0) {
+            return;
+        }
+        String previousMonth;
+        try {
+            previousMonth = YearMonth.parse(month.trim()).minusMonths(1).toString();
+        } catch (Exception ex) {
+            return;
+        }
+
+        boolean exists = histories.stream()
+                .anyMatch(h -> h != null && hasText(h.getStatementMonth()) && previousMonth.equals(h.getStatementMonth().trim()));
+        if (exists) {
+            return;
+        }
+
+        Set<String> scopedCustomerCodes = new LinkedHashSet<>();
+        scopedCustomerCodes.add(customerCode.trim());
+        List<Map<String, Object>> previousRows = getOrBuildOverviewRows(
+            buildOverviewCacheKey(previousMonth),
+            previousMonth,
+            scopedCustomerCodes,
+            false
+        );
+        if (previousRows == null || previousRows.isEmpty()) {
+            return;
+        }
+        Map<String, Object> matched = null;
+        for (Map<String, Object> row : previousRows) {
+            String code = row == null ? "" : safeTrim(String.valueOf(row.getOrDefault("customerCode", "")));
+            if (customerCode.equals(code)) {
+                matched = row;
+                break;
+            }
+        }
+        if (matched == null) {
+            return;
+        }
+
+        BigDecimal statementAmount = toDecimal(matched.get("statementAmount")).setScale(2, RoundingMode.HALF_UP);
+        if (statementAmount.compareTo(BigDecimal.ZERO) == 0) {
+            return;
+        }
+
+        SalesStatementHistory autoHistory = new SalesStatementHistory();
+        autoHistory.setId(-1L);
+        autoHistory.setCustomerCode(customerCode);
+        autoHistory.setStatementMonth(previousMonth);
+        autoHistory.setUnpaidAmount(statementAmount);
+        autoHistory.setInvoiceAmount(BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP));
+        autoHistory.setInvoiceDate(null);
+        autoHistory.setRemark("系统带出-上月对账金额");
+        autoHistory.setCreatedBy("system");
+        autoHistory.setUpdatedBy("system");
+        autoHistory.setCreatedAt(new Date());
+        autoHistory.setUpdatedAt(new Date());
+        autoHistory.setIsDeleted(0);
+        histories.add(autoHistory);
+        histories.sort(Comparator.comparing(SalesStatementHistory::getStatementMonth).reversed());
     }
 
     private static class OverviewAggregate {
@@ -624,6 +819,7 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
                     new LambdaQueryWrapper<SalesStatementHistory>()
                             .eq(SalesStatementHistory::getCustomerCode, customerCode.trim())
                             .eq(SalesStatementHistory::getIsDeleted, 0)
+                        .gt(SalesStatementHistory::getUnpaidAmount, BigDecimal.ZERO)
                             .orderByDesc(SalesStatementHistory::getStatementMonth)
                             .orderByDesc(SalesStatementHistory::getInvoiceDate)
             );
@@ -684,9 +880,43 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
     }
 
     @Override
+    public ResponseResult<?> adminRollbackFinanceConfirm(String customerCode, String month) {
+        try {
+            ensureStatementMonthConfirmTable();
+            if (!hasText(customerCode) || !hasText(month)) {
+                return new ResponseResult<>(400, "客户和月份不能为空", null);
+            }
+            if (!month.matches("\\d{4}-\\d{2}")) {
+                return new ResponseResult<>(400, "月份格式应为yyyy-MM", null);
+            }
+            if (!canAccessCustomer(customerCode)) {
+                return new ResponseResult<>(403, "无权限操作该客户", null);
+            }
+
+            Map<String, Object> info = loadStatementMonthConfirmInfo(customerCode.trim(), month.trim());
+            boolean financeConfirmed = hasText(String.valueOf(info.getOrDefault("financeConfirmedAt", "")).trim());
+            if (!financeConfirmed) {
+                return new ResponseResult<>(400, "该对账单未财务确认，无需回退", null);
+            }
+
+            jdbcTemplate.update(
+                    "UPDATE sales_statement_month_confirm SET finance_confirmed_by = NULL, finance_confirmed_at = NULL, updated_at = NOW() WHERE customer_code = ? AND statement_month = ?",
+                    customerCode.trim(),
+                    month.trim()
+            );
+            clearOverviewCache();
+            return new ResponseResult<>(200, "已回退财务确认", null);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return new ResponseResult<>(500, "回退财务确认失败: " + e.getMessage(), null);
+        }
+    }
+
+    @Override
     public ResponseResult<?> saveHistory(SalesStatementHistory history) {
         try {
             ensureHistoryTable();
+            ensureStatementMonthConfirmTable();
             if (history == null || !hasText(history.getCustomerCode())) {
                 return new ResponseResult<>(400, "客户不能为空", null);
             }
@@ -695,6 +925,9 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
             }
             if (!hasText(history.getStatementMonth()) || !history.getStatementMonth().matches("\\d{4}-\\d{2}")) {
                 return new ResponseResult<>(400, "对账月份格式应为yyyy-MM", null);
+            }
+            if (isStatementMonthFinanceConfirmed(history.getCustomerCode(), history.getStatementMonth())) {
+                return new ResponseResult<>(400, "对账已财务确认，历史台账不可修改", null);
             }
             history.setCustomerCode(history.getCustomerCode().trim());
             history.setStatementMonth(history.getStatementMonth().trim());
@@ -732,6 +965,7 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
     public ResponseResult<?> deleteHistory(Long id) {
         try {
             ensureHistoryTable();
+            ensureStatementMonthConfirmTable();
             if (id == null) {
                 return new ResponseResult<>(400, "ID不能为空", null);
             }
@@ -741,6 +975,9 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
             }
             if (!canAccessCustomer(existing.getCustomerCode())) {
                 return new ResponseResult<>(403, "无权限操作该客户", null);
+            }
+            if (isStatementMonthFinanceConfirmed(existing.getCustomerCode(), existing.getStatementMonth())) {
+                return new ResponseResult<>(400, "对账已财务确认，历史台账不可修改", null);
             }
             existing.setIsDeleted(1);
             existing.setUpdatedAt(new Date());
@@ -760,6 +997,8 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
         try {
             ensureDeliveryConfirmTable();
             ensureDeliverySplitTable();
+            ensureStatementMonthConfirmTable();
+            ensureStatementChangeAuditTable();
             if (request == null || !hasText(request.getCustomerCode()) || !hasText(request.getMonth())) {
                 return new ResponseResult<>(400, "客户和月份不能为空", null);
             }
@@ -771,146 +1010,396 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
             }
             Customer customer = customerMapper.selectByCustomerCode(request.getCustomerCode().trim());
             boolean rpNaturalMonthLocked = isRpCustomer(customer, request.getCustomerCode());
-            List<SalesReconciliationConfirmRequest.DeliveryConfirmItem> details = request.getDetails();
-            if (details == null || details.isEmpty()) {
-                return new ResponseResult<>(200, "无变更", null);
+            String operator = getCurrentUsername();
+            LoginUser loginUser = getLoginUser();
+            boolean financeOperator = loginUser != null && isFinanceUser(loginUser);
+
+            Map<String, Object> monthConfirmInfo = loadStatementMonthConfirmInfo(request.getCustomerCode().trim(), request.getMonth().trim());
+            boolean salesAlreadyConfirmed = hasText(String.valueOf(monthConfirmInfo.getOrDefault("salesConfirmedAt", "")).trim());
+            boolean financeAlreadyConfirmed = hasText(String.valueOf(monthConfirmInfo.getOrDefault("financeConfirmedAt", "")).trim());
+            if (financeAlreadyConfirmed) {
+                return new ResponseResult<>(400, "已财务确认，禁止修改对账明细", null);
+            }
+            if (financeOperator && !salesAlreadyConfirmed) {
+                return new ResponseResult<>(400, "请先由销售确认，再进行财务确认", null);
             }
 
-            String operator = getCurrentUsername();
+            boolean overrideSalesDetails = Boolean.TRUE.equals(request.getOverrideSalesDetails());
+            boolean skipDetailPersistence = financeOperator && salesAlreadyConfirmed && !overrideSalesDetails;
+
+            List<SalesReconciliationConfirmRequest.DeliveryConfirmItem> details = request.getDetails();
+            if (details == null || details.isEmpty()) {
+                if (skipDetailPersistence) {
+                    details = Collections.emptyList();
+                } else {
+                    return new ResponseResult<>(200, "无变更", null);
+                }
+            }
+
+                String auditAction = financeOperator
+                    ? (skipDetailPersistence ? "FINANCE_CONFIRM_NO_CHANGE" : "FINANCE_CONFIRM_OVERRIDE")
+                    : "SALES_CONFIRM";
+                List<Map<String, Object>> beforeSnapshot = (financeOperator && overrideSalesDetails)
+                    ? loadPersistedAssignmentSnapshot(request.getCustomerCode().trim(), request.getMonth().trim())
+                    : Collections.emptyList();
+
             Set<String> touchedOrders = new LinkedHashSet<>();
             Map<Long, Map<String, SalesReconciliationConfirmRequest.DeliveryConfirmItem>> grouped = new LinkedHashMap<>();
 
-            for (SalesReconciliationConfirmRequest.DeliveryConfirmItem item : details) {
-                if (item == null || item.getNoticeItemId() == null || !hasText(item.getTargetMonth())) {
-                    continue;
+            if (!skipDetailPersistence) {
+                for (SalesReconciliationConfirmRequest.DeliveryConfirmItem item : details) {
+                    if (item == null || item.getNoticeItemId() == null || !hasText(item.getTargetMonth())) {
+                        continue;
+                    }
+                    if (!item.getTargetMonth().matches("\\d{4}-\\d{2}")) {
+                        continue;
+                    }
+                    if (rpNaturalMonthLocked && !request.getMonth().trim().equals(item.getTargetMonth().trim())) {
+                        return new ResponseResult<>(400, "RP客户固定自然月，不能调整到下月", null);
+                    }
+                    Long noticeItemId = item.getNoticeItemId();
+                    String targetMonth = item.getTargetMonth().trim();
+                    grouped.computeIfAbsent(noticeItemId, k -> new LinkedHashMap<>());
+                    SalesReconciliationConfirmRequest.DeliveryConfirmItem existing = grouped.get(noticeItemId).get(targetMonth);
+                    if (existing == null) {
+                        grouped.get(noticeItemId).put(targetMonth, item);
+                    } else {
+                        existing.setSplitQuantity(toDecimal(existing.getSplitQuantity()).add(toDecimal(item.getSplitQuantity())));
+                        existing.setSplitArea(toDecimal(existing.getSplitArea()).add(toDecimal(item.getSplitArea())));
+                        existing.setSplitAmount(toDecimal(existing.getSplitAmount()).add(toDecimal(item.getSplitAmount())));
+                    }
                 }
-                if (!item.getTargetMonth().matches("\\d{4}-\\d{2}")) {
-                    continue;
+
+                for (Map.Entry<Long, Map<String, SalesReconciliationConfirmRequest.DeliveryConfirmItem>> entry : grouped.entrySet()) {
+                    Long noticeItemId = entry.getKey();
+                    Map<String, SalesReconciliationConfirmRequest.DeliveryConfirmItem> monthMap = entry.getValue();
+                    if (noticeItemId == null || monthMap == null || monthMap.isEmpty()) {
+                        continue;
+                    }
+
+                    if (monthMap.size() <= 1) {
+                        SalesReconciliationConfirmRequest.DeliveryConfirmItem only = monthMap.values().iterator().next();
+                        String targetMonth = only.getTargetMonth().trim();
+                        jdbcTemplate.update(
+                                "INSERT INTO sales_statement_delivery_confirm (notice_item_id, statement_month, updated_by, updated_at, is_deleted) " +
+                                        "VALUES (?, ?, ?, NOW(), 0) " +
+                                        "ON DUPLICATE KEY UPDATE statement_month = VALUES(statement_month), updated_by = VALUES(updated_by), updated_at = NOW(), is_deleted = 0",
+                                noticeItemId, targetMonth, operator
+                        );
+                        jdbcTemplate.update(
+                                "UPDATE sales_statement_delivery_split SET is_deleted = 1, updated_by = ?, updated_at = NOW() WHERE notice_item_id = ? AND is_deleted = 0",
+                                operator,
+                                noticeItemId
+                        );
+                    } else {
+                        // 跨月拆分：改用拆分表持久化，确认表标记为删除避免单月覆盖
+                        jdbcTemplate.update(
+                                "UPDATE sales_statement_delivery_confirm SET is_deleted = 1, updated_by = ?, updated_at = NOW() WHERE notice_item_id = ?",
+                                operator,
+                                noticeItemId
+                        );
+
+                        Set<String> activeMonths = new LinkedHashSet<>();
+                        for (SalesReconciliationConfirmRequest.DeliveryConfirmItem item : monthMap.values()) {
+                            String targetMonth = item.getTargetMonth().trim();
+                            activeMonths.add(targetMonth);
+                            jdbcTemplate.update(
+                                    "INSERT INTO sales_statement_delivery_split (notice_item_id, statement_month, split_quantity, split_area, split_amount, updated_by, updated_at, is_deleted) " +
+                                            "VALUES (?, ?, ?, ?, ?, ?, NOW(), 0) " +
+                                            "ON DUPLICATE KEY UPDATE split_quantity = VALUES(split_quantity), split_area = VALUES(split_area), split_amount = VALUES(split_amount), updated_by = VALUES(updated_by), updated_at = NOW(), is_deleted = 0",
+                                    noticeItemId,
+                                    targetMonth,
+                                    toDecimal(item.getSplitQuantity()).setScale(2, RoundingMode.HALF_UP),
+                                    toDecimal(item.getSplitArea()).setScale(2, RoundingMode.HALF_UP),
+                                    toDecimal(item.getSplitAmount()).setScale(2, RoundingMode.HALF_UP),
+                                    operator
+                            );
+                        }
+
+                        if (!activeMonths.isEmpty()) {
+                            String placeholders = buildPlaceholders(activeMonths.size());
+                            List<Object> deleteArgs = new ArrayList<>();
+                            deleteArgs.add(operator);
+                            deleteArgs.add(noticeItemId);
+                            deleteArgs.addAll(activeMonths);
+                            jdbcTemplate.update(
+                                    "UPDATE sales_statement_delivery_split SET is_deleted = 1, updated_by = ?, updated_at = NOW() " +
+                                            "WHERE notice_item_id = ? AND is_deleted = 0 AND statement_month NOT IN (" + placeholders + ")",
+                                    deleteArgs.toArray()
+                            );
+                        }
+                    }
+
+                    List<Map<String, Object>> orderRows = jdbcTemplate.queryForList(
+                            "SELECT dn.order_no AS orderNo FROM delivery_notice_items dni " +
+                                    "INNER JOIN delivery_notices dn ON dn.id = dni.notice_id " +
+                                    "WHERE dni.id = ? AND dn.is_deleted = 0",
+                            noticeItemId
+                    );
+                    if (!orderRows.isEmpty()) {
+                        String orderNo = String.valueOf(orderRows.get(0).get("orderNo"));
+                        if (hasText(orderNo)) {
+                            touchedOrders.add(orderNo.trim());
+                        }
+                    }
                 }
-                if (rpNaturalMonthLocked && !request.getMonth().trim().equals(item.getTargetMonth().trim())) {
-                    return new ResponseResult<>(400, "RP客户固定自然月，不能调整到下月", null);
-                }
-                Long noticeItemId = item.getNoticeItemId();
-                String targetMonth = item.getTargetMonth().trim();
-                grouped.computeIfAbsent(noticeItemId, k -> new LinkedHashMap<>());
-                SalesReconciliationConfirmRequest.DeliveryConfirmItem existing = grouped.get(noticeItemId).get(targetMonth);
-                if (existing == null) {
-                    grouped.get(noticeItemId).put(targetMonth, item);
-                } else {
-                    existing.setSplitQuantity(toDecimal(existing.getSplitQuantity()).add(toDecimal(item.getSplitQuantity())));
-                    existing.setSplitArea(toDecimal(existing.getSplitArea()).add(toDecimal(item.getSplitArea())));
-                    existing.setSplitAmount(toDecimal(existing.getSplitAmount()).add(toDecimal(item.getSplitAmount())));
+            } else {
+                touchedOrders.addAll(loadTouchedOrdersFromPersistedDetails(request.getCustomerCode().trim(), request.getMonth().trim()));
+            }
+
+            if (financeOperator) {
+                for (String orderNo : touchedOrders) {
+                    Integer currentMonthCount = jdbcTemplate.queryForObject(
+                        "SELECT COUNT(DISTINCT dni.id) FROM delivery_notice_items dni " +
+                            "INNER JOIN delivery_notices dn ON dn.id = dni.notice_id " +
+                            "LEFT JOIN sales_statement_delivery_confirm c ON c.notice_item_id = dni.id AND c.is_deleted = 0 " +
+                            "LEFT JOIN sales_statement_delivery_split s ON s.notice_item_id = dni.id AND s.is_deleted = 0 " +
+                            "WHERE dn.order_no = ? AND dn.is_deleted = 0 AND (c.statement_month = ? OR s.statement_month = ?)",
+                        Integer.class,
+                        orderNo,
+                        request.getMonth().trim(),
+                        request.getMonth().trim()
+                    );
+                    if (currentMonthCount != null && currentMonthCount > 0) {
+                        jdbcTemplate.update(
+                                "UPDATE sales_orders SET status = '已对账', updated_at = NOW(), updated_by = ? WHERE order_no = ? AND is_deleted = 0",
+                                operator,
+                                orderNo
+                        );
+                    } else {
+                        jdbcTemplate.update(
+                                "UPDATE sales_orders SET status = '已发货', updated_at = NOW(), updated_by = ? " +
+                                        "WHERE order_no = ? AND is_deleted = 0 AND status = '已对账'",
+                                operator,
+                                orderNo
+                        );
+                    }
                 }
             }
 
-            for (Map.Entry<Long, Map<String, SalesReconciliationConfirmRequest.DeliveryConfirmItem>> entry : grouped.entrySet()) {
-                Long noticeItemId = entry.getKey();
-                Map<String, SalesReconciliationConfirmRequest.DeliveryConfirmItem> monthMap = entry.getValue();
-                if (noticeItemId == null || monthMap == null || monthMap.isEmpty()) {
-                    continue;
-                }
-
-                if (monthMap.size() <= 1) {
-                    SalesReconciliationConfirmRequest.DeliveryConfirmItem only = monthMap.values().iterator().next();
-                    String targetMonth = only.getTargetMonth().trim();
-                    jdbcTemplate.update(
-                            "INSERT INTO sales_statement_delivery_confirm (notice_item_id, statement_month, updated_by, updated_at, is_deleted) " +
-                                    "VALUES (?, ?, ?, NOW(), 0) " +
-                                    "ON DUPLICATE KEY UPDATE statement_month = VALUES(statement_month), updated_by = VALUES(updated_by), updated_at = NOW(), is_deleted = 0",
-                            noticeItemId, targetMonth, operator
-                    );
-                    jdbcTemplate.update(
-                            "UPDATE sales_statement_delivery_split SET is_deleted = 1, updated_by = ?, updated_at = NOW() WHERE notice_item_id = ? AND is_deleted = 0",
-                            operator,
-                            noticeItemId
-                    );
-                } else {
-                    // 跨月拆分：改用拆分表持久化，确认表标记为删除避免单月覆盖
-                    jdbcTemplate.update(
-                            "UPDATE sales_statement_delivery_confirm SET is_deleted = 1, updated_by = ?, updated_at = NOW() WHERE notice_item_id = ?",
-                            operator,
-                            noticeItemId
-                    );
-
-                    Set<String> activeMonths = new LinkedHashSet<>();
-                    for (SalesReconciliationConfirmRequest.DeliveryConfirmItem item : monthMap.values()) {
-                        String targetMonth = item.getTargetMonth().trim();
-                        activeMonths.add(targetMonth);
-                        jdbcTemplate.update(
-                                "INSERT INTO sales_statement_delivery_split (notice_item_id, statement_month, split_quantity, split_area, split_amount, updated_by, updated_at, is_deleted) " +
-                                        "VALUES (?, ?, ?, ?, ?, ?, NOW(), 0) " +
-                                        "ON DUPLICATE KEY UPDATE split_quantity = VALUES(split_quantity), split_area = VALUES(split_area), split_amount = VALUES(split_amount), updated_by = VALUES(updated_by), updated_at = NOW(), is_deleted = 0",
-                                noticeItemId,
-                                targetMonth,
-                                toDecimal(item.getSplitQuantity()).setScale(2, RoundingMode.HALF_UP),
-                                toDecimal(item.getSplitArea()).setScale(2, RoundingMode.HALF_UP),
-                                toDecimal(item.getSplitAmount()).setScale(2, RoundingMode.HALF_UP),
-                                operator
-                        );
-                    }
-
-                    if (!activeMonths.isEmpty()) {
-                        String placeholders = buildPlaceholders(activeMonths.size());
-                        List<Object> deleteArgs = new ArrayList<>();
-                        deleteArgs.add(operator);
-                        deleteArgs.add(noticeItemId);
-                        deleteArgs.addAll(activeMonths);
-                        jdbcTemplate.update(
-                                "UPDATE sales_statement_delivery_split SET is_deleted = 1, updated_by = ?, updated_at = NOW() " +
-                                        "WHERE notice_item_id = ? AND is_deleted = 0 AND statement_month NOT IN (" + placeholders + ")",
-                                deleteArgs.toArray()
-                        );
-                    }
-                }
-
-                List<Map<String, Object>> orderRows = jdbcTemplate.queryForList(
-                        "SELECT dn.order_no AS orderNo FROM delivery_notice_items dni " +
-                                "INNER JOIN delivery_notices dn ON dn.id = dni.notice_id " +
-                                "WHERE dni.id = ? AND dn.is_deleted = 0",
-                        noticeItemId
-                );
-                if (!orderRows.isEmpty()) {
-                    String orderNo = String.valueOf(orderRows.get(0).get("orderNo"));
-                    if (hasText(orderNo)) {
-                        touchedOrders.add(orderNo.trim());
-                    }
-                }
+            upsertStatementMonthConfirm(request.getCustomerCode().trim(), request.getMonth().trim(), operator, financeOperator);
+            if (financeOperator) {
+                syncArOrderPaymentFromFinanceConfirmedRows(request.getCustomerCode().trim(), request.getMonth().trim(), operator);
+                syncArOrderPaymentFromFinanceConfirmedReturnRows(request.getCustomerCode().trim(), request.getMonth().trim(), operator);
             }
 
-            for (String orderNo : touchedOrders) {
-                Integer currentMonthCount = jdbcTemplate.queryForObject(
-                    "SELECT COUNT(DISTINCT dni.id) FROM delivery_notice_items dni " +
-                        "INNER JOIN delivery_notices dn ON dn.id = dni.notice_id " +
-                        "LEFT JOIN sales_statement_delivery_confirm c ON c.notice_item_id = dni.id AND c.is_deleted = 0 " +
-                        "LEFT JOIN sales_statement_delivery_split s ON s.notice_item_id = dni.id AND s.is_deleted = 0 " +
-                        "WHERE dn.order_no = ? AND dn.is_deleted = 0 AND (c.statement_month = ? OR s.statement_month = ?)",
-                    Integer.class,
-                    orderNo,
+                List<Map<String, Object>> afterSnapshot = (financeOperator && overrideSalesDetails)
+                    ? loadPersistedAssignmentSnapshot(request.getCustomerCode().trim(), request.getMonth().trim())
+                    : Collections.emptyList();
+                saveStatementChangeAudit(
+                    request.getCustomerCode().trim(),
                     request.getMonth().trim(),
-                    request.getMonth().trim()
+                    operator,
+                    financeOperator ? "FINANCE" : "SALES",
+                    auditAction,
+                    overrideSalesDetails,
+                    details,
+                    beforeSnapshot,
+                    afterSnapshot
                 );
-                if (currentMonthCount != null && currentMonthCount > 0) {
-                    jdbcTemplate.update(
-                            "UPDATE sales_orders SET status = '已对账', updated_at = NOW(), updated_by = ? WHERE order_no = ? AND is_deleted = 0",
-                            operator,
-                            orderNo
-                    );
-                } else {
-                    jdbcTemplate.update(
-                            "UPDATE sales_orders SET status = '已发货', updated_at = NOW(), updated_by = ? " +
-                                    "WHERE order_no = ? AND is_deleted = 0 AND status = '已对账'",
-                            operator,
-                            orderNo
-                    );
-                }
-            }
 
             clearOverviewCache();
-            return new ResponseResult<>(200, "确认成功", null);
+            Map<String, Object> result = loadStatementMonthConfirmInfo(request.getCustomerCode().trim(), request.getMonth().trim());
+            result.put("confirmStage", financeOperator ? "FINANCE" : "SALES");
+            return new ResponseResult<>(200, financeOperator ? "财务确认成功" : "销售确认成功", result);
         } catch (Exception e) {
             e.printStackTrace();
             return new ResponseResult<>(500, "确认对账明细失败: " + e.getMessage(), null);
         }
+    }
+
+    private Set<String> loadTouchedOrdersFromPersistedDetails(String customerCode, String month) {
+        Set<String> result = new LinkedHashSet<>();
+        if (!hasText(customerCode) || !hasText(month)) {
+            return result;
+        }
+
+        Customer customer = customerMapper.selectByCustomerCode(customerCode.trim());
+        Set<String> customerKeys = new LinkedHashSet<>();
+        customerKeys.add(customerCode.trim());
+        if (customer != null) {
+            if (hasText(customer.getCustomerName())) {
+                customerKeys.add(customer.getCustomerName().trim());
+            }
+            if (hasText(customer.getShortName())) {
+                customerKeys.add(customer.getShortName().trim());
+            }
+        }
+        if (customerKeys.isEmpty()) {
+            return result;
+        }
+
+        String placeholders = buildPlaceholders(customerKeys.size());
+        List<Object> args = new ArrayList<>();
+        args.addAll(customerKeys);
+        args.add(month.trim());
+        args.add(month.trim());
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                "SELECT DISTINCT dn.order_no AS orderNo " +
+                        "FROM delivery_notice_items dni " +
+                        "INNER JOIN delivery_notices dn ON dn.id = dni.notice_id " +
+                        "LEFT JOIN sales_statement_delivery_confirm c ON c.notice_item_id = dni.id AND c.is_deleted = 0 " +
+                        "LEFT JOIN sales_statement_delivery_split s ON s.notice_item_id = dni.id AND s.is_deleted = 0 " +
+                        "WHERE dn.is_deleted = 0 AND dn.customer IN (" + placeholders + ") " +
+                        "AND (c.statement_month = ? OR s.statement_month = ?)",
+                args.toArray()
+        );
+        for (Map<String, Object> row : rows) {
+            String orderNo = row.get("orderNo") == null ? "" : String.valueOf(row.get("orderNo")).trim();
+            if (hasText(orderNo)) {
+                result.add(orderNo);
+            }
+        }
+        return result;
+    }
+
+    private void saveStatementChangeAudit(String customerCode,
+                                          String month,
+                                          String operator,
+                                          String operatorRole,
+                                          String actionType,
+                                          boolean overrideSalesDetails,
+                                          List<SalesReconciliationConfirmRequest.DeliveryConfirmItem> details,
+                                          List<Map<String, Object>> beforeSnapshot,
+                                          List<Map<String, Object>> afterSnapshot) {
+        try {
+            String submittedPayloadJson = buildConfirmItemsJson(details);
+            String beforeSnapshotJson = buildSnapshotJson(beforeSnapshot);
+            String afterSnapshotJson = buildSnapshotJson(afterSnapshot);
+            int detailCount = details == null ? 0 : details.size();
+            jdbcTemplate.update(
+                    "INSERT INTO sales_statement_change_audit(" +
+                            "customer_code, statement_month, operator, operator_role, action_type, " +
+                            "override_sales_details, detail_count, submitted_payload_json, before_snapshot_json, after_snapshot_json, created_at" +
+                            ") VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())",
+                    customerCode,
+                    month,
+                    operator,
+                    operatorRole,
+                    actionType,
+                    overrideSalesDetails ? 1 : 0,
+                    detailCount,
+                    submittedPayloadJson,
+                    beforeSnapshotJson,
+                    afterSnapshotJson
+            );
+        } catch (Exception ex) {
+            logger.warn("saveStatementChangeAudit failed, customerCode={}, month={}, actionType={}, err={}", customerCode, month, actionType, ex.getMessage());
+        }
+    }
+
+    private List<Map<String, Object>> loadPersistedAssignmentSnapshot(String customerCode, String month) {
+        if (!hasText(customerCode) || !hasText(month)) {
+            return Collections.emptyList();
+        }
+        Customer customer = customerMapper.selectByCustomerCode(customerCode.trim());
+        Set<String> customerKeys = new LinkedHashSet<>();
+        customerKeys.add(customerCode.trim());
+        if (customer != null) {
+            if (hasText(customer.getCustomerName())) {
+                customerKeys.add(customer.getCustomerName().trim());
+            }
+            if (hasText(customer.getShortName())) {
+                customerKeys.add(customer.getShortName().trim());
+            }
+        }
+        if (customerKeys.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        String placeholders = buildPlaceholders(customerKeys.size());
+        List<Object> args = new ArrayList<>();
+        args.add(month.trim());
+        args.addAll(customerKeys);
+        args.add(month.trim());
+        args.addAll(customerKeys);
+
+        String sql =
+                "SELECT c.notice_item_id AS noticeItemId, c.statement_month AS statementMonth, " +
+                        "COALESCE(dni.quantity, 0) AS splitQuantity, COALESCE(dni.area_size, 0) AS splitArea, NULL AS splitAmount, " +
+                        "'CONFIRM' AS sourceType " +
+                        "FROM sales_statement_delivery_confirm c " +
+                        "INNER JOIN delivery_notice_items dni ON dni.id = c.notice_item_id " +
+                        "INNER JOIN delivery_notices dn ON dn.id = dni.notice_id " +
+                        "WHERE c.is_deleted = 0 AND c.statement_month = ? AND dn.is_deleted = 0 AND dn.customer IN (" + placeholders + ") " +
+                        "UNION ALL " +
+                        "SELECT s.notice_item_id AS noticeItemId, s.statement_month AS statementMonth, " +
+                        "COALESCE(s.split_quantity, 0) AS splitQuantity, COALESCE(s.split_area, 0) AS splitArea, COALESCE(s.split_amount, 0) AS splitAmount, " +
+                        "'SPLIT' AS sourceType " +
+                        "FROM sales_statement_delivery_split s " +
+                        "INNER JOIN delivery_notice_items dni ON dni.id = s.notice_item_id " +
+                        "INNER JOIN delivery_notices dn ON dn.id = dni.notice_id " +
+                        "WHERE s.is_deleted = 0 AND s.statement_month = ? AND dn.is_deleted = 0 AND dn.customer IN (" + placeholders + ") " +
+                        "ORDER BY noticeItemId ASC, statementMonth ASC, sourceType ASC";
+        return jdbcTemplate.queryForList(sql, args.toArray());
+    }
+
+    private String buildConfirmItemsJson(List<SalesReconciliationConfirmRequest.DeliveryConfirmItem> details) {
+        if (details == null || details.isEmpty()) {
+            return "[]";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("[");
+        boolean first = true;
+        for (SalesReconciliationConfirmRequest.DeliveryConfirmItem item : details) {
+            if (item == null) {
+                continue;
+            }
+            if (!first) {
+                sb.append(",");
+            }
+            first = false;
+            sb.append("{")
+                    .append("\"noticeItemId\":").append(item.getNoticeItemId() == null ? "null" : item.getNoticeItemId())
+                    .append(",\"targetMonth\":").append(toJsonString(item.getTargetMonth()))
+                    .append(",\"splitQuantity\":").append(toDecimal(item.getSplitQuantity()).setScale(2, RoundingMode.HALF_UP).toPlainString())
+                    .append(",\"splitArea\":").append(toDecimal(item.getSplitArea()).setScale(2, RoundingMode.HALF_UP).toPlainString())
+                    .append(",\"splitAmount\":").append(toDecimal(item.getSplitAmount()).setScale(2, RoundingMode.HALF_UP).toPlainString())
+                    .append("}");
+        }
+        sb.append("]");
+        return sb.toString();
+    }
+
+    private String buildSnapshotJson(List<Map<String, Object>> snapshot) {
+        if (snapshot == null || snapshot.isEmpty()) {
+            return "[]";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("[");
+        boolean first = true;
+        for (Map<String, Object> row : snapshot) {
+            if (row == null) {
+                continue;
+            }
+            if (!first) {
+                sb.append(",");
+            }
+            first = false;
+            sb.append("{")
+                    .append("\"noticeItemId\":").append(getLong(row.get("noticeItemId")) == null ? "null" : getLong(row.get("noticeItemId")))
+                    .append(",\"statementMonth\":").append(toJsonString(String.valueOf(row.getOrDefault("statementMonth", ""))))
+                    .append(",\"splitQuantity\":").append(toDecimal(row.get("splitQuantity")).setScale(2, RoundingMode.HALF_UP).toPlainString())
+                    .append(",\"splitArea\":").append(toDecimal(row.get("splitArea")).setScale(2, RoundingMode.HALF_UP).toPlainString())
+                    .append(",\"splitAmount\":").append(toDecimal(row.get("splitAmount")).setScale(2, RoundingMode.HALF_UP).toPlainString())
+                    .append(",\"sourceType\":").append(toJsonString(String.valueOf(row.getOrDefault("sourceType", ""))))
+                    .append("}");
+        }
+        sb.append("]");
+        return sb.toString();
+    }
+
+    private String toJsonString(String value) {
+        if (value == null) {
+            return "null";
+        }
+        String escaped = value
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\r", "\\r")
+                .replace("\n", "\\n")
+                .replace("\t", "\\t");
+        return "\"" + escaped + "\"";
     }
 
     @Override
@@ -918,6 +1407,7 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
         try {
             ensureDeliveryConfirmTable();
             ensureDeliverySplitTable();
+            ensureStatementMonthConfirmTable();
             if (!hasText(customerCode) || !hasText(month)) {
                 return new ResponseResult<>(400, "客户和月份不能为空", null);
             }
@@ -926,6 +1416,9 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
             }
             if (!canAccessCustomer(customerCode)) {
                 return new ResponseResult<>(403, "无权限操作该客户", null);
+            }
+            if (isStatementMonthFinanceConfirmed(customerCode, month)) {
+                return new ResponseResult<>(400, "对账已财务确认，不可查询候选明细", null);
             }
 
             Customer customer = customerMapper.selectByCustomerCode(customerCode.trim());
@@ -942,6 +1435,8 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
 
             int reconciliationDay = resolveEffectiveReconciliationDay(customer, customerCode);
             LocalDate periodEnd = getStatementPeriodEnd(month, reconciliationDay);
+            boolean excludeLegacyYearDeliveries = shouldExcludeLegacyYearDeliveries(customerCode, month);
+            int targetYear = parseStatementYear(month);
             boolean orderSearch = hasText(orderNo);
 
             if (orderSearch) {
@@ -954,7 +1449,7 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
                     "dn.notice_no AS documentNo, " +
                     "COALESCE(NULLIF(dn.customer_order_no, ''), dn.order_no) AS orderNo, " +
                     "dni.material_code AS materialCode, " +
-                    "COALESCE(ts.product_name, '') AS materialName, " +
+                    "COALESCE(NULLIF(ts.product_name, ''), CONCAT('产品-', COALESCE(dni.material_code, '未知'))) AS materialName, " +
                     "COALESCE(NULLIF(dni.spec, ''), CONCAT(" +
                     "TRIM(TRAILING '.' FROM TRIM(TRAILING '0' FROM CAST(COALESCE(soi.thickness, 0) AS CHAR))), 'μm*', " +
                     "TRIM(TRAILING '.' FROM TRIM(TRAILING '0' FROM CAST(COALESCE(soi.width, 0) AS CHAR))), 'mm*', " +
@@ -965,8 +1460,8 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
                     "INNER JOIN delivery_notices dn ON dn.id = dni.notice_id " +
                     "LEFT JOIN sales_order_items soi ON dni.order_item_id = soi.id " +
                     "LEFT JOIN tape_spec ts ON " +
-                    "CONVERT(ts.material_code USING utf8mb4) COLLATE utf8mb4_unicode_ci = " +
-                    "CONVERT(dni.material_code USING utf8mb4) COLLATE utf8mb4_unicode_ci " +
+                    "TRIM(CONVERT(ts.material_code USING utf8mb4) COLLATE utf8mb4_unicode_ci) = " +
+                    "TRIM(CONVERT(dni.material_code USING utf8mb4) COLLATE utf8mb4_unicode_ci) " +
                     "LEFT JOIN sales_statement_delivery_confirm c ON c.notice_item_id = dni.id AND c.is_deleted = 0 " +
                     "LEFT JOIN sales_statement_delivery_split sp ON sp.notice_item_id = dni.id AND sp.is_deleted = 0 " +
                     "WHERE dn.is_deleted = 0 " +
@@ -1018,7 +1513,7 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
                     "dn.notice_no AS documentNo, " +
                     "COALESCE(NULLIF(dn.customer_order_no, ''), dn.order_no) AS orderNo, " +
                     "dni.material_code AS materialCode, " +
-                    "COALESCE(ts.product_name, '') AS materialName, " +
+                    "COALESCE(NULLIF(ts.product_name, ''), CONCAT('产品-', COALESCE(dni.material_code, '未知'))) AS materialName, " +
                     "COALESCE(NULLIF(dni.spec, ''), CONCAT(" +
                     "TRIM(TRAILING '.' FROM TRIM(TRAILING '0' FROM CAST(COALESCE(soi.thickness, 0) AS CHAR))), 'μm*', " +
                     "TRIM(TRAILING '.' FROM TRIM(TRAILING '0' FROM CAST(COALESCE(soi.width, 0) AS CHAR))), 'mm*', " +
@@ -1029,8 +1524,8 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
                     "INNER JOIN delivery_notices dn ON dn.id = dni.notice_id " +
                     "LEFT JOIN sales_order_items soi ON dni.order_item_id = soi.id " +
                     "LEFT JOIN tape_spec ts ON " +
-                    "CONVERT(ts.material_code USING utf8mb4) COLLATE utf8mb4_unicode_ci = " +
-                    "CONVERT(dni.material_code USING utf8mb4) COLLATE utf8mb4_unicode_ci " +
+                    "TRIM(CONVERT(ts.material_code USING utf8mb4) COLLATE utf8mb4_unicode_ci) = " +
+                    "TRIM(CONVERT(dni.material_code USING utf8mb4) COLLATE utf8mb4_unicode_ci) " +
                     "LEFT JOIN sales_statement_delivery_confirm c ON c.notice_item_id = dni.id AND c.is_deleted = 0 " +
                     "LEFT JOIN sales_statement_delivery_split sp ON sp.notice_item_id = dni.id AND sp.is_deleted = 0 " +
                     "WHERE dn.is_deleted = 0 " +
@@ -1047,6 +1542,18 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
                     month.trim()
                 );
                 }
+
+            if (excludeLegacyYearDeliveries && rows != null && !rows.isEmpty()) {
+                List<Map<String, Object>> filtered = new ArrayList<>();
+                for (Map<String, Object> row : rows) {
+                    String bizDate = row.get("bizDate") == null ? "" : String.valueOf(row.get("bizDate"));
+                    if (isBeforeTargetYear(bizDate, targetYear)) {
+                        continue;
+                    }
+                    filtered.add(row);
+                }
+                rows = filtered;
+            }
 
             for (Map<String, Object> row : rows) {
                 row.put("spec", resolveSpec(row));
@@ -1239,6 +1746,7 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
         try {
             ensureDeliveryConfirmTable();
             ensureDeliverySplitTable();
+            ensureStatementMonthConfirmTable();
             if (!hasText(customerCode) || !hasText(month)) {
                 return new ResponseResult<>(400, "客户和月份不能为空", null);
             }
@@ -1247,6 +1755,9 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
             }
             if (!canAccessCustomer(customerCode)) {
                 return new ResponseResult<>(403, "无权限操作该客户", null);
+            }
+            if (isStatementMonthFinanceConfirmed(customerCode, month)) {
+                return new ResponseResult<>(400, "对账已财务确认，禁止补充明细", null);
             }
 
             Customer customer = customerMapper.selectByCustomerCode(customerCode.trim());
@@ -1263,6 +1774,8 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
 
             int reconciliationDay = resolveEffectiveReconciliationDay(customer, customerCode);
             LocalDate periodEnd = getStatementPeriodEnd(month, reconciliationDay);
+                boolean excludeLegacyYearDeliveries = shouldExcludeLegacyYearDeliveries(customerCode, month);
+                int targetYear = parseStatementYear(month);
 
             String placeholders = buildPlaceholders(customerKeys.size());
             String sql = "SELECT dni.id AS noticeItemId FROM delivery_notice_items dni " +
@@ -1273,10 +1786,14 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
                     "AND (dn.status IS NULL OR dn.status NOT IN ('cancelled', '已作废')) " +
                     "AND dn.customer IN (" + placeholders + ") " +
                     "AND dn.delivery_date <= ? " +
+                        (excludeLegacyYearDeliveries ? "AND YEAR(dn.delivery_date) >= ? " : "") +
                     "AND c.notice_item_id IS NULL AND sp.notice_item_id IS NULL";
             List<Object> args = new ArrayList<>();
             args.addAll(customerKeys);
             args.add(java.sql.Date.valueOf(periodEnd));
+                    if (excludeLegacyYearDeliveries) {
+                    args.add(targetYear);
+                    }
             List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, args.toArray());
 
             String operator = getCurrentUsername();
@@ -1315,6 +1832,7 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
             ensureDeliveryConfirmTable();
             ensureDeliverySplitTable();
             ensureReturnConfirmTable();
+            ensureStatementMonthConfirmTable();
             if (!hasText(customerCode) || !hasText(month) || detailId == null) {
                 return new ResponseResult<>(400, "客户、月份和明细ID不能为空", null);
             }
@@ -1324,8 +1842,11 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
             if (!canAccessCustomer(customerCode)) {
                 return new ResponseResult<>(403, "无权限操作该客户", null);
             }
+            if (isStatementMonthFinanceConfirmed(customerCode, month)) {
+                return new ResponseResult<>(400, "对账已财务确认，禁止删除对账明细", null);
+            }
 
-                Customer customer = customerMapper.selectByCustomerCode(customerCode.trim());
+            Customer customer = customerMapper.selectByCustomerCode(customerCode.trim());
                 Set<String> customerKeys = new LinkedHashSet<>();
                 customerKeys.add(customerCode.trim());
                 if (customer != null) {
@@ -1399,21 +1920,21 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
                 }
 
             Map<String, Object> result = new HashMap<>();
-                result.put("detailId", detailId);
-                result.put("bizType", normalizedBizType);
+            result.put("detailId", detailId);
+            result.put("bizType", normalizedBizType);
             result.put("removedFromMonth", month.trim());
             result.put("movedToMonth", nextMonth);
             clearOverviewCache();
             return new ResponseResult<>(200, "已从当前对账月移除，已顺延到下月", result);
         } catch (Exception e) {
             e.printStackTrace();
-            return new ResponseResult<>(500, "删除对账明细失败: " + e.getMessage(), null);
+            return new ResponseResult<>(500, "移除对账明细失败: " + e.getMessage(), null);
         }
     }
 
-        @Override
-        @Transactional(rollbackFor = Exception.class)
-        public ResponseResult<?> migrateLegacyReceiptStatus(String cutoffDate) {
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ResponseResult<?> migrateLegacyReceiptStatus(String cutoffDate) {
         try {
             LocalDate cutoff = parseCutoffDate(cutoffDate);
             java.sql.Date cutoffSqlDate = java.sql.Date.valueOf(cutoff);
@@ -1480,7 +2001,7 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
         } catch (Exception e) {
             return new ResponseResult<>(500, "迁移失败: " + e.getMessage(), null);
         }
-        }
+    }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -1897,6 +2418,7 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
     public ResponseResult<?> initializeHistory(SalesStatementHistory history) {
         try {
             ensureHistoryTable();
+            ensureStatementMonthConfirmTable();
             if (history == null || !hasText(history.getCustomerCode())) {
                 return new ResponseResult<>(400, "客户不能为空", null);
             }
@@ -1905,6 +2427,9 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
             }
             if (!hasText(history.getStatementMonth()) || !history.getStatementMonth().matches("\\d{4}-\\d{2}")) {
                 return new ResponseResult<>(400, "对账月份格式应为yyyy-MM", null);
+            }
+            if (isStatementMonthFinanceConfirmed(history.getCustomerCode(), history.getStatementMonth())) {
+                return new ResponseResult<>(400, "对账已财务确认，不可操作", null);
             }
 
             SalesStatementHistory saved = upsertHistoryByMonth(
@@ -1960,7 +2485,7 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
         }
     }
 
-    private List<Map<String, Object>> queryDeliveryRows(List<String> customerKeys, String month, LocalDate periodStart, LocalDate periodEnd, int reconciliationDay, String reconciliationBasis, boolean rpNaturalMonthLocked) {
+    private List<Map<String, Object>> queryDeliveryRows(List<String> customerKeys, String month, LocalDate periodStart, LocalDate periodEnd, int reconciliationDay, String reconciliationBasis, boolean rpNaturalMonthLocked, boolean excludeLegacyYearDeliveries) {
         if (customerKeys == null || customerKeys.isEmpty()) {
             return Collections.emptyList();
         }
@@ -1975,7 +2500,7 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
                 "dn.order_no AS orderNo, " +
                 "COALESCE(dn.customer_order_no, so.customer_order_no, '') AS customerOrderNo, " +
                 "dni.material_code AS materialCode, " +
-                "COALESCE(ts.product_name, '') AS materialName, " +
+                "COALESCE(NULLIF(ts.product_name, ''), CONCAT('产品-', COALESCE(dni.material_code, '未知'))) AS materialName, " +
                 "COALESCE(NULLIF(dni.spec, ''), CONCAT(" +
                 "TRIM(TRAILING '.' FROM TRIM(TRAILING '0' FROM CAST(COALESCE(soi.thickness, 0) AS CHAR))), 'μm*', " +
                 "TRIM(TRAILING '.' FROM TRIM(TRAILING '0' FROM CAST(COALESCE(soi.width, 0) AS CHAR))), 'mm*', " +
@@ -1995,8 +2520,8 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
                 "LEFT JOIN delivery_notice_items dni ON dn.id = dni.notice_id " +
                 "LEFT JOIN sales_order_items soi ON dni.order_item_id = soi.id " +
             "LEFT JOIN tape_spec ts ON " +
-            "CONVERT(ts.material_code USING utf8mb4) COLLATE utf8mb4_unicode_ci = " +
-            "CONVERT(dni.material_code USING utf8mb4) COLLATE utf8mb4_unicode_ci " +
+            "TRIM(CONVERT(ts.material_code USING utf8mb4) COLLATE utf8mb4_unicode_ci) = " +
+            "TRIM(CONVERT(dni.material_code USING utf8mb4) COLLATE utf8mb4_unicode_ci) " +
                 "LEFT JOIN sales_orders so ON so.id = dn.order_id " +
                 "WHERE dn.is_deleted = 0 AND (dn.status IS NULL OR dn.status NOT IN ('cancelled', '已作废')) " +
                 deliveryStatusFilter +
@@ -2019,34 +2544,15 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
         }
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, args.toArray());
 
-        // 诊断：检查 queryDeliveryRows 返回的 rows 中是否有对应的已被标记为已删除的确认记录
-        try {
-            List<Long> ids = new ArrayList<>();
-            for (Map<String, Object> r : rows) {
-                Long id = getLong(r.get("noticeItemId"));
-                if (id != null) ids.add(id);
-            }
-            if (!ids.isEmpty()) {
-                String ph = buildPlaceholders(ids.size());
-                List<Object> qargs = new ArrayList<>(ids);
-                List<Map<String, Object>> deleted = jdbcTemplate.queryForList(
-                        "SELECT notice_item_id, statement_month, is_deleted FROM sales_statement_delivery_confirm WHERE notice_item_id IN (" + ph + ") AND is_deleted != 0",
-                        qargs.toArray()
-                );
-                if (deleted != null && !deleted.isEmpty()) {
-                    for (Map<String, Object> d : deleted) {
-                        logger.warn("queryDeliveryRows: found deleted confirm row notice_item_id={} statement_month={} is_deleted={}", d.get("notice_item_id"), d.get("statement_month"), d.get("is_deleted"));
-                    }
-                }
-            }
-        } catch (Exception ex) {
-            logger.warn("queryDeliveryRows diagnostic failed: {}", ex.getMessage());
-        }
-
         Map<Long, String> confirmedMonthMap = loadConfirmedStatementMonth(rows);
         Map<Long, List<Map<String, Object>>> splitMap = loadDeliverySplitRows(rows);
         List<Map<String, Object>> normalizedRows = new ArrayList<>();
+        int targetYear = parseStatementYear(month);
         for (Map<String, Object> row : rows) {
+            String bizDate = row.get("bizDate") == null ? "" : String.valueOf(row.get("bizDate"));
+            if (excludeLegacyYearDeliveries && isBeforeTargetYear(bizDate, targetYear)) {
+                continue;
+            }
             Long noticeItemId = getLong(row.get("noticeItemId"));
             String confirmedMonth = noticeItemId == null ? null : confirmedMonthMap.get(noticeItemId);
             String defaultMonth = resolveDefaultStatementMonth(String.valueOf(row.get("bizDate")), reconciliationDay);
@@ -2276,6 +2782,46 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
         return "㎡";
     }
 
+    private boolean shouldExcludeLegacyYearDeliveries(String customerCode, String month) {
+        if (!hasText(customerCode) || !hasText(month)) {
+            return false;
+        }
+        try {
+            Integer cnt = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(1) FROM sales_statement_history WHERE is_deleted = 0 AND customer_code = ? AND statement_month < ?",
+                    Integer.class,
+                    customerCode.trim(),
+                    month.trim()
+            );
+            return cnt != null && cnt > 0;
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    private int parseStatementYear(String month) {
+        if (!hasText(month) || month.length() < 4) {
+            return LocalDate.now().getYear();
+        }
+        try {
+            return Integer.parseInt(month.substring(0, 4));
+        } catch (Exception ex) {
+            return LocalDate.now().getYear();
+        }
+    }
+
+    private boolean isBeforeTargetYear(String bizDate, int targetYear) {
+        if (!hasText(bizDate) || bizDate.length() < 4) {
+            return false;
+        }
+        try {
+            int year = Integer.parseInt(bizDate.substring(0, 4));
+            return year < targetYear;
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
     private SalesStatementHistory upsertHistoryByMonth(String customerCode,
                                                        String statementMonth,
                                                        BigDecimal unpaidAmount,
@@ -2284,6 +2830,10 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
                                                        String remark,
                                                        String operator,
                                                        boolean appendRemark) {
+        if (isStatementMonthFinanceConfirmed(customerCode, statementMonth)) {
+            // 如果已财务确认，静默跳过（或根据需要抛出异常，但在批量导入中跳过较稳妥）
+            return null;
+        }
         List<SalesStatementHistory> exists = salesStatementHistoryMapper.selectList(
                 new LambdaQueryWrapper<SalesStatementHistory>()
                         .eq(SalesStatementHistory::getCustomerCode, customerCode)
@@ -2468,7 +3018,10 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
     }
 
     private String safeTrim(String text) {
-        return text == null ? "" : text.trim();
+        if (text == null || "null".equalsIgnoreCase(text.trim())) {
+            return "";
+        }
+        return text.trim();
     }
 
     private BigDecimal parseDecimal(String text) {
@@ -2544,6 +3097,470 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
             return;
         }
         throw new IllegalStateException("对账模块缺少退货明细确认表，请先执行版本化脚本: sql/V20260428_04__sales_statement_return_confirm.sql");
+    }
+
+    private void ensureStatementMonthConfirmTable() {
+        jdbcTemplate.execute(
+                "CREATE TABLE IF NOT EXISTS sales_statement_month_confirm (" +
+                        "id BIGINT PRIMARY KEY AUTO_INCREMENT," +
+                        "customer_code VARCHAR(64) NOT NULL," +
+                        "statement_month VARCHAR(7) NOT NULL," +
+                        "sales_confirmed_by VARCHAR(64) NULL," +
+                        "sales_confirmed_at DATETIME NULL," +
+                        "finance_confirmed_by VARCHAR(64) NULL," +
+                        "finance_confirmed_at DATETIME NULL," +
+                        "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP," +
+                        "updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP," +
+                        "UNIQUE KEY uk_customer_month (customer_code, statement_month)," +
+                        "KEY idx_statement_month (statement_month)" +
+                        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+        );
+    }
+
+    private void ensureStatementChangeAuditTable() {
+        jdbcTemplate.execute(
+                "CREATE TABLE IF NOT EXISTS sales_statement_change_audit (" +
+                        "id BIGINT PRIMARY KEY AUTO_INCREMENT," +
+                        "customer_code VARCHAR(64) NOT NULL," +
+                        "statement_month VARCHAR(7) NOT NULL," +
+                        "operator VARCHAR(64) DEFAULT NULL," +
+                        "operator_role VARCHAR(32) DEFAULT NULL," +
+                        "action_type VARCHAR(64) NOT NULL," +
+                        "override_sales_details TINYINT(1) NOT NULL DEFAULT 0," +
+                        "detail_count INT NOT NULL DEFAULT 0," +
+                        "submitted_payload_json LONGTEXT NULL," +
+                        "before_snapshot_json LONGTEXT NULL," +
+                        "after_snapshot_json LONGTEXT NULL," +
+                        "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP," +
+                        "KEY idx_customer_month (customer_code, statement_month)," +
+                        "KEY idx_created_at (created_at)" +
+                        ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+        );
+    }
+
+    private Map<String, Object> loadStatementMonthConfirmInfo(String customerCode, String month) {
+        Map<String, Object> result = new HashMap<>();
+        result.put("salesConfirmedBy", "");
+        result.put("salesConfirmedAt", "");
+        result.put("financeConfirmedBy", "");
+        result.put("financeConfirmedAt", "");
+        result.put("confirmStage", "UNCONFIRMED");
+
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                "SELECT IFNULL(sales_confirmed_by,'') AS salesConfirmedBy, " +
+                        "DATE_FORMAT(sales_confirmed_at, '%Y-%m-%d %H:%i:%s') AS salesConfirmedAt, " +
+                        "IFNULL(finance_confirmed_by,'') AS financeConfirmedBy, " +
+                        "DATE_FORMAT(finance_confirmed_at, '%Y-%m-%d %H:%i:%s') AS financeConfirmedAt " +
+                        "FROM sales_statement_month_confirm WHERE customer_code = ? AND statement_month = ? LIMIT 1",
+                customerCode,
+                month
+        );
+        if (!rows.isEmpty()) {
+            Map<String, Object> row = rows.get(0);
+            String salesConfirmedBy = safeTrim(String.valueOf(row.getOrDefault("salesConfirmedBy", "")));
+            String salesConfirmedAt = safeTrim(String.valueOf(row.getOrDefault("salesConfirmedAt", "")));
+            String financeConfirmedBy = safeTrim(String.valueOf(row.getOrDefault("financeConfirmedBy", "")));
+            String financeConfirmedAt = safeTrim(String.valueOf(row.getOrDefault("financeConfirmedAt", "")));
+            result.put("salesConfirmedBy", salesConfirmedBy);
+            result.put("salesConfirmedAt", salesConfirmedAt);
+            result.put("financeConfirmedBy", financeConfirmedBy);
+            result.put("financeConfirmedAt", financeConfirmedAt);
+            if (hasText(financeConfirmedAt)) {
+                result.put("confirmStage", "FINANCE");
+            } else if (hasText(salesConfirmedAt)) {
+                result.put("confirmStage", "SALES");
+            }
+        }
+        return result;
+    }
+
+    private boolean isStatementMonthFinanceConfirmed(String customerCode, String month) {
+        if (!hasText(customerCode) || !hasText(month)) {
+            return false;
+        }
+        ensureStatementMonthConfirmTable();
+        Map<String, Object> info = loadStatementMonthConfirmInfo(customerCode.trim(), month.trim());
+        return hasText(String.valueOf(info.getOrDefault("financeConfirmedAt", "")).trim());
+    }
+
+    private void upsertStatementMonthConfirm(String customerCode, String month, String operator, boolean financeOperator) {
+        if (financeOperator) {
+            jdbcTemplate.update(
+                    "INSERT INTO sales_statement_month_confirm(customer_code, statement_month, finance_confirmed_by, finance_confirmed_at, created_at, updated_at) " +
+                            "VALUES (?, ?, ?, NOW(), NOW(), NOW()) " +
+                            "ON DUPLICATE KEY UPDATE finance_confirmed_by = VALUES(finance_confirmed_by), finance_confirmed_at = NOW(), updated_at = NOW()",
+                    customerCode,
+                    month,
+                    operator
+            );
+            // 更新确认信息后清理 overview 缓存，确保前端总览能及时反映变更
+            clearOverviewCache();
+        } else {
+            jdbcTemplate.update(
+                    "INSERT INTO sales_statement_month_confirm(customer_code, statement_month, sales_confirmed_by, sales_confirmed_at, created_at, updated_at) " +
+                            "VALUES (?, ?, ?, NOW(), NOW(), NOW()) " +
+                            "ON DUPLICATE KEY UPDATE sales_confirmed_by = VALUES(sales_confirmed_by), sales_confirmed_at = NOW(), updated_at = NOW()",
+                    customerCode,
+                    month,
+                    operator
+            );
+            // 更新确认信息后清理 overview 缓存，确保前端总览能及时反映变更
+            clearOverviewCache();
+        }
+    }
+
+    private void syncArOrderPaymentFromFinanceConfirmedRows(String customerCode, String month, String operator) {
+        if (!tableExists("finance_ar_order_payment_status")) {
+            return;
+        }
+
+        List<Map<String, Object>> rows = getFinanceConfirmedDeliveryRows(customerCode, month);
+        for (Map<String, Object> row : rows) {
+            Long noticeItemId = getLong(row.get("noticeItemId"));
+            if (noticeItemId == null) {
+                continue;
+            }
+            String orderNo = String.valueOf(row.getOrDefault("orderNo", "")).trim();
+            if (!hasText(orderNo)) {
+                continue;
+            }
+
+            BigDecimal shipmentAmount = toDecimal(row.get("amount")).setScale(2, RoundingMode.HALF_UP);
+            if (shipmentAmount.compareTo(BigDecimal.ZERO) < 0) {
+                shipmentAmount = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+            }
+            Long orderItemId = getLong(row.get("orderItemId"));
+            LocalDate orderDateLocal = parseDate(String.valueOf(row.getOrDefault("bizDate", "")));
+            if (orderDateLocal == null) {
+                orderDateLocal = LocalDate.now();
+            }
+            java.sql.Date orderDate = java.sql.Date.valueOf(orderDateLocal);
+            LocalDate shipmentDateLocal = parseDate(String.valueOf(row.getOrDefault("bizDate", "")));
+            java.sql.Date shipmentDate = shipmentDateLocal == null ? null : java.sql.Date.valueOf(shipmentDateLocal);
+
+            String token = "SALES_NOTICE_ITEM:" + noticeItemId;
+            List<Map<String, Object>> existingRows = jdbcTemplate.queryForList(
+                    "SELECT id, IFNULL(paid_amount,0) AS paidAmount FROM finance_ar_order_payment_status " +
+                        "WHERE is_deleted = 0 AND sync_token = ? ORDER BY id DESC LIMIT 1",
+                    token
+            );
+            
+            // 兼容逻辑：如果没有找到带 token 的记录，尝试“认领”一个相同订单项且没有 token 的旧记录
+            if (existingRows.isEmpty() && orderItemId != null) {
+                existingRows = jdbcTemplate.queryForList(
+                    "SELECT id, IFNULL(paid_amount,0) AS paidAmount FROM finance_ar_order_payment_status " +
+                    "WHERE is_deleted = 0 AND order_no = ? AND order_item_id = ? AND sync_token IS NULL " +
+                    "ORDER BY id ASC LIMIT 1",
+                    orderNo, orderItemId
+                );
+            }
+
+                // 去重：同一 notice_item_id 对应的自动同步记录只保留最新一条，避免收款明细重复显示
+                List<Map<String, Object>> duplicatedRows = jdbcTemplate.queryForList(
+                    "SELECT id FROM finance_ar_order_payment_status " +
+                        "WHERE is_deleted = 0 AND sync_token = ? ORDER BY id DESC",
+                    token
+                );
+                if (duplicatedRows.size() > 1) {
+                List<Object> dedupArgs = new ArrayList<>();
+                dedupArgs.add(token);
+                Long keepId = getLong(duplicatedRows.get(0).get("id"));
+                if (keepId != null) {
+                    dedupArgs.add(keepId);
+                    jdbcTemplate.update(
+                        "UPDATE finance_ar_order_payment_status " +
+                            "SET is_deleted = 1, updated_at = NOW() " +
+                            "WHERE is_deleted = 0 AND sync_token = ? AND id <> ?",
+                        dedupArgs.toArray()
+                    );
+                }
+                }
+
+            BigDecimal paidAmount = existingRows.isEmpty()
+                    ? BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP)
+                    : toDecimal(existingRows.get(0).get("paidAmount")).setScale(2, RoundingMode.HALF_UP);
+            if (paidAmount.compareTo(shipmentAmount) > 0) {
+                paidAmount = shipmentAmount;
+            }
+            BigDecimal unpaidAmount = shipmentAmount.subtract(paidAmount).setScale(2, RoundingMode.HALF_UP);
+            int isPaid = unpaidAmount.compareTo(BigDecimal.ZERO) <= 0 ? 1 : 0;
+
+            String productName = String.valueOf(row.getOrDefault("materialName", "")).trim();
+            String materialCode = String.valueOf(row.getOrDefault("materialCode", "")).trim();
+            String spec = String.valueOf(row.getOrDefault("spec", "")).trim();
+            BigDecimal rolls = toDecimal(row.get("quantity")).setScale(4, RoundingMode.HALF_UP);
+            BigDecimal sqm = toDecimal(row.get("areaSize")).setScale(4, RoundingMode.HALF_UP);
+            BigDecimal unitPrice = toDecimal(row.get("unitPrice")).setScale(4, RoundingMode.HALF_UP);
+
+            if (!existingRows.isEmpty()) {
+                Long id = getLong(existingRows.get(0).get("id"));
+                jdbcTemplate.update(
+                    "UPDATE finance_ar_order_payment_status SET customer_code = ?, order_no = ?, order_item_id = ?, " +
+                        "order_date = ?, statement_month = ?, order_amount = ?, shipment_amount = ?, paid_amount = ?, unpaid_amount = ?, is_paid = ?, " +
+                    "sync_token = ?, import_product_name = ?, import_order_detail = ?, import_order_spec = ?, " +
+                        "import_order_rolls = ?, import_order_sqm = ?, import_unit_price = ?, import_shipment_date = ?, created_by = ?, updated_at = NOW() " +
+                        "WHERE id = ? AND is_deleted = 0",
+                    customerCode,
+                    orderNo,
+                    orderItemId,
+                    orderDate,
+                    month,
+                    shipmentAmount,
+                    shipmentAmount,
+                    paidAmount,
+                    unpaidAmount,
+                    isPaid,
+                    token,
+                    hasText(productName) ? productName : null,
+                    hasText(materialCode) ? materialCode : null,
+                    hasText(spec) ? spec : null,
+                    rolls,
+                    sqm,
+                    unitPrice,
+                    shipmentDate,
+                    operator,
+                    id
+                );
+            } else {
+                jdbcTemplate.update(
+                        "INSERT INTO finance_ar_order_payment_status(" +
+                        "customer_code, order_no, order_item_id, order_date, statement_month, order_amount, shipment_amount, paid_amount, unpaid_amount, is_paid, " +
+                    "sync_token, import_product_name, import_order_detail, import_order_spec, import_order_rolls, import_order_sqm, import_unit_price, import_shipment_date, " +
+                    "created_by, created_at, updated_at, is_deleted" +
+                    ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), 0)",
+                        customerCode,
+                        orderNo,
+                        orderItemId,
+                        orderDate,
+                    month,
+                        shipmentAmount,
+                        shipmentAmount,
+                        paidAmount,
+                        unpaidAmount,
+                        isPaid,
+                        token,
+                        hasText(productName) ? productName : null,
+                        hasText(materialCode) ? materialCode : null,
+                        hasText(spec) ? spec : null,
+                        rolls,
+                        sqm,
+                        unitPrice,
+                        shipmentDate,
+                        operator
+                );
+            }
+        }
+    }
+
+    private void syncArOrderPaymentFromFinanceConfirmedReturnRows(String customerCode, String month, String operator) {
+        if (!tableExists("finance_ar_order_payment_status")) {
+            return;
+        }
+
+        List<Map<String, Object>> rows = getFinanceConfirmedReturnRows(customerCode, month);
+        for (Map<String, Object> row : rows) {
+            Long returnItemId = getLong(row.get("returnItemId"));
+            if (returnItemId == null) {
+                continue;
+            }
+            String orderNo = String.valueOf(row.getOrDefault("orderNo", "")).trim();
+            BigDecimal amount = toDecimal(row.get("amount")).setScale(2, RoundingMode.HALF_UP);
+            
+            // 退货金额通常在对账单中是负数，同步到应收明细也应保持负数
+            BigDecimal shipmentAmount = amount; 
+            
+            LocalDate bizDateLocal = parseDate(String.valueOf(row.getOrDefault("bizDate", "")));
+            if (bizDateLocal == null) {
+                bizDateLocal = LocalDate.now();
+            }
+            java.sql.Date bizDate = java.sql.Date.valueOf(bizDateLocal);
+
+            String token = "SALES_RETURN_ITEM:" + returnItemId;
+            List<Map<String, Object>> existingRows = jdbcTemplate.queryForList(
+                    "SELECT id, IFNULL(paid_amount,0) AS paidAmount FROM finance_ar_order_payment_status " +
+                        "WHERE is_deleted = 0 AND sync_token = ? ORDER BY id DESC LIMIT 1",
+                    token
+            );
+
+            // 去重逻辑
+            List<Map<String, Object>> duplicatedRows = jdbcTemplate.queryForList(
+                "SELECT id FROM finance_ar_order_payment_status " +
+                    "WHERE is_deleted = 0 AND sync_token = ? ORDER BY id DESC",
+                token
+            );
+            if (duplicatedRows.size() > 1) {
+                Long keepId = getLong(duplicatedRows.get(0).get("id"));
+                if (keepId != null) {
+                    jdbcTemplate.update(
+                        "UPDATE finance_ar_order_payment_status SET is_deleted = 1, updated_at = NOW() " +
+                        "WHERE is_deleted = 0 AND sync_token = ? AND id <> ?",
+                        token, keepId
+                    );
+                }
+            }
+
+            BigDecimal paidAmount = existingRows.isEmpty()
+                    ? BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP)
+                    : toDecimal(existingRows.get(0).get("paidAmount")).setScale(2, RoundingMode.HALF_UP);
+            
+            // 对于负数金额，unpaidAmount = settlement - paid
+            // 例如：amount = -100, paid = 0 -> unpaid = -100 (欠款减少)
+            BigDecimal unpaidAmount = shipmentAmount.subtract(paidAmount).setScale(2, RoundingMode.HALF_UP);
+            int isPaid = (shipmentAmount.compareTo(BigDecimal.ZERO) < 0) 
+                ? (unpaidAmount.compareTo(BigDecimal.ZERO) >= 0 ? 1 : 0) // 负数金额，如果未付金额 >= 0 则视为已冲抵
+                : (unpaidAmount.compareTo(BigDecimal.ZERO) <= 0 ? 1 : 0);
+
+            String productName = String.valueOf(row.getOrDefault("materialName", "")).trim();
+            String materialCode = String.valueOf(row.getOrDefault("materialCode", "")).trim();
+            BigDecimal rolls = toDecimal(row.get("quantity")).setScale(4, RoundingMode.HALF_UP);
+            BigDecimal sqm = toDecimal(row.get("areaSize")).setScale(4, RoundingMode.HALF_UP);
+            BigDecimal unitPrice = toDecimal(row.get("unitPrice")).setScale(4, RoundingMode.HALF_UP);
+
+            if (!existingRows.isEmpty()) {
+                Long id = getLong(existingRows.get(0).get("id"));
+                jdbcTemplate.update(
+                    "UPDATE finance_ar_order_payment_status SET customer_code = ?, order_no = ?, " +
+                        "order_date = ?, statement_month = ?, order_amount = ?, shipment_amount = ?, paid_amount = ?, unpaid_amount = ?, is_paid = ?, " +
+                    "sync_token = ?, import_product_name = ?, import_order_detail = ?, " +
+                        "import_order_rolls = ?, import_order_sqm = ?, import_unit_price = ?, import_shipment_date = ?, created_by = ?, updated_at = NOW() " +
+                        "WHERE id = ? AND is_deleted = 0",
+                    customerCode,
+                    orderNo,
+                    bizDate,
+                    month,
+                    shipmentAmount,
+                    shipmentAmount,
+                    paidAmount,
+                    unpaidAmount,
+                    isPaid,
+                    token,
+                    hasText(productName) ? productName : null,
+                    hasText(materialCode) ? materialCode : null,
+                    rolls,
+                    sqm,
+                    unitPrice,
+                    bizDate,
+                    operator,
+                    id
+                );
+            } else {
+                jdbcTemplate.update(
+                        "INSERT INTO finance_ar_order_payment_status(" +
+                        "customer_code, order_no, order_date, statement_month, order_amount, shipment_amount, paid_amount, unpaid_amount, is_paid, " +
+                    "sync_token, import_product_name, import_order_detail, import_order_rolls, import_order_sqm, import_unit_price, import_shipment_date, " +
+                    "created_by, created_at, updated_at, is_deleted" +
+                    ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), 0)",
+                        customerCode,
+                        orderNo,
+                        bizDate,
+                    month,
+                        shipmentAmount,
+                        shipmentAmount,
+                        paidAmount,
+                        unpaidAmount,
+                        isPaid,
+                        token,
+                        hasText(productName) ? productName : null,
+                        hasText(materialCode) ? materialCode : null,
+                        rolls,
+                        sqm,
+                        unitPrice,
+                        bizDate,
+                        operator
+                );
+            }
+        }
+    }
+
+    private List<Map<String, Object>> getFinanceConfirmedReturnRows(String customerCode, String month) {
+        if (!hasText(customerCode) || !hasText(month)) {
+            return Collections.emptyList();
+        }
+        Customer customer = customerMapper.selectByCustomerCode(customerCode.trim());
+        Set<String> customerKeys = new LinkedHashSet<>();
+        customerKeys.add(customerCode.trim());
+        if (customer != null) {
+            if (hasText(customer.getCustomerName())) {
+                customerKeys.add(customer.getCustomerName().trim());
+            }
+            if (hasText(customer.getShortName())) {
+                customerKeys.add(customer.getShortName().trim());
+            }
+        }
+        
+        String placeholders = buildPlaceholders(customerKeys.size());
+        String sql = "SELECT sri.id AS returnItemId, sro.return_no AS orderNo, " +
+                "DATE_FORMAT(sro.return_date, '%Y-%m-%d') AS bizDate, " +
+                "sri.material_code AS materialCode, " +
+                "COALESCE(NULLIF(sri.material_name, ''), ts.product_name) AS materialName, " +
+                "-COALESCE(sri.rolls, 0) AS quantity, " +
+                "-COALESCE(sri.sqm, 0) AS areaSize, " +
+                "COALESCE(sri.unit_price, 0) AS unitPrice, " +
+                "-COALESCE(sri.amount, 0) AS amount " +
+                "FROM sales_return_items sri " +
+                "INNER JOIN sales_return_orders sro ON sro.id = sri.return_id " +
+                "LEFT JOIN sales_statement_return_confirm rc ON rc.return_item_id = sri.id AND rc.is_deleted = 0 " +
+                "LEFT JOIN tape_spec ts ON ts.material_code = sri.material_code " +
+                "WHERE sro.is_deleted = 0 AND sri.is_deleted = 0 " +
+                "AND sro.customer IN (" + placeholders + ") " +
+                "AND (sro.statement_month = ? OR rc.statement_month = ?) " +
+                "ORDER BY sro.return_date ASC, sro.return_no ASC";
+        
+        List<Object> args = new ArrayList<>();
+        args.addAll(customerKeys);
+        args.add(month);
+        args.add(month);
+        return jdbcTemplate.queryForList(sql, args.toArray());
+    }
+
+    private List<Map<String, Object>> getFinanceConfirmedDeliveryRows(String customerCode, String month) {
+        if (!hasText(customerCode) || !hasText(month)) {
+            return Collections.emptyList();
+        }
+        Customer customer = customerMapper.selectByCustomerCode(customerCode.trim());
+        Set<String> customerKeys = new LinkedHashSet<>();
+        customerKeys.add(customerCode.trim());
+        if (customer != null) {
+            if (hasText(customer.getCustomerName())) {
+                customerKeys.add(customer.getCustomerName().trim());
+            }
+            if (hasText(customer.getShortName())) {
+                customerKeys.add(customer.getShortName().trim());
+            }
+        }
+        if (customerKeys.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        String placeholders = buildPlaceholders(customerKeys.size());
+        String sql = "SELECT dni.id AS noticeItemId, soi.id AS orderItemId, " +
+                "DATE_FORMAT(dn.delivery_date, '%Y-%m-%d') AS bizDate, " +
+                "dn.order_no AS orderNo, dni.material_code AS materialCode, " +
+                "COALESCE(NULLIF(ts.product_name, ''), CONCAT('产品-', COALESCE(dni.material_code, '未知'))) AS materialName, " +
+                "COALESCE(NULLIF(dni.spec, ''), CONCAT(" +
+                "TRIM(TRAILING '.' FROM TRIM(TRAILING '0' FROM CAST(COALESCE(soi.thickness, 0) AS CHAR))), 'μm*', " +
+                "TRIM(TRAILING '.' FROM TRIM(TRAILING '0' FROM CAST(COALESCE(soi.width, 0) AS CHAR))), 'mm*', " +
+                "TRIM(TRAILING '.' FROM TRIM(TRAILING '0' FROM CAST(COALESCE(soi.length, 0) AS CHAR))), 'm')) AS spec, " +
+                "COALESCE(split.split_quantity, COALESCE(dni.quantity, 0)) AS quantity, " +
+                "COALESCE(split.split_area, COALESCE(dni.area_size, 0)) AS areaSize, " +
+                "COALESCE(soi.unit_price, 0) AS unitPrice, " +
+                "COALESCE(split.split_amount, COALESCE(dni.area_size * soi.unit_price, 0)) AS amount " +
+                "FROM delivery_notice_items dni " +
+                "INNER JOIN delivery_notices dn ON dn.id = dni.notice_id " +
+                "LEFT JOIN sales_order_items soi ON soi.id = dni.order_item_id " +
+                "LEFT JOIN tape_spec ts ON TRIM(CONVERT(ts.material_code USING utf8mb4) COLLATE utf8mb4_unicode_ci) = " +
+                "TRIM(CONVERT(dni.material_code USING utf8mb4) COLLATE utf8mb4_unicode_ci) " +
+                "LEFT JOIN sales_statement_delivery_split split ON split.notice_item_id = dni.id AND split.statement_month = ? AND split.is_deleted = 0 " +
+                "LEFT JOIN sales_statement_delivery_confirm c ON c.notice_item_id = dni.id AND c.is_deleted = 0 " +
+                "WHERE dn.is_deleted = 0 AND (dn.status IS NULL OR dn.status NOT IN ('cancelled', '已作废')) " +
+                "AND dn.customer IN (" + placeholders + ") " +
+                "AND (split.notice_item_id IS NOT NULL OR c.statement_month = ?) " +
+                "ORDER BY dn.delivery_date ASC, dn.notice_no ASC, dni.id ASC";
+            List<Object> args = new ArrayList<>();
+            args.add(month);
+            args.addAll(customerKeys);
+            args.add(month);
+            return jdbcTemplate.queryForList(sql, args.toArray());
     }
 
     private int normalizeReconciliationDay(Integer day) {
@@ -2652,24 +3669,6 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
                 "SELECT notice_item_id, statement_month FROM sales_statement_delivery_confirm WHERE is_deleted = 0 AND notice_item_id IN (" + placeholders + ")",
                 args.toArray()
         );
-        // 额外检查：如果存在同样的 notice_item_id 但被标记为已删除（is_deleted != 0），记录以便排查
-        try {
-            List<Map<String, Object>> deletedData = jdbcTemplate.queryForList(
-                    "SELECT notice_item_id, statement_month, is_deleted FROM sales_statement_delivery_confirm WHERE notice_item_id IN (" + placeholders + ") AND is_deleted != 0",
-                    args.toArray()
-            );
-            if (deletedData != null && !deletedData.isEmpty()) {
-                for (Map<String, Object> drow : deletedData) {
-                    Long nid = getLong(drow.get("notice_item_id"));
-                    String sm = drow.get("statement_month") == null ? "" : String.valueOf(drow.get("statement_month"));
-                    Object isdelObj = drow.get("is_deleted");
-                    String isdel = isdelObj == null ? "null" : String.valueOf(isdelObj);
-                    logger.warn("sales_statement_delivery_confirm has is_deleted!=0 for notice_item_id={} statement_month={} is_deleted={}", nid, sm, isdel);
-                }
-            }
-        } catch (Exception ex) {
-            logger.warn("failed to query deleted sales_statement_delivery_confirm rows for diagnostic: {}", ex.getMessage());
-        }
         for (Map<String, Object> row : data) {
             Long id = getLong(row.get("notice_item_id"));
             String statementMonth = row.get("statement_month") == null ? null : String.valueOf(row.get("statement_month"));
@@ -2750,6 +3749,34 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
 
     private boolean hasText(String value) {
         return value != null && !value.trim().isEmpty();
+    }
+
+    public ResponseResult<?> batchSyncConfirmedStatementsToAr() {
+        try {
+            LoginUser loginUser = getLoginUser();
+            if (loginUser == null || !isFinanceUser(loginUser)) {
+                return new ResponseResult<>(403, "只有财务人员可以执行同步操作", null);
+            }
+
+            List<Map<String, Object>> confirmedStatements = jdbcTemplate.queryForList(
+                "SELECT customer_code, statement_month FROM sales_statement_month_confirm " +
+                "WHERE finance_confirmed_at IS NOT NULL"
+            );
+
+            int count = 0;
+            for (Map<String, Object> stmt : confirmedStatements) {
+                String customerCode = String.valueOf(stmt.get("customer_code"));
+                String month = String.valueOf(stmt.get("statement_month"));
+                syncArOrderPaymentFromFinanceConfirmedRows(customerCode, month, loginUser.getUsername());
+                syncArOrderPaymentFromFinanceConfirmedReturnRows(customerCode, month, loginUser.getUsername());
+                count++;
+            }
+
+            return ResponseResult.success("成功同步 " + count + " 份对账单到收款明细");
+        } catch (Exception e) {
+            e.printStackTrace();
+            return new ResponseResult<>(500, "同步失败: " + e.getMessage(), null);
+        }
     }
 
     private BigDecimal toDecimal(Object value) {
@@ -2835,7 +3862,7 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
         List<Customer> allCustomers = customerMapper.selectList(wrapper);
 
         LoginUser loginUser = getLoginUser();
-        if (loginUser == null || hasRole(loginUser, "admin")) {
+        if (loginUser == null || hasRole(loginUser, "admin") || isFinanceUser(loginUser)) {
             return allCustomers == null ? Collections.emptyList() : allCustomers;
         }
 
@@ -2874,6 +3901,10 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
         return null;
     }
 
+    private boolean isFinanceUser(LoginUser loginUser) {
+        return hasRole(loginUser, "finance") || hasRole(loginUser, "财务");
+    }
+
     private boolean hasRole(LoginUser loginUser, String role) {
         return loginUser != null && loginUser.getPermissions() != null && loginUser.getPermissions().contains(role);
     }
@@ -2887,7 +3918,7 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
             return false;
         }
         LoginUser loginUser = getLoginUser();
-        if (loginUser == null || hasRole(loginUser, "admin")) {
+        if (loginUser == null || hasRole(loginUser, "admin") || isFinanceUser(loginUser)) {
             return true;
         }
         Long uid = getCurrentUserId(loginUser);

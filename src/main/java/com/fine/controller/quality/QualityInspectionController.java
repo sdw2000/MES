@@ -9,6 +9,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+import java.util.Map;
+
 @RestController
 @RequestMapping("/api/quality")
 @PreAuthorize("hasAnyAuthority('admin','quality','production')")
@@ -23,12 +26,14 @@ public class QualityInspectionController {
                                   @RequestParam(value = "inspectionNo", required = false) String inspectionNo,
                                   @RequestParam(value = "batchNo", required = false) String batchNo,
                                   @RequestParam(value = "rollCode", required = false) String rollCode,
+                                  @RequestParam(value = "materialCode", required = false) String materialCode,
+                                  @RequestParam(value = "inspectorName", required = false) String inspectorName,
                                   @RequestParam(value = "result", required = false) String result,
                                   @RequestParam(value = "startDate", required = false) String startDate,
                                   @RequestParam(value = "endDate", required = false) String endDate) {
         String inspectionType = resolveType();
         Page<QualityInspectionRecord> page = new Page<>(pageNum, pageSize);
-        IPage<QualityInspectionRecord> data = inspectionService.list(page, inspectionType, inspectionNo, batchNo, rollCode, result, startDate, endDate);
+        IPage<QualityInspectionRecord> data = inspectionService.list(page, inspectionType, inspectionNo, batchNo, rollCode, materialCode, inspectorName, result, startDate, endDate);
         return ResponseResult.success(data);
     }
 
@@ -56,6 +61,25 @@ public class QualityInspectionController {
         return ResponseResult.success();
     }
 
+    @GetMapping("/process/coating-rolls")
+    public ResponseResult<?> listCoatingRollCandidates(@RequestParam(value = "keyword", required = false) String keyword,
+                                                       @RequestParam(value = "materialCode", required = false) String materialCode,
+                                                       @RequestParam(value = "onlyPending", required = false, defaultValue = "true") Boolean onlyPending,
+                                                       @RequestParam(value = "limit", required = false, defaultValue = "200") Integer limit) {
+        int safeLimit = (limit == null || limit <= 0) ? 200 : Math.min(limit, 500);
+        List<Map<String, Object>> rows = inspectionService.listCoatingRollCandidates(keyword, materialCode, onlyPending, safeLimit);
+        return ResponseResult.success(rows);
+    }
+
+    @GetMapping("/outbound/batch-options")
+    public ResponseResult<?> listOutboundBatchOptions(@RequestParam(value = "materialCode", required = false) String materialCode,
+                                                      @RequestParam(value = "keyword", required = false) String keyword,
+                                                      @RequestParam(value = "limit", defaultValue = "200") Integer limit) {
+        int safeLimit = (limit == null || limit <= 0) ? 200 : Math.min(limit, 500);
+        List<String> batchNos = inspectionService.listDistinctBatchNos("outbound", materialCode, keyword, safeLimit);
+        return ResponseResult.success(batchNos);
+    }
+
     // 兼容旧版接口：/api/quality/inspection/**
     @GetMapping("/inspection/list")
     public ResponseResult<?> listLegacy(@RequestParam(value = "pageNum", defaultValue = "1") Integer pageNum,
@@ -64,12 +88,14 @@ public class QualityInspectionController {
                                         @RequestParam(value = "inspectionNo", required = false) String inspectionNo,
                                         @RequestParam(value = "batchNo", required = false) String batchNo,
                                         @RequestParam(value = "rollCode", required = false) String rollCode,
+                                        @RequestParam(value = "materialCode", required = false) String materialCode,
+                                        @RequestParam(value = "inspectorName", required = false) String inspectorName,
                                         @RequestParam(value = "result", required = false) String result,
                                         @RequestParam(value = "startDate", required = false) String startDate,
                                         @RequestParam(value = "endDate", required = false) String endDate) {
         String type = (inspectionType == null || inspectionType.isEmpty()) ? "incoming" : inspectionType;
         Page<QualityInspectionRecord> page = new Page<>(pageNum, pageSize);
-        IPage<QualityInspectionRecord> data = inspectionService.list(page, type, inspectionNo, batchNo, rollCode, result, startDate, endDate);
+        IPage<QualityInspectionRecord> data = inspectionService.list(page, type, inspectionNo, batchNo, rollCode, materialCode, inspectorName, result, startDate, endDate);
         return ResponseResult.success(data);
     }
 

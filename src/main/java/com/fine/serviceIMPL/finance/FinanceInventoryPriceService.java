@@ -282,9 +282,17 @@ public class FinanceInventoryPriceService {
         }
 
         String orderBy = buildChangeOrderBy(sortField, sortOrder);
+        String latestJoin =
+            " FROM finance_inventory_price_change c " +
+                " INNER JOIN (" +
+                "   SELECT biz_date, material_code, MAX(CONCAT(IFNULL(recalc_time, '1970-01-01 00:00:00'), '-', LPAD(id, 10, '0'))) AS mk " +
+                "   FROM finance_inventory_price_change " + where +
+                "   GROUP BY biz_date, material_code" +
+                " ) latest ON latest.biz_date = c.biz_date AND latest.material_code = c.material_code " +
+                " AND CONCAT(IFNULL(c.recalc_time, '1970-01-01 00:00:00'), '-', LPAD(c.id, 10, '0')) = latest.mk ";
 
         Long total = jdbcTemplate.queryForObject(
-                "SELECT COUNT(1) FROM finance_inventory_price_change " + where,
+            "SELECT COUNT(1) " + latestJoin,
                 Long.class,
                 args.toArray()
         );
@@ -293,11 +301,11 @@ public class FinanceInventoryPriceService {
         listArgs.add(offset);
         listArgs.add(size);
         List<Map<String, Object>> records = jdbcTemplate.queryForList(
-                "SELECT id, biz_date AS bizDate, material_code AS materialCode, material_name AS materialName, uom, " +
-                        "old_stock_qty AS oldStockQty, old_stock_amount AS oldStockAmount, old_unit_price AS oldUnitPrice, " +
-                        "in_qty AS inQty, in_amount AS inAmount, out_qty AS outQty, new_stock_qty AS newStockQty, " +
-                        "new_stock_amount AS newStockAmount, new_unit_price AS newUnitPrice, recalc_time AS recalcTime " +
-                        "FROM finance_inventory_price_change " + where +
+            "SELECT c.id, c.biz_date AS bizDate, c.material_code AS materialCode, c.material_name AS materialName, c.uom, " +
+                "c.old_stock_qty AS oldStockQty, c.old_stock_amount AS oldStockAmount, c.old_unit_price AS oldUnitPrice, " +
+                "c.in_qty AS inQty, c.in_amount AS inAmount, c.out_qty AS outQty, c.new_stock_qty AS newStockQty, " +
+                "c.new_stock_amount AS newStockAmount, c.new_unit_price AS newUnitPrice, c.recalc_time AS recalcTime " +
+                latestJoin +
                 " ORDER BY " + orderBy + " LIMIT ?, ?",
                 listArgs.toArray()
         );
@@ -345,12 +353,20 @@ public class FinanceInventoryPriceService {
             args.add(k);
         }
         String orderBy = buildChangeOrderBy(sortField, sortOrder);
+        String latestJoin =
+            " FROM finance_inventory_price_change c " +
+                " INNER JOIN (" +
+                "   SELECT biz_date, material_code, MAX(CONCAT(IFNULL(recalc_time, '1970-01-01 00:00:00'), '-', LPAD(id, 10, '0'))) AS mk " +
+                "   FROM finance_inventory_price_change " + where +
+                "   GROUP BY biz_date, material_code" +
+                " ) latest ON latest.biz_date = c.biz_date AND latest.material_code = c.material_code " +
+                " AND CONCAT(IFNULL(c.recalc_time, '1970-01-01 00:00:00'), '-', LPAD(c.id, 10, '0')) = latest.mk ";
         return jdbcTemplate.queryForList(
-                "SELECT biz_date AS bizDate, material_code AS materialCode, material_name AS materialName, uom, " +
-                        "old_stock_qty AS oldStockQty, old_stock_amount AS oldStockAmount, old_unit_price AS oldUnitPrice, " +
-                        "in_qty AS inQty, in_amount AS inAmount, out_qty AS outQty, new_stock_qty AS newStockQty, " +
-                        "new_stock_amount AS newStockAmount, new_unit_price AS newUnitPrice, recalc_time AS recalcTime " +
-                        "FROM finance_inventory_price_change " + where + " ORDER BY " + orderBy,
+            "SELECT c.biz_date AS bizDate, c.material_code AS materialCode, c.material_name AS materialName, c.uom, " +
+                "c.old_stock_qty AS oldStockQty, c.old_stock_amount AS oldStockAmount, c.old_unit_price AS oldUnitPrice, " +
+                "c.in_qty AS inQty, c.in_amount AS inAmount, c.out_qty AS outQty, c.new_stock_qty AS newStockQty, " +
+                "c.new_stock_amount AS newStockAmount, c.new_unit_price AS newUnitPrice, c.recalc_time AS recalcTime " +
+                latestJoin + " ORDER BY " + orderBy,
                 args.toArray()
         );
     }
@@ -538,25 +554,25 @@ public class FinanceInventoryPriceService {
 
     private String buildChangeOrderBy(String sortField, String sortOrder) {
         Map<String, String> fieldMap = new HashMap<>();
-        fieldMap.put("bizDate", "biz_date");
-        fieldMap.put("materialCode", "material_code");
-        fieldMap.put("materialName", "material_name");
-        fieldMap.put("oldStockQty", "old_stock_qty");
-        fieldMap.put("oldUnitPrice", "old_unit_price");
-        fieldMap.put("inQty", "in_qty");
-        fieldMap.put("inAmount", "in_amount");
-        fieldMap.put("outQty", "out_qty");
-        fieldMap.put("newStockQty", "new_stock_qty");
-        fieldMap.put("newStockAmount", "new_stock_amount");
-        fieldMap.put("newUnitPrice", "new_unit_price");
-        fieldMap.put("recalcTime", "recalc_time");
+        fieldMap.put("bizDate", "c.biz_date");
+        fieldMap.put("materialCode", "c.material_code");
+        fieldMap.put("materialName", "c.material_name");
+        fieldMap.put("oldStockQty", "c.old_stock_qty");
+        fieldMap.put("oldUnitPrice", "c.old_unit_price");
+        fieldMap.put("inQty", "c.in_qty");
+        fieldMap.put("inAmount", "c.in_amount");
+        fieldMap.put("outQty", "c.out_qty");
+        fieldMap.put("newStockQty", "c.new_stock_qty");
+        fieldMap.put("newStockAmount", "c.new_stock_amount");
+        fieldMap.put("newUnitPrice", "c.new_unit_price");
+        fieldMap.put("recalcTime", "c.recalc_time");
 
         String col = fieldMap.get(sortField);
         if (!hasText(col)) {
-            return "recalc_time DESC, id DESC";
+            return "c.recalc_time DESC, c.id DESC";
         }
         String direction = normalizeSortOrder(sortOrder);
-        return col + " " + direction + ", id DESC";
+        return col + " " + direction + ", c.id DESC";
     }
 
     private String normalizeSortOrder(String sortOrder) {
@@ -691,6 +707,7 @@ public class FinanceInventoryPriceService {
                 oldVersion = toInt(old.get("version"));
             }
 
+            boolean hasInbound = inQty != null && inQty.compareTo(BigDecimal.ZERO) > 0;
             BigDecimal outAmount = outQty.multiply(oldPrice);
             BigDecimal newQty = oldQty.add(inQty).subtract(outQty);
             BigDecimal newAmount = oldAmount.add(inAmount).subtract(outAmount);
@@ -700,9 +717,17 @@ public class FinanceInventoryPriceService {
             if (newAmount.compareTo(BigDecimal.ZERO) < 0) {
                 newAmount = BigDecimal.ZERO;
             }
-            BigDecimal newPrice = newQty.compareTo(BigDecimal.ZERO) <= 0
-                    ? BigDecimal.ZERO
-                    : newAmount.divide(newQty, 6, RoundingMode.HALF_UP);
+
+            BigDecimal newPrice;
+            if (hasInbound) {
+                newPrice = newQty.compareTo(BigDecimal.ZERO) <= 0
+                        ? oldPrice
+                        : newAmount.divide(newQty, 6, RoundingMode.HALF_UP);
+            } else {
+                // 仅出库不触发加权单价重算，保持旧单价
+                newPrice = oldPrice;
+                newAmount = newQty.multiply(newPrice).setScale(6, RoundingMode.HALF_UP);
+            }
 
             int affected;
             if (id == null) {
@@ -749,10 +774,10 @@ public class FinanceInventoryPriceService {
         jdbcTemplate.execute("DROP TEMPORARY TABLE IF EXISTS tmp_material_has_kg_quote");
         jdbcTemplate.execute(
             "CREATE TEMPORARY TABLE tmp_latest_quote_all AS " +
-                "SELECT t.material_code, t.unit_price, t.unit " +
+                "SELECT t.material_code, t.material_code_norm, t.unit_price, t.unit " +
                 "FROM (" +
-                "  SELECT x.material_code, x.unit_price, x.unit, " +
-                "         ROW_NUMBER() OVER (PARTITION BY x.material_code ORDER BY x.quote_time DESC, x.id DESC) AS rn " +
+                "  SELECT x.material_code, UPPER(TRIM(x.material_code)) AS material_code_norm, x.unit_price, x.unit, " +
+                "         ROW_NUMBER() OVER (PARTITION BY UPPER(TRIM(x.material_code)) ORDER BY x.quote_time DESC, x.id DESC) AS rn " +
                 "  FROM (" +
                 "    SELECT qi.id, qi.material_code, qi.unit_price, qi.unit, " +
                 "           COALESCE(qi.updated_at, qi.created_at, q.updated_at, q.created_at, CONCAT(q.quotation_date,' 00:00:00')) AS quote_time " +
@@ -774,23 +799,23 @@ public class FinanceInventoryPriceService {
 
             jdbcTemplate.execute(
                 "CREATE TEMPORARY TABLE tmp_latest_kg_quote AS " +
-                "SELECT material_code, unit_price AS kg_price " +
-                "FROM tmp_latest_quote_all " +
-                "WHERE UPPER(REPLACE(IFNULL(unit,''),' ','')) IN ('KG','KGS','公斤','千克')"
+                    "SELECT material_code, material_code_norm, unit_price AS kg_price " +
+                    "FROM tmp_latest_quote_all " +
+                    "WHERE UPPER(REPLACE(IFNULL(unit,''),' ','')) IN ('KG','KGS','公斤','千克')"
             );
 
             // 化工库存：按kg最新报价直接同步库存单价
             jdbcTemplate.update(
                 "UPDATE chemical_stock_detail csd " +
-                "JOIN tmp_latest_kg_quote q ON q.material_code = csd.material_code " +
-                "SET csd.unit_price = q.kg_price, csd.update_time = NOW() " +
-                "WHERE csd.is_deleted=0 AND csd.status IN ('available','locked')"
+                    "JOIN tmp_latest_kg_quote q ON q.material_code_norm = UPPER(TRIM(csd.material_code)) " +
+                    "SET csd.unit_price = q.kg_price, csd.update_time = NOW() " +
+                    "WHERE csd.is_deleted=0 AND csd.status IN ('available','locked')"
             );
 
         // 通用膜料：当最新报价单位为㎡时，直接按㎡价回填（PEG按支计价，不在此处理）
         jdbcTemplate.update(
             "UPDATE film_stock_detail fsd " +
-                "JOIN tmp_latest_quote_all q ON q.material_code = fsd.material_code " +
+                "JOIN tmp_latest_quote_all q ON q.material_code_norm = UPPER(TRIM(fsd.material_code)) " +
                 "SET fsd.unit_price = q.unit_price, fsd.update_time = NOW() " +
                 "WHERE fsd.is_deleted=0 AND fsd.status IN ('available','locked') " +
                 "  AND UPPER(fsd.material_code) NOT LIKE 'PEG-%' " +
@@ -801,7 +826,7 @@ public class FinanceInventoryPriceService {
         // 离型膜（LXM/LXZ）按报价单价直接作为㎡价，不做kg换算
         jdbcTemplate.update(
             "UPDATE film_stock_detail fsd " +
-                "JOIN tmp_latest_quote_all q ON q.material_code = fsd.material_code " +
+                "JOIN tmp_latest_quote_all q ON q.material_code_norm = UPPER(TRIM(fsd.material_code)) " +
                 "SET fsd.unit_price = q.unit_price, fsd.update_time = NOW() " +
                 "WHERE fsd.is_deleted=0 AND fsd.status IN ('available','locked') " +
                 "  AND UPPER(fsd.material_code) NOT LIKE 'PEG-%' " +
@@ -812,7 +837,7 @@ public class FinanceInventoryPriceService {
         // 非离型膜：仅当“最新报价单位”为kg时才换算为㎡单价
         jdbcTemplate.update(
             "UPDATE film_stock_detail fsd " +
-                "JOIN tmp_latest_quote_all q ON q.material_code = fsd.material_code " +
+                "JOIN tmp_latest_quote_all q ON q.material_code_norm = UPPER(TRIM(fsd.material_code)) " +
                 "SET fsd.unit_price = ROUND(q.unit_price * IFNULL(fsd.thickness,0) * (CASE " +
                 "  WHEN UPPER(fsd.material_code) LIKE 'PET%' THEN 1.38 " +
                 "  WHEN UPPER(fsd.material_code) LIKE 'PI%' OR UPPER(fsd.material_code) LIKE 'PIM%' THEN 1.42 " +
@@ -841,10 +866,10 @@ public class FinanceInventoryPriceService {
 
                 jdbcTemplate.execute(
                     "CREATE TEMPORARY TABLE tmp_latest_any_quote AS " +
-                        "SELECT t.material_code, t.unit_price, t.unit " +
+                        "SELECT t.material_code, t.material_code_norm, t.unit_price, t.unit " +
                         "FROM (" +
-                        "  SELECT x.material_code, x.unit_price, x.unit, " +
-                        "         ROW_NUMBER() OVER (PARTITION BY x.material_code ORDER BY x.quote_time DESC, x.id DESC) AS rn " +
+                        "  SELECT x.material_code, UPPER(TRIM(x.material_code)) AS material_code_norm, x.unit_price, x.unit, " +
+                        "         ROW_NUMBER() OVER (PARTITION BY UPPER(TRIM(x.material_code)) ORDER BY x.quote_time DESC, x.id DESC) AS rn " +
                         "  FROM (" +
                         "    SELECT qi.id, qi.material_code, qi.unit_price, qi.unit, " +
                         "           COALESCE(qi.updated_at, qi.created_at, q.updated_at, q.created_at, CONCAT(q.quotation_date,' 00:00:00')) AS quote_time " +
@@ -867,7 +892,7 @@ public class FinanceInventoryPriceService {
                     // 历史存在kg报价的料号集合（用于识别“单位误录为㎡”的场景）
                     jdbcTemplate.execute(
                         "CREATE TEMPORARY TABLE tmp_material_has_kg_quote AS " +
-                        "SELECT DISTINCT material_code FROM (" +
+                        "SELECT DISTINCT UPPER(TRIM(material_code)) AS material_code_norm FROM (" +
                         "  SELECT qi.material_code, qi.unit " +
                         "  FROM quotation_items qi " +
                         "  LEFT JOIN quotations q ON q.id = qi.quotation_id " +
@@ -883,36 +908,36 @@ public class FinanceInventoryPriceService {
                     );
 
         jdbcTemplate.update(
-                "UPDATE film_stock_detail fsd " +
-                        "JOIN tmp_latest_kg_quote q ON q.material_code = fsd.material_code " +
-                        "SET fsd.unit_price = ROUND(q.kg_price * IFNULL(fsd.thickness,0) * (CASE " +
-                        "  WHEN UPPER(fsd.material_code) LIKE 'PET%' THEN 1.38 " +
-                        "  WHEN UPPER(fsd.material_code) LIKE 'PI%' OR UPPER(fsd.material_code) LIKE 'PIM%' THEN 1.42 " +
-                        "  WHEN UPPER(fsd.material_code) LIKE 'BOPP%' OR UPPER(fsd.material_code) LIKE 'OPP%' OR UPPER(fsd.material_code) LIKE 'CPP%' OR UPPER(fsd.material_code) LIKE 'PP%' THEN 0.90 " +
-                        "  WHEN UPPER(fsd.material_code) LIKE 'PE%' THEN 0.92 " +
-                        "  WHEN UPPER(fsd.material_code) LIKE 'PVC%' THEN 1.35 " +
-                        "  WHEN UPPER(fsd.material_code) LIKE 'OPS%' OR UPPER(fsd.material_code) LIKE 'PS%' THEN 1.05 " +
-                        "  ELSE NULL END) / 1000, 4), " +
-                        "fsd.update_time = NOW() " +
-                        "WHERE fsd.is_deleted=0 AND fsd.status IN ('available','locked') " +
-                        "  AND UPPER(fsd.material_code) NOT LIKE 'PEG-%' " +
-                        "  AND UPPER(fsd.material_code) <> 'NPZ-D105' " +
-                        "  AND IFNULL(fsd.thickness,0) > 0 " +
-                        "  AND (CASE " +
-                        "  WHEN UPPER(fsd.material_code) LIKE 'PET%' THEN 1.38 " +
-                        "  WHEN UPPER(fsd.material_code) LIKE 'PI%' OR UPPER(fsd.material_code) LIKE 'PIM%' THEN 1.42 " +
-                        "  WHEN UPPER(fsd.material_code) LIKE 'BOPP%' OR UPPER(fsd.material_code) LIKE 'OPP%' OR UPPER(fsd.material_code) LIKE 'CPP%' OR UPPER(fsd.material_code) LIKE 'PP%' THEN 0.90 " +
-                        "  WHEN UPPER(fsd.material_code) LIKE 'PE%' THEN 0.92 " +
-                        "  WHEN UPPER(fsd.material_code) LIKE 'PVC%' THEN 1.35 " +
-                        "  WHEN UPPER(fsd.material_code) LIKE 'OPS%' OR UPPER(fsd.material_code) LIKE 'PS%' THEN 1.05 " +
-                        "  ELSE NULL END) IS NOT NULL"
+            "UPDATE film_stock_detail fsd " +
+                "JOIN tmp_latest_kg_quote q ON q.material_code_norm = UPPER(TRIM(fsd.material_code)) " +
+                "SET fsd.unit_price = ROUND(q.kg_price * IFNULL(fsd.thickness,0) * (CASE " +
+                "  WHEN UPPER(fsd.material_code) LIKE 'PET%' THEN 1.38 " +
+                "  WHEN UPPER(fsd.material_code) LIKE 'PI%' OR UPPER(fsd.material_code) LIKE 'PIM%' THEN 1.42 " +
+                "  WHEN UPPER(fsd.material_code) LIKE 'BOPP%' OR UPPER(fsd.material_code) LIKE 'OPP%' OR UPPER(fsd.material_code) LIKE 'CPP%' OR UPPER(fsd.material_code) LIKE 'PP%' THEN 0.90 " +
+                "  WHEN UPPER(fsd.material_code) LIKE 'PE%' THEN 0.92 " +
+                "  WHEN UPPER(fsd.material_code) LIKE 'PVC%' THEN 1.35 " +
+                "  WHEN UPPER(fsd.material_code) LIKE 'OPS%' OR UPPER(fsd.material_code) LIKE 'PS%' THEN 1.05 " +
+                "  ELSE NULL END) / 1000, 4), " +
+                "fsd.update_time = NOW() " +
+                "WHERE fsd.is_deleted=0 AND fsd.status IN ('available','locked') " +
+                "  AND UPPER(fsd.material_code) NOT LIKE 'PEG-%' " +
+                "  AND UPPER(fsd.material_code) <> 'NPZ-D105' " +
+                "  AND IFNULL(fsd.thickness,0) > 0 " +
+                "  AND (CASE " +
+                "  WHEN UPPER(fsd.material_code) LIKE 'PET%' THEN 1.38 " +
+                "  WHEN UPPER(fsd.material_code) LIKE 'PI%' OR UPPER(fsd.material_code) LIKE 'PIM%' THEN 1.42 " +
+                "  WHEN UPPER(fsd.material_code) LIKE 'BOPP%' OR UPPER(fsd.material_code) LIKE 'OPP%' OR UPPER(fsd.material_code) LIKE 'CPP%' OR UPPER(fsd.material_code) LIKE 'PP%' THEN 0.90 " +
+                "  WHEN UPPER(fsd.material_code) LIKE 'PE%' THEN 0.92 " +
+                "  WHEN UPPER(fsd.material_code) LIKE 'PVC%' THEN 1.35 " +
+                "  WHEN UPPER(fsd.material_code) LIKE 'OPS%' OR UPPER(fsd.material_code) LIKE 'PS%' THEN 1.05 " +
+                "  ELSE NULL END) IS NOT NULL"
         );
 
                 // 通用兜底：若最新报价单位是㎡但该料号历史存在kg报价且㎡价异常偏高，则按kg口径换算为㎡价
                 jdbcTemplate.update(
                     "UPDATE film_stock_detail fsd " +
-                        "JOIN tmp_latest_any_quote q ON q.material_code = fsd.material_code " +
-                        "JOIN tmp_material_has_kg_quote hk ON hk.material_code = fsd.material_code " +
+                        "JOIN tmp_latest_any_quote q ON q.material_code_norm = UPPER(TRIM(fsd.material_code)) " +
+                        "JOIN tmp_material_has_kg_quote hk ON hk.material_code_norm = UPPER(TRIM(fsd.material_code)) " +
                         "SET fsd.unit_price = ROUND(q.unit_price * IFNULL(fsd.thickness,0) * (CASE " +
                         "  WHEN UPPER(fsd.material_code) LIKE 'PET%' THEN 1.38 " +
                         "  WHEN UPPER(fsd.material_code) LIKE 'PI%' OR UPPER(fsd.material_code) LIKE 'PIM%' THEN 1.42 " +
@@ -941,7 +966,7 @@ public class FinanceInventoryPriceService {
                 // 兜底：OPS/PS 系列若最新报价单位被误录为㎡且价格异常偏高（如44），按kg价换算为㎡价
                 jdbcTemplate.update(
                     "UPDATE film_stock_detail fsd " +
-                        "JOIN tmp_latest_any_quote q ON q.material_code = fsd.material_code " +
+                        "JOIN tmp_latest_any_quote q ON q.material_code_norm = UPPER(TRIM(fsd.material_code)) " +
                         "SET fsd.unit_price = ROUND(q.unit_price * IFNULL(fsd.thickness,0) * 1.05 / 1000, 4), " +
                         "    fsd.update_time = NOW() " +
                         "WHERE fsd.is_deleted=0 AND fsd.status IN ('available','locked') " +
@@ -956,7 +981,7 @@ public class FinanceInventoryPriceService {
                     // 兜底：PETLXM/PETLXZ 系列若最新报价单位被误录为㎡且价格异常偏高（如13.7），按kg价换算为㎡价
                     jdbcTemplate.update(
                         "UPDATE film_stock_detail fsd " +
-                        "JOIN tmp_latest_any_quote q ON q.material_code = fsd.material_code " +
+                        "JOIN tmp_latest_any_quote q ON q.material_code_norm = UPPER(TRIM(fsd.material_code)) " +
                         "SET fsd.unit_price = ROUND(q.unit_price * IFNULL(fsd.thickness,0) * 1.38 / 1000, 4), " +
                         "    fsd.update_time = NOW() " +
                         "WHERE fsd.is_deleted=0 AND fsd.status IN ('available','locked') " +

@@ -49,6 +49,9 @@
         <result property="primaryContactMobile" column="primary_contact_mobile"/>
         <result property="primaryContactEmail" column="primary_contact_email"/>
         <result property="contactCount" column="contact_count"/>
+        <result property="lastMonthSalesAmount" column="last_month_sales_amount"/>
+        <result property="thisYearSalesAmount" column="this_year_sales_amount"/>
+        <result property="shippedAmount" column="shipped_amount"/>
     </resultMap>
     
     <!-- 结果映射 - CustomerDTO with contacts -->
@@ -125,6 +128,52 @@
             cc.contact_mobile AS primary_contact_mobile,
             cc.contact_email AS primary_contact_email,
             (SELECT COUNT(*) FROM customer_contacts WHERE customer_id = c.id) AS contact_count,
+                        IFNULL((
+                                SELECT SUM(IFNULL(so.total_amount, 0))
+                                FROM sales_orders so
+                                WHERE so.is_deleted = 0
+                                    AND so.order_date &gt;= DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 1 MONTH), '%Y-%m-01')
+                                    AND so.order_date &lt; DATE_FORMAT(CURDATE(), '%Y-%m-01')
+                                    AND (
+                                        so.customer COLLATE utf8mb4_unicode_ci = c.customer_code COLLATE utf8mb4_unicode_ci
+                                        OR so.customer COLLATE utf8mb4_unicode_ci = c.customer_name COLLATE utf8mb4_unicode_ci
+                                        OR (c.short_name IS NOT NULL AND c.short_name != '' AND so.customer COLLATE utf8mb4_unicode_ci = c.short_name COLLATE utf8mb4_unicode_ci)
+                                    )
+                        ), 0) AS last_month_sales_amount,
+                        IFNULL((
+                                SELECT SUM(IFNULL(so2.total_amount, 0))
+                                FROM sales_orders so2
+                                WHERE so2.is_deleted = 0
+                                    AND so2.order_date &gt;= DATE_FORMAT(CURDATE(), '%Y-01-01')
+                                    AND so2.order_date &lt; DATE_FORMAT(DATE_ADD(CURDATE(), INTERVAL 1 YEAR), '%Y-01-01')
+                                    AND (
+                                        so2.customer COLLATE utf8mb4_unicode_ci = c.customer_code COLLATE utf8mb4_unicode_ci
+                                        OR so2.customer COLLATE utf8mb4_unicode_ci = c.customer_name COLLATE utf8mb4_unicode_ci
+                                        OR (c.short_name IS NOT NULL AND c.short_name != '' AND so2.customer COLLATE utf8mb4_unicode_ci = c.short_name COLLATE utf8mb4_unicode_ci)
+                                    )
+                        ), 0) AS this_year_sales_amount,
+                        IFNULL((
+                                SELECT SUM(
+                                        CASE
+                                                WHEN IFNULL(soi.rolls, 0) &gt; 0 THEN IFNULL(dni.quantity, 0) * IFNULL(soi.amount, 0) / NULLIF(soi.rolls, 0)
+                                                WHEN IFNULL(soi.sqm, 0) &gt; 0 THEN IFNULL(dni.area_size, 0) * IFNULL(soi.amount, 0) / NULLIF(soi.sqm, 0)
+                                                ELSE 0
+                                        END
+                                )
+                                FROM delivery_notices dn
+                                INNER JOIN delivery_notice_items dni ON dni.notice_id = dn.id
+                                INNER JOIN sales_order_items soi ON soi.id = dni.order_item_id AND soi.is_deleted = 0
+                                WHERE dn.is_deleted = 0
+                                    AND (
+                                        UPPER(IFNULL(dn.status, '')) IN ('SHIPPED', 'RECEIVED')
+                                        OR IFNULL(dn.status, '') IN ('已发货', '已收货')
+                                    )
+                                    AND (
+                                        dn.customer COLLATE utf8mb4_unicode_ci = c.customer_code COLLATE utf8mb4_unicode_ci
+                                        OR dn.customer COLLATE utf8mb4_unicode_ci = c.customer_name COLLATE utf8mb4_unicode_ci
+                                        OR (c.short_name IS NOT NULL AND c.short_name != '' AND dn.customer COLLATE utf8mb4_unicode_ci = c.short_name COLLATE utf8mb4_unicode_ci)
+                                    )
+                        ), 0) AS shipped_amount,
             u1.real_name AS sales_user_name,
             u2.real_name AS documentation_person_user_name
         FROM customers c
@@ -176,7 +225,20 @@
                 </if>
             )
         </if>
-        ORDER BY c.create_time DESC
+        <choose>
+            <when test="query.sortField == 'lastMonthSalesAmount'">ORDER BY last_month_sales_amount</when>
+            <when test="query.sortField == 'thisYearSalesAmount'">ORDER BY this_year_sales_amount</when>
+            <when test="query.sortField == 'shippedAmount'">ORDER BY shipped_amount</when>
+            <when test="query.sortField == 'createTime'">ORDER BY c.create_time</when>
+            <when test="query.sortField == 'customerCode'">ORDER BY c.customer_code</when>
+            <when test="query.sortField == 'shortName'">ORDER BY c.short_name</when>
+            <otherwise>ORDER BY last_month_sales_amount</otherwise>
+        </choose>
+        <choose>
+            <when test="query.sortOrder == 'ascending'">ASC</when>
+            <otherwise>DESC</otherwise>
+        </choose>
+        , c.create_time DESC
     </select>
       <!-- 根据ID查询客户详情（带联系人列表） -->
     <select id="selectCustomerDetailById" resultMap="CustomerDetailMap">

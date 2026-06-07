@@ -5,7 +5,13 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fine.model.quality.QualityDisposition;
 
 public interface QualityDispositionService {
-    IPage<QualityDisposition> list(Page<QualityDisposition> page, String dispositionNo, String inspectionNo, String status);
+    IPage<QualityDisposition> list(Page<QualityDisposition> page,
+                                   String dispositionNo,
+                                   String inspectionNo,
+                                   String dispositionMethod,
+                                   String status,
+                                   String startDate,
+                                   String endDate);
     QualityDisposition detail(Long id);
     QualityDisposition create(QualityDisposition disposition);
     QualityDisposition updateDisposition(QualityDisposition disposition);

@@ -19,6 +19,11 @@ public interface CustomerService {
     IPage<CustomerDTO> getCustomerPage(Integer current, Integer size, CustomerDTO query);
     
     /**
+     * 根据Code查询客户详情
+     */
+    CustomerDTO getCustomerByCode(String code);
+
+    /**
      * 根据ID查询客户详情（含联系人）
      */
     CustomerDTO getCustomerDetailById(Long id);

@@ -16,8 +16,14 @@ public interface TapeSpecService {
     /**
      * 分页查询规格列表
      */
-    ResponseResult<?> getList(int page, int size, String materialCode, String productName, 
-                              String colorCode, String baseMaterial, Integer status);
+    ResponseResult<?> getList(int page, int size, String materialCode, String productName,
+                              String colorCode, String baseMaterial, Integer status,
+                              String sortBy, String sortOrder);
+
+    /**
+     * 未生产平方统计（后端分页 + 排序）
+     */
+    ResponseResult<?> getUnproducedStatsPage(int page, int size, String materialCode, String sortBy, String sortOrder);
 
     /**
      * 根据ID查询详情

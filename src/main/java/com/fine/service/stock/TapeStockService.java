@@ -214,12 +214,12 @@ public interface TapeStockService {
     /**
      * 分页查询库存流水
      */
-    IPage<TapeStockLog> getStockLogPage(int page, int size, String type, String materialCode, String batchNo);
+    IPage<TapeStockLog> getStockLogPage(int page, int size, String type, String materialCode, String batchNo, String orderNo);
 
     /**
      * 分页查询出库流水汇总（按关联单号+料号+批次聚合）
      */
-    IPage<TapeStockLog> getOutboundLogSummaryPage(int page, int size, String materialCode, String batchNo);
+    IPage<TapeStockLog> getOutboundLogSummaryPage(int page, int size, String materialCode, String batchNo, String orderNo);
     
     /**
      * 导出流水数据

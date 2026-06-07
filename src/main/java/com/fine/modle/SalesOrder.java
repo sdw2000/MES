@@ -125,6 +125,10 @@ public class SalesOrder {
     @TableField(exist = false)
     private List<Long> removedItemIds;
 
+    // 管理员全量修改模式（仅请求参数，不入库）
+    @TableField(exist = false)
+    private Boolean adminFullEdit;
+
     // 未发货卷数（不映射到数据库）
     @TableField(exist = false)
     private Integer remainingRolls;
@@ -136,4 +140,24 @@ public class SalesOrder {
     // 已发货卷数（不映射到数据库）
     @TableField(exist = false)
     private Integer shippedRolls;
+
+    // RP口径：已报工卷数（不映射到数据库）
+    @TableField(exist = false)
+    private Integer rpProducedRolls;
+
+    // RP口径：已发货卷数（不映射到数据库）
+    @TableField(exist = false)
+    private Integer rpShippedRolls;
+
+    // RP口径：可发汇总卷数（不映射到数据库）
+    @TableField(exist = false)
+    private Integer rpShippable;
+
+    // 未出货面积（㎡）（不映射到数据库）
+    @TableField(exist = false)
+    private BigDecimal unshippedArea;
+
+    // 未出货金额（不映射到数据库）
+    @TableField(exist = false)
+    private BigDecimal unshippedAmount;
 }

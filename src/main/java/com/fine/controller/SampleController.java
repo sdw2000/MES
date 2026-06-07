@@ -17,7 +17,7 @@ import java.util.Map;
  */
 @RestController
 @RequestMapping("/api/sales/samples")
-@PreAuthorize("hasAnyAuthority('admin','sales','finance')")
+@PreAuthorize("hasAnyAuthority('admin','sales','finance','production','packaging','packing')")
 @CrossOrigin
 public class SampleController {
 
@@ -33,6 +33,15 @@ public class SampleController {
             @RequestParam(required = false) String trackingNumber) {
         Page<SampleOrderDTO> page = sampleOrderService.list(current, size, customerName, status, trackingNumber);
         return new ResponseResult<>(20000, "查询成功", page);
+    }
+
+    @GetMapping("/stats")
+    public ResponseResult<Map<String, Long>> stats(
+            @RequestParam(required = false) String customerName,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String trackingNumber) {
+        Map<String, Long> data = sampleOrderService.stats(customerName, status, trackingNumber);
+        return new ResponseResult<>(20000, "查询成功", data);
     }
 
     @GetMapping("/{sampleNo}")
@@ -97,6 +106,20 @@ public class SampleController {
             }
             String msg = String.valueOf(result.get("message"));
             if (msg.contains("查询无结果")) {
+                result.put("success", false);
+                result.put("status", result.getOrDefault("status", "暂无轨迹"));
+                result.put("lastUpdate", result.getOrDefault("lastUpdate", "-"));
+                result.put("traces", result.getOrDefault("traces", java.util.Collections.emptyList()));
+                return new ResponseResult<>(20000, msg, result);
+            }
+            if (msg.contains("不支持此快递公司") || msg.contains("未识别快递公司")) {
+                result.put("success", false);
+                result.put("status", result.getOrDefault("status", "未识别承运公司"));
+                result.put("lastUpdate", result.getOrDefault("lastUpdate", "-"));
+                result.put("traces", result.getOrDefault("traces", java.util.Collections.emptyList()));
+                return new ResponseResult<>(20000, msg, result);
+            }
+            if (msg.contains("单号长度不符合") || msg.contains("单号格式不正确")) {
                 result.put("success", false);
                 result.put("status", result.getOrDefault("status", "暂无轨迹"));
                 result.put("lastUpdate", result.getOrDefault("lastUpdate", "-"));

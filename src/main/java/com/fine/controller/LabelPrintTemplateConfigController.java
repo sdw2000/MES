@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -190,13 +191,8 @@ public class LabelPrintTemplateConfigController {
     @GetMapping("/sales-contract/default")
     public ResponseResult<Map<String, Object>> getSalesContractDefault(@RequestParam String customerCode) {
         try {
-            QueryWrapper<LabelPrintTemplateConfig> wrapper = new QueryWrapper<>();
-            wrapper.eq("biz_type", BIZ_TYPE_SALES_CONTRACT_DEFAULT)
-                    .eq("customer_code", customerCode)
-                    .eq("is_active", 1)
-                    .last("limit 1");
-
-            LabelPrintTemplateConfig found = configMapper.selectOne(wrapper);
+            List<LabelPrintTemplateConfig> rows = findCustomerDefaultRows(BIZ_TYPE_SALES_CONTRACT_DEFAULT, customerCode, true);
+            LabelPrintTemplateConfig found = pickLatestByUpdateTime(rows);
             Map<String, Object> result = new HashMap<>();
             result.put("customerCode", customerCode);
             result.put("templateKey", found == null ? null : found.getTemplateKey());
@@ -225,11 +221,8 @@ public class LabelPrintTemplateConfigController {
                 return ResponseResult.error("templateKey不能为空");
             }
 
-            QueryWrapper<LabelPrintTemplateConfig> wrapper = new QueryWrapper<>();
-            wrapper.eq("biz_type", BIZ_TYPE_SALES_CONTRACT_DEFAULT)
-                    .eq("customer_code", customerCode.trim())
-                    .last("limit 1");
-            LabelPrintTemplateConfig existing = configMapper.selectOne(wrapper);
+                List<LabelPrintTemplateConfig> rows = findCustomerDefaultRows(BIZ_TYPE_SALES_CONTRACT_DEFAULT, customerCode.trim(), false);
+                LabelPrintTemplateConfig existing = pickLatestByUpdateTime(rows);
 
             LocalDateTime now = LocalDateTime.now();
             String user = (operator == null || operator.trim().isEmpty()) ? "system" : operator.trim();
@@ -247,13 +240,20 @@ public class LabelPrintTemplateConfigController {
                 entity.setUpdateBy(user);
                 entity.setUpdateTime(now);
                 configMapper.insert(entity);
+                existing = entity;
             } else {
+                existing.setBizType(BIZ_TYPE_SALES_CONTRACT_DEFAULT);
+                existing.setSceneName("客户默认模板");
                 existing.setTemplateKey(templateKey.trim());
+                existing.setCustomerCode(customerCode.trim());
                 existing.setIsActive(1);
                 existing.setUpdateBy(user);
                 existing.setUpdateTime(now);
                 configMapper.updateById(existing);
             }
+
+            // 保存后自动去重（防止历史/外部写入导致同客户多条默认模板）
+            deleteCustomerDefaultDuplicates(BIZ_TYPE_SALES_CONTRACT_DEFAULT, customerCode.trim(), existing == null ? null : existing.getId());
 
             Map<String, Object> result = new HashMap<>();
             result.put("customerCode", customerCode.trim());
@@ -394,13 +394,8 @@ public class LabelPrintTemplateConfigController {
     @GetMapping("/delivery-notice/default")
     public ResponseResult<Map<String, Object>> getDeliveryNoticeDefault(@RequestParam String customerCode) {
         try {
-            QueryWrapper<LabelPrintTemplateConfig> wrapper = new QueryWrapper<>();
-            wrapper.eq("biz_type", BIZ_TYPE_DELIVERY_NOTICE_DEFAULT)
-                    .eq("customer_code", customerCode)
-                    .eq("is_active", 1)
-                    .last("limit 1");
-
-            LabelPrintTemplateConfig found = configMapper.selectOne(wrapper);
+            List<LabelPrintTemplateConfig> rows = findCustomerDefaultRows(BIZ_TYPE_DELIVERY_NOTICE_DEFAULT, customerCode, true);
+            LabelPrintTemplateConfig found = pickLatestByUpdateTime(rows);
             Map<String, Object> result = new HashMap<>();
             result.put("customerCode", customerCode);
             result.put("templateKey", found == null ? null : found.getTemplateKey());
@@ -429,11 +424,8 @@ public class LabelPrintTemplateConfigController {
                 return ResponseResult.error("templateKey不能为空");
             }
 
-            QueryWrapper<LabelPrintTemplateConfig> wrapper = new QueryWrapper<>();
-            wrapper.eq("biz_type", BIZ_TYPE_DELIVERY_NOTICE_DEFAULT)
-                    .eq("customer_code", customerCode.trim())
-                    .last("limit 1");
-            LabelPrintTemplateConfig existing = configMapper.selectOne(wrapper);
+                List<LabelPrintTemplateConfig> rows = findCustomerDefaultRows(BIZ_TYPE_DELIVERY_NOTICE_DEFAULT, customerCode.trim(), false);
+                LabelPrintTemplateConfig existing = pickLatestByUpdateTime(rows);
 
             LocalDateTime now = LocalDateTime.now();
             String user = (operator == null || operator.trim().isEmpty()) ? "system" : operator.trim();
@@ -451,13 +443,20 @@ public class LabelPrintTemplateConfigController {
                 entity.setUpdateBy(user);
                 entity.setUpdateTime(now);
                 configMapper.insert(entity);
+                existing = entity;
             } else {
+                existing.setBizType(BIZ_TYPE_DELIVERY_NOTICE_DEFAULT);
+                existing.setSceneName("发货通知客户默认模板");
                 existing.setTemplateKey(templateKey.trim());
+                existing.setCustomerCode(customerCode.trim());
                 existing.setIsActive(1);
                 existing.setUpdateBy(user);
                 existing.setUpdateTime(now);
                 configMapper.updateById(existing);
             }
+
+            // 保存后自动去重（防止历史/外部写入导致同客户多条默认模板）
+            deleteCustomerDefaultDuplicates(BIZ_TYPE_DELIVERY_NOTICE_DEFAULT, customerCode.trim(), existing == null ? null : existing.getId());
 
             Map<String, Object> result = new HashMap<>();
             result.put("customerCode", customerCode.trim());
@@ -739,40 +738,98 @@ public class LabelPrintTemplateConfigController {
         String materialNorm = normalizeMaterialCode(materialCode);
         String hint = customerMaterialCodeHint == null ? "" : customerMaterialCodeHint.trim();
 
-        return candidates.stream()
-                .max(Comparator.comparingInt(m -> mappingScore(m, materialNorm, thickness, width, length, hint)))
-                .filter(m -> mappingScore(m, materialNorm, thickness, width, length, hint) > 0)
-                .orElse(null);
+        // 1) 先严格锁定“同客户 + 同料号(归一化后完全相等)”
+        List<CustomerMaterialMapping> materialMatched = candidates.stream()
+                .filter(m -> {
+                    String mapMaterialNorm = normalizeMaterialCode(m == null ? null : m.getMaterialCode());
+                    return notBlank(materialNorm) && notBlank(mapMaterialNorm) && materialNorm.equals(mapMaterialNorm);
+                })
+                .collect(Collectors.toList());
+        if (materialMatched.isEmpty()) {
+            return null;
+        }
+
+        // 2) 若有客户物料编号提示，仅作为同料号内的优先条件（不允许跨料号命中）
+        if (notBlank(hint)) {
+            List<CustomerMaterialMapping> hinted = materialMatched.stream()
+                    .filter(m -> notBlank(m.getCustomerMaterialCode()) && hint.equals(m.getCustomerMaterialCode().trim()))
+                    .collect(Collectors.toList());
+            CustomerMaterialMapping bestHinted = pickMostPreciseMapping(hinted, thickness, width, length);
+            if (bestHinted != null) {
+                return bestHinted;
+            }
+        }
+
+        // 3) 无提示或提示未命中时，在同料号内按规格精确分层匹配
+        return pickMostPreciseMapping(materialMatched, thickness, width, length);
     }
 
-    private int mappingScore(CustomerMaterialMapping m,
-                             String materialNorm,
-                             BigDecimal thickness,
-                             BigDecimal width,
-                             BigDecimal length,
-                             String customerMaterialCodeHint) {
-        if (m == null) {
-            return -1;
-        }
-        int score = 0;
-        String mapMaterialNorm = normalizeMaterialCode(m.getMaterialCode());
-        if (notBlank(materialNorm) && notBlank(mapMaterialNorm) && materialNorm.equals(mapMaterialNorm)) {
-            score += 100;
-        }
-        if (notBlank(customerMaterialCodeHint) && notBlank(m.getCustomerMaterialCode())
-                && customerMaterialCodeHint.trim().equals(m.getCustomerMaterialCode().trim())) {
-            score += 120;
+    private CustomerMaterialMapping pickMostPreciseMapping(List<CustomerMaterialMapping> pool,
+                                                           BigDecimal thickness,
+                                                           BigDecimal width,
+                                                           BigDecimal length) {
+        if (pool == null || pool.isEmpty()) {
+            return null;
         }
 
-        if (numberEq(thickness, m.getThickness())) score += 20;
-        if (numberEq(width, m.getWidth())) score += 20;
-        if (numberEq(length, m.getLength())) score += 20;
+        // 层级A：原始规格三维精确
+        if (thickness != null && width != null && length != null) {
+            List<CustomerMaterialMapping> exact = pool.stream()
+                    .filter(m -> numberEq(thickness, m.getThickness())
+                            && numberEq(width, m.getWidth())
+                            && numberEq(length, m.getLength()))
+                    .collect(Collectors.toList());
+            CustomerMaterialMapping hit = pickNewest(exact);
+            if (hit != null) {
+                return hit;
+            }
 
-        if (numberEq(thickness, m.getCustomerThickness())) score += 10;
-        if (numberEq(width, m.getCustomerWidth())) score += 10;
-        if (numberEq(length, m.getCustomerLength())) score += 10;
+            // 层级B：客户规格三维精确（兼容历史数据）
+            List<CustomerMaterialMapping> exactCustomer = pool.stream()
+                    .filter(m -> numberEq(thickness, m.getCustomerThickness())
+                            && numberEq(width, m.getCustomerWidth())
+                            && numberEq(length, m.getCustomerLength()))
+                    .collect(Collectors.toList());
+            hit = pickNewest(exactCustomer);
+            if (hit != null) {
+                return hit;
+            }
+        }
 
-        return score;
+        // 层级C：厚度精确
+        if (thickness != null) {
+            List<CustomerMaterialMapping> byThickness = pool.stream()
+                    .filter(m -> numberEq(thickness, m.getThickness()))
+                    .collect(Collectors.toList());
+            CustomerMaterialMapping hit = pickNewest(byThickness);
+            if (hit != null) {
+                return hit;
+            }
+
+            List<CustomerMaterialMapping> byCustomerThickness = pool.stream()
+                    .filter(m -> numberEq(thickness, m.getCustomerThickness()))
+                    .collect(Collectors.toList());
+            hit = pickNewest(byCustomerThickness);
+            if (hit != null) {
+                return hit;
+            }
+        }
+
+        // 层级D：同客户同料号兜底，取最新
+        return pickNewest(pool);
+    }
+
+    private CustomerMaterialMapping pickNewest(List<CustomerMaterialMapping> list) {
+        if (list == null || list.isEmpty()) {
+            return null;
+        }
+        return list.stream().max(
+                Comparator
+                        .comparing(CustomerMaterialMapping::getUpdateTime,
+                                Comparator.nullsLast(Comparator.naturalOrder()))
+                        .thenComparing(CustomerMaterialMapping::getId,
+                                Comparator.nullsLast(Comparator.naturalOrder()))
+        ).orElse(null);
     }
 
     private String normalizeMaterialCode(String code) {
@@ -956,6 +1013,65 @@ public class LabelPrintTemplateConfigController {
             return "简版发货通知模板";
         }
         return key;
+    }
+
+    private List<LabelPrintTemplateConfig> findCustomerDefaultRows(String bizType, String customerCode, boolean activeOnly) {
+        if (customerCode == null || customerCode.trim().isEmpty()) {
+            return new ArrayList<>();
+        }
+        QueryWrapper<LabelPrintTemplateConfig> wrapper = new QueryWrapper<>();
+        wrapper.apply("LOWER(biz_type) = LOWER('" + bizType + "')")
+                .eq("customer_code", customerCode.trim());
+        if (activeOnly) {
+            wrapper.eq("is_active", 1);
+        }
+        wrapper.orderByDesc("update_time").orderByDesc("id");
+        List<LabelPrintTemplateConfig> rows = configMapper.selectList(wrapper);
+        return rows == null ? new ArrayList<>() : rows;
+    }
+
+    private LabelPrintTemplateConfig pickLatestByUpdateTime(List<LabelPrintTemplateConfig> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return null;
+        }
+        return rows.stream().max((a, b) -> {
+            LocalDateTime ta = a == null ? null : a.getUpdateTime();
+            LocalDateTime tb = b == null ? null : b.getUpdateTime();
+            if (ta == null && tb == null) {
+                Long ia = a == null ? null : a.getId();
+                Long ib = b == null ? null : b.getId();
+                if (ia == null && ib == null) return 0;
+                if (ia == null) return -1;
+                if (ib == null) return 1;
+                return Long.compare(ia, ib);
+            }
+            if (ta == null) return -1;
+            if (tb == null) return 1;
+            int cmp = ta.compareTo(tb);
+            if (cmp != 0) return cmp;
+            Long ia = a == null ? null : a.getId();
+            Long ib = b == null ? null : b.getId();
+            if (ia == null && ib == null) return 0;
+            if (ia == null) return -1;
+            if (ib == null) return 1;
+            return Long.compare(ia, ib);
+        }).orElse(rows.get(0));
+    }
+
+    private void deleteCustomerDefaultDuplicates(String bizType, String customerCode, Long keepId) {
+        if (customerCode == null || customerCode.trim().isEmpty()) {
+            return;
+        }
+        List<LabelPrintTemplateConfig> rows = findCustomerDefaultRows(bizType, customerCode.trim(), false);
+        for (LabelPrintTemplateConfig row : rows) {
+            if (row == null || row.getId() == null) {
+                continue;
+            }
+            if (keepId != null && keepId.equals(row.getId())) {
+                continue;
+            }
+            configMapper.deleteById(row.getId());
+        }
     }
 
     private Boolean parseBooleanLike(Object value, boolean defaultValue) {

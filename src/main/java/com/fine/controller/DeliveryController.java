@@ -5,7 +5,11 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Map;
 import java.util.HashMap;
+import java.util.Set;
 import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.Arrays;
+import java.util.Locale;
 import org.springframework.transaction.annotation.Transactional;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,6 +25,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fine.modle.DeliveryNotice;
 import com.fine.service.DeliveryNoticeService;
@@ -48,6 +53,10 @@ import java.util.LinkedHashMap;
 @RequestMapping("/delivery")
 @PreAuthorize("hasAnyAuthority('admin', 'sales', 'finance')")
 public class DeliveryController {
+
+    private static final Set<String> RP_CUSTOMER_CODES = new LinkedHashSet<>(Arrays.asList(
+            "RP01", "GDRP01", "JSRP01", "JXRP001", "LZRP01", "SHRP001"
+    ));
     
     @Autowired
     private DeliveryNoticeService deliveryNoticeService;
@@ -144,134 +153,63 @@ public class DeliveryController {
         String sortKey = sortProp == null ? "" : sortProp.trim();
         String sortDir = sortOrder == null ? "" : sortOrder.trim();
 
-        // 默认按创建时间倒序
-        if (sortKey.isEmpty()) {
+        // 映射排序字段
+        String dbSortField = mapToSortField(sortKey);
+        if (dbSortField != null) {
+            if ("ascending".equalsIgnoreCase(sortDir)) {
+                queryWrapper.orderByAsc(dbSortField);
+            } else {
+                queryWrapper.orderByDesc(dbSortField);
+            }
+        } else {
             queryWrapper.orderByDesc("created_at");
-            return ResponseResult.success(deliveryNoticeService.page(page, queryWrapper));
         }
 
-        // 全表排序：先按筛选取全量，再排序后分页
-        List<DeliveryNotice> all = deliveryNoticeService.list(queryWrapper);
-        if (all == null) {
-            all = new ArrayList<>();
+        // 1. 执行数据库分页查询 (不带 items)
+        IPage<DeliveryNotice> resultPage = deliveryNoticeService.page(page, queryWrapper);
+        List<DeliveryNotice> records = resultPage.getRecords();
+
+        if (records == null || records.isEmpty()) {
+            return ResponseResult.success(resultPage);
         }
 
-        // 批量查询明细，避免N+1
+        // 2. 仅为当前页的 records 批量查询明细 (Items)，避免 N+1
         List<Long> noticeIds = new ArrayList<>();
-        for (DeliveryNotice notice : all) {
+        for (DeliveryNotice notice : records) {
             if (notice != null && notice.getId() != null) {
                 noticeIds.add(notice.getId());
             }
         }
 
-        Map<Long, List<DeliveryNoticeItem>> itemMap = new HashMap<>();
         if (!noticeIds.isEmpty()) {
             List<DeliveryNoticeItem> allItems = deliveryNoticeItemMapper.selectByNoticeIds(noticeIds);
+            Map<Long, List<DeliveryNoticeItem>> itemMap = new HashMap<>();
             for (DeliveryNoticeItem item : allItems) {
-                if (item == null || item.getNoticeId() == null) {
-                    continue;
+                if (item != null && item.getNoticeId() != null) {
+                    itemMap.computeIfAbsent(item.getNoticeId(), k -> new ArrayList<>()).add(item);
                 }
-                itemMap.computeIfAbsent(item.getNoticeId(), k -> new ArrayList<>()).add(item);
             }
-        }
-        for (DeliveryNotice notice : all) {
-            if (notice != null && notice.getId() != null) {
+            for (DeliveryNotice notice : records) {
                 notice.setItems(itemMap.getOrDefault(notice.getId(), Collections.emptyList()));
             }
         }
 
-        Comparator<DeliveryNotice> comparator = buildComparator(sortKey, sortDir);
-        all.sort(comparator);
-
-        int safePageNum = pageNum == null || pageNum < 1 ? 1 : pageNum;
-        int safePageSize = pageSize == null || pageSize < 1 ? 10 : pageSize;
-        long total = all.size();
-        int fromIndex = Math.max(0, (safePageNum - 1) * safePageSize);
-        int toIndex = Math.min(all.size(), fromIndex + safePageSize);
-        List<DeliveryNotice> records = fromIndex >= toIndex ? new ArrayList<>() : all.subList(fromIndex, toIndex);
-
-        page.setTotal(total);
-        page.setCurrent(safePageNum);
-        page.setSize(safePageSize);
-        page.setRecords(records);
-
-        return ResponseResult.success(page);
+        return ResponseResult.success(resultPage);
     }
 
-    private Comparator<DeliveryNotice> buildComparator(String sortProp, String sortOrder) {
-        boolean asc = "ascending".equalsIgnoreCase(sortOrder);
-        Comparator<DeliveryNotice> comparator = (a, b) -> {
-            Object av = sortValue(a, sortProp);
-            Object bv = sortValue(b, sortProp);
-            return compareSortValues(av, bv);
-        };
-        return asc ? comparator : comparator.reversed();
+    private String mapToSortField(String sortProp) {
+        if (sortProp == null) return null;
+        switch (sortProp) {
+            case "customer": return "customer";
+            case "noticeNo": return "notice_no";
+            case "orderNo": return "order_no";
+            case "deliveryDate": return "delivery_date";
+            case "status": return "status";
+            case "createdAt": return "created_at";
+            default: return null;
+        }
     }
 
-    private int compareSortValues(Object av, Object bv) {
-        if (av == bv) return 0;
-        if (av == null) return -1;
-        if (bv == null) return 1;
-
-        if (av instanceof Number && bv instanceof Number) {
-            return Double.compare(((Number) av).doubleValue(), ((Number) bv).doubleValue());
-        }
-
-        if (av.getClass().isAssignableFrom(bv.getClass()) && av instanceof Comparable<?>) {
-            @SuppressWarnings("unchecked")
-            Comparable<Object> c = (Comparable<Object>) av;
-            return c.compareTo(bv);
-        }
-
-        return String.valueOf(av).compareTo(String.valueOf(bv));
-    }
-
-    private Object sortValue(DeliveryNotice notice, String sortProp) {
-        if (notice == null) return "";
-        String key = sortProp == null ? "" : sortProp.trim();
-        if ("customer".equals(key)) {
-            return safeText(notice.getCustomer());
-        }
-        if ("noticeNo".equals(key)) {
-            return safeText(notice.getNoticeNo());
-        }
-        if ("orderNo".equals(key)) {
-            return safeText(notice.getOrderNo());
-        }
-        if ("deliveryDate".equals(key)) {
-            return notice.getDeliveryDate() == null ? 0L : notice.getDeliveryDate().toEpochDay();
-        }
-        if ("status".equals(key)) {
-            return safeText(notice.getStatus());
-        }
-        if ("totalQty".equals(key)) {
-            int sum = 0;
-            List<DeliveryNoticeItem> items = notice.getItems();
-            if (items != null) {
-                for (DeliveryNoticeItem item : items) {
-                    if (item != null && item.getQuantity() != null) {
-                        sum += item.getQuantity();
-                    }
-                }
-            }
-            return sum;
-        }
-        if ("specText".equals(key)) {
-            List<DeliveryNoticeItem> items = notice.getItems();
-            if (items != null && !items.isEmpty()) {
-                DeliveryNoticeItem first = items.get(0);
-                if (first != null && first.getSpec() != null) {
-                    return safeText(first.getSpec());
-                }
-            }
-            return "";
-        }
-        return notice.getCreatedAt() == null ? 0L : notice.getCreatedAt().getTime();
-    }
-
-    private String safeText(String value) {
-        return value == null ? "" : value.toUpperCase();
-    }
     
     /**
      * 创建发货通知
@@ -300,6 +238,35 @@ public class DeliveryController {
         } else {
             return ResponseResult.error(404, "未找到该发货单");
         }
+    }
+
+    /**
+     * RP共享池预览（按订单明细）：返回池可发、池已报工、池已发与池内明细数。
+     */
+    @GetMapping("/rp-pool-preview")
+    public ResponseResult<?> getRpPoolPreview(
+            @RequestParam String orderItemIds,
+            @RequestParam(required = false) Long currentNoticeId
+    ) {
+        if (!StringUtils.hasText(orderItemIds)) {
+            return ResponseResult.success(new LinkedHashMap<>());
+        }
+        List<Long> ids = new ArrayList<>();
+        String[] parts = orderItemIds.split(",");
+        for (String part : parts) {
+            if (!StringUtils.hasText(part)) {
+                continue;
+            }
+            try {
+                ids.add(Long.parseLong(part.trim()));
+            } catch (Exception ignore) {
+                // 忽略非法ID，继续解析其他ID
+            }
+        }
+        if (ids.isEmpty()) {
+            return ResponseResult.success(new LinkedHashMap<>());
+        }
+        return ResponseResult.success(deliveryNoticeService.getRpPoolPreview(ids, currentNoticeId));
     }
 
     /**
@@ -388,7 +355,11 @@ public class DeliveryController {
             boolean updated = deliveryNoticeService.updateById(notice);
             
             if (updated) {
-                syncSalesOrderItemsDeliveryProgress(notice.getOrderId());
+                if (isRpCustomerCode(notice.getCustomer())) {
+                    deliveryNoticeService.rebalanceRpProducedCreditsByNotice(notice.getId(), getCurrentUsername(loginUser));
+                } else {
+                    syncSalesOrderItemsDeliveryProgress(notice.getOrderId());
+                }
                 return ResponseResult.success("确认发货成功");
             } else {
                 return ResponseResult.error(500, "确认发货失败");
@@ -748,6 +719,13 @@ public class DeliveryController {
 
     private String normalizeMaterialCode(String materialCode) {
         return materialCode == null ? "" : materialCode.trim();
+    }
+
+    private boolean isRpCustomerCode(String customerCode) {
+        if (!StringUtils.hasText(customerCode)) {
+            return false;
+        }
+        return RP_CUSTOMER_CODES.contains(customerCode.trim().toUpperCase(Locale.ROOT));
     }
 
     /**

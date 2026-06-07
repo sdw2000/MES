@@ -828,7 +828,8 @@ public class TapeStockServiceImpl implements TapeStockService {
     @Override
     public List<TapeStock> exportStock(String materialCode, String location) {
         LambdaQueryWrapper<TapeStock> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(TapeStock::getStatus, 1);
+        wrapper.eq(TapeStock::getStatus, 1)
+               .gt(TapeStock::getTotalRolls, 0);
         if (StringUtils.hasText(materialCode)) {
             wrapper.like(TapeStock::getMaterialCode, materialCode);
         }
@@ -1156,6 +1157,7 @@ public class TapeStockServiceImpl implements TapeStockService {
     @Transactional
     public TapeInboundRequest createInboundRequest(TapeInboundRequest request) {
         normalizeInboundDisplayFields(request);
+        validateInboundBatchMaterialConsistency(request);
         if (!StringUtils.hasText(request.getQtyUnit())) {
             request.setQtyUnit("卷");
         }
@@ -1194,6 +1196,57 @@ public class TapeStockServiceImpl implements TapeStockService {
 
         return request;
     }
+
+    /**
+     * 在“创建入库申请”阶段就拦截批次与料号冲突，
+     * 避免到审批阶段才失败，导致用户反复重试。
+     */
+    private void validateInboundBatchMaterialConsistency(TapeInboundRequest request) {
+        if (request == null) {
+            return;
+        }
+        String batchNo = normalizeCustomerBatchNo(request.getBatchNo());
+        if (!StringUtils.hasText(batchNo)) {
+            return;
+        }
+        request.setBatchNo(batchNo);
+
+        String materialCode = request.getMaterialCode() == null ? "" : request.getMaterialCode().trim();
+        if (!StringUtils.hasText(materialCode)) {
+            return;
+        }
+
+        // 1) 与已入库库存校验（有效库存）
+        LambdaQueryWrapper<TapeStock> stockWrapper = new LambdaQueryWrapper<>();
+        stockWrapper.eq(TapeStock::getStatus, 1)
+                .eq(TapeStock::getBatchNo, batchNo)
+                .last("LIMIT 1");
+        TapeStock existingStock = stockMapper.selectOne(stockWrapper);
+        if (existingStock != null
+                && StringUtils.hasText(existingStock.getMaterialCode())
+                && !existingStock.getMaterialCode().trim().equalsIgnoreCase(materialCode)) {
+            throw new RuntimeException("批次号已被其它料号占用，禁止创建入库申请: " + batchNo
+                    + "（现有料号=" + existingStock.getMaterialCode().trim()
+                    + "，申请料号=" + materialCode + "）");
+        }
+
+        // 2) 与待审批/已审批入库申请校验（同批次跨料号）
+        LambdaQueryWrapper<TapeInboundRequest> inboundWrapper = new LambdaQueryWrapper<>();
+        inboundWrapper.eq(TapeInboundRequest::getBatchNo, batchNo)
+                .in(TapeInboundRequest::getStatus,
+                        TapeInboundRequest.STATUS_PENDING,
+                        TapeInboundRequest.STATUS_APPROVED)
+                .orderByDesc(TapeInboundRequest::getId)
+                .last("LIMIT 1");
+        TapeInboundRequest existingInbound = inboundMapper.selectOne(inboundWrapper);
+        if (existingInbound != null
+                && StringUtils.hasText(existingInbound.getMaterialCode())
+                && !existingInbound.getMaterialCode().trim().equalsIgnoreCase(materialCode)) {
+            throw new RuntimeException("批次号已存在且对应料号不一致，禁止创建入库申请: " + batchNo
+                    + "（现有料号=" + existingInbound.getMaterialCode().trim()
+                    + "，申请料号=" + materialCode + "）");
+        }
+    }
     
     @Override
     @Transactional
@@ -1227,8 +1280,20 @@ public class TapeStockServiceImpl implements TapeStockService {
         for (String rollCode : normalized) {
             try {
                 LambdaQueryWrapper<TapeInboundRequest> wrapper = new LambdaQueryWrapper<>();
-                wrapper.eq(TapeInboundRequest::getBatchNo, rollCode)
-                        .eq(TapeInboundRequest::getStatus, TapeInboundRequest.STATUS_PENDING)
+                wrapper.eq(TapeInboundRequest::getStatus, TapeInboundRequest.STATUS_PENDING)
+                        .and(w -> {
+                            w.eq(TapeInboundRequest::getBatchNo, rollCode)
+                             .or().eq(TapeInboundRequest::getCustomerBatchNo, rollCode);
+                            
+                            // 兼容带流水尾号的扫码（如：批次号-001）
+                            if (rollCode.contains("-")) {
+                                String prefix = rollCode.substring(0, rollCode.lastIndexOf("-"));
+                                w.or().eq(TapeInboundRequest::getCustomerBatchNo, prefix);
+                            }
+                            
+                            // 兼容采购单号扫码
+                            w.or().like(TapeInboundRequest::getRemark, "|purchaseOrderNo=" + rollCode + "|");
+                        })
                         .orderByDesc(TapeInboundRequest::getId)
                         .last("LIMIT 1");
                 TapeInboundRequest req = inboundMapper.selectOne(wrapper);
@@ -1283,6 +1348,7 @@ public class TapeStockServiceImpl implements TapeStockService {
         boolean salesReturnInbound = isSalesReturnInbound(request);
         boolean slittingFinishedInbound = isSlittingFinishedInbound(request);
         boolean strictReportSequenceInbound = isCoatingOrRewindingInbound(request);
+        boolean digitalTapeInbound = isDigitalTapeInbound(request);
         
         if (approved) {
             if (salesReturnInbound) {
@@ -1297,16 +1363,38 @@ public class TapeStockServiceImpl implements TapeStockService {
                 if (StringUtils.hasText(scannedLocation)) {
                     request.setLocation(scannedLocation.trim());
                 }
-                if (!StringUtils.hasText(request.getLocation()) || "待上架".equals(request.getLocation().trim())) {
-                    throw new RuntimeException("请扫码卡板位后再审批通过");
+                
+                // [优化] 允许采购来料（化工/薄膜/包材等）先入“待上架”虚拟库位，后续再处理。
+                // 仅对生产工序生成的入库单（涂布/复卷/分切）强制要求库位，避免报工数据丢失物理位置。
+                boolean isPurchase = isPurchaseReceiptInbound(request);
+                if (!isPurchase) {
+                    if (!StringUtils.hasText(request.getLocation()) || "待上架".equals(request.getLocation().trim())) {
+                        throw new RuntimeException("请扫码卡板位后再审批通过");
+                    }
                 }
 
-                // 卷号扫码改为可选校验：若已扫码则必须与申请批次一致
+                // 卷号扫码验证：支持匹配内部批次号、外部批次号、扫码流水号以及相关单号
                 String scannedCode = scannedRollCode == null ? "" : scannedRollCode.trim();
                 if (StringUtils.hasText(scannedCode)) {
-                    String expectedRollCode = request.getBatchNo() == null ? "" : request.getBatchNo().trim();
-                    if (StringUtils.hasText(expectedRollCode) && !expectedRollCode.equalsIgnoreCase(scannedCode)) {
-                        throw new RuntimeException("扫码母卷号与申请批次不一致，禁止入库");
+                    boolean matched = false;
+                    String batchNo = request.getBatchNo() == null ? "" : request.getBatchNo().trim();
+                    String customerBatchNo = request.getCustomerBatchNo() == null ? "" : request.getCustomerBatchNo().trim();
+
+                    if (batchNo.equalsIgnoreCase(scannedCode) || customerBatchNo.equalsIgnoreCase(scannedCode)) {
+                        matched = true;
+                    } else if (scannedCode.contains("-") && customerBatchNo.equalsIgnoreCase(scannedCode.substring(0, scannedCode.lastIndexOf("-")))) {
+                        // 兼容带段号扫码匹配客户批次号
+                        matched = true;
+                    } else if (isPurchaseReceiptInbound(request)) {
+                        String remark = request.getRemark();
+                        if (remark != null && (remark.contains("|purchaseOrderNo=" + scannedCode + "|") 
+                                || remark.contains("|receiptNo=" + scannedCode + "|"))) {
+                            matched = true;
+                        }
+                    }
+
+                    if (!matched) {
+                        throw new RuntimeException("扫码编号[" + scannedCode + "]与该申请单不匹配");
                     }
                 }
             }
@@ -1329,8 +1417,8 @@ public class TapeStockServiceImpl implements TapeStockService {
             // - 分切成品：按申请单聚合一条（totalRolls=申请卷数）
             // - 其他类型：仍按每卷一条
             Integer requestSequenceNo = request.getSequenceNo();
-            if (strictReportSequenceInbound && (requestSequenceNo == null || requestSequenceNo <= 0)) {
-                throw new RuntimeException("工序入库数字号缺失，必须与报工数字号一致");
+            if (strictReportSequenceInbound && digitalTapeInbound && (requestSequenceNo == null || requestSequenceNo <= 0)) {
+                throw new RuntimeException("数字胶带工序入库数字号缺失，必须与报工数字号一致");
             }
             Integer maxSeq = stockMapper.selectMaxSequenceNoByBatchNo(request.getBatchNo());
             int seq = maxSeq != null ? maxSeq : 0;
@@ -1341,18 +1429,13 @@ public class TapeStockServiceImpl implements TapeStockService {
             if (isPurchaseReceiptInbound(request) && shouldRoutePurchaseInboundToRawWarehouse(purchaseInboundCategory)) {
                 routePurchaseInboundToRawWarehouse(request, rolls, auditor, inboundStockRemark, purchaseInboundCategory);
                 needAutoFulfill = false;
-            } else if (slittingFinishedInbound) {
-                // 分切成品按“批次+规格+卷数”入库（单线逻辑，不做逐卷数字号）
+                } else if (slittingFinishedInbound) {
+                // 分切成品按“批次号”聚合入库：batch_no 在库内唯一，必须优先按批次合并，
+                // 避免同批次因规格字段差异（空值/修订）漏匹配后重复插入触发 uk_batch_no。
                 LambdaQueryWrapper<TapeStock> mergeWrapper = new LambdaQueryWrapper<>();
                 mergeWrapper.eq(TapeStock::getStatus, 1)
-                        .eq(TapeStock::getMaterialCode, request.getMaterialCode())
-                        .eq(TapeStock::getBatchNo, request.getBatchNo())
-                        .eq(TapeStock::getRollType, "分切卷")
-                        .eq(TapeStock::getLocation, request.getLocation())
-                        .eq(TapeStock::getThickness, request.getThickness())
-                        .eq(TapeStock::getWidth, request.getWidth())
-                        .eq(TapeStock::getLength, request.getLength())
-                        .last("LIMIT 1");
+                    .eq(TapeStock::getBatchNo, request.getBatchNo())
+                    .last("LIMIT 1");
                 TapeStock stock = stockMapper.selectOne(mergeWrapper);
 
                 if (stock == null) {
@@ -1584,7 +1667,8 @@ public class TapeStockServiceImpl implements TapeStockService {
                     if (stock != null && StringUtils.hasText(stock.getMaterialCode())
                         && StringUtils.hasText(request.getMaterialCode())
                         && !stock.getMaterialCode().trim().equalsIgnoreCase(request.getMaterialCode().trim())) {
-                    throw new RuntimeException("批次号已存在且对应料号不一致，禁止入库: " + inboundBatchNo);
+                    throw new RuntimeException("批次号已存在且对应料号不一致，禁止入库: " + inboundBatchNo
+                        + "（现有料号=" + stock.getMaterialCode() + "，申请料号=" + request.getMaterialCode() + "）");
                     }
                 }
 
@@ -1763,7 +1847,8 @@ public class TapeStockServiceImpl implements TapeStockService {
             return false;
         }
         String upper = remark.toUpperCase();
-        return upper.contains("PROCESS=SLITTING") || upper.contains("PROCESS=SLIT");
+        // 增加对手动指定自动入库标记的兼容
+        return upper.contains("PROCESS=SLITTING") || upper.contains("PROCESS=SLIT") || upper.contains("[AUTO_APPROVE]");
     }
 
     private boolean isCoatingOrRewindingInbound(TapeInboundRequest request) {
@@ -1778,6 +1863,30 @@ public class TapeStockServiceImpl implements TapeStockService {
         return upper.contains("PROCESS=COATING")
                 || upper.contains("PROCESS=REWINDING")
                 || upper.contains("PROCESS=REWIND");
+    }
+
+    /**
+     * 数字胶带识别：仅命中明确关键词，避免把普通数字料号误判为数字胶带。
+     */
+    private boolean isDigitalTapeInbound(TapeInboundRequest request) {
+        if (request == null) {
+            return false;
+        }
+        return containsDigitalTapeKeyword(request.getMaterialCode())
+                || containsDigitalTapeKeyword(request.getProductName())
+                || containsDigitalTapeKeyword(request.getRemark());
+    }
+
+    private boolean containsDigitalTapeKeyword(String text) {
+        if (!StringUtils.hasText(text)) {
+            return false;
+        }
+        String upper = text.trim().toUpperCase(Locale.ROOT);
+        return upper.contains("数字胶带")
+                || upper.contains("数字帶")
+                || upper.contains("DIGITAL TAPE")
+                || upper.contains("DIGITAL_TAPE")
+                || upper.contains("DIGITAL-TAPE");
     }
 
     private boolean isPurchaseReceiptInbound(TapeInboundRequest request) {
@@ -1823,6 +1932,18 @@ public class TapeStockServiceImpl implements TapeStockService {
                     && "PACKAGING".equals(recalculated)) {
                 return "PACKAGING";
             }
+            // 历史兼容：离型膜/薄膜被错误打成 CHEMICAL 时，优先采用重算结果，避免误入化工仓。
+            if ("CHEMICAL".equals(tokenCategory)
+                    && ("RELEASE_FILM_PAPER".equals(recalculated)
+                    || "FILM".equals(recalculated)
+                    || "FOAM".equals(recalculated))) {
+                return recalculated;
+            }
+            // 历史兼容：近期因料号前缀匹配（如M开头）导致化工/色浆/纸管被误标为 FILM 的情况。
+            if ("FILM".equals(tokenCategory)
+                    && ("CHEMICAL".equals(recalculated) || "PACKAGING".equals(recalculated))) {
+                return recalculated;
+            }
             // 历史上存在inboundCategory=GENERAL但实际是泡棉/薄膜/化工的场景，
             // 这里对GENERAL做一次兜底重算，避免误入胶带仓。
             if (!"GENERAL".equals(tokenCategory)) {
@@ -1841,6 +1962,15 @@ public class TapeStockServiceImpl implements TapeStockService {
         String spec = specDesc == null ? "" : specDesc.trim();
         String unit = qtyUnit == null ? "" : qtyUnit.trim();
 
+        // 0) 规格文本中的显式化工/包材单位描述（采购下单时的原始输入通常保存在 spec 中）
+        String sLower = spec.toLowerCase();
+        if (containsAny(sLower, "kg", "公斤", "桶", "包", "升", " l", " drum", " bucket")) {
+            return "CHEMICAL";
+        }
+        if (containsAny(sLower, "支", "个", "箱", "件", "芯", "条")) {
+            return "PACKAGING";
+        }
+
         // 统一口径：PEG/PE管类进入包材仓
         if (isPegTubeMaterial(materialCode, materialName, specDesc)) {
             return "PACKAGING";
@@ -1854,9 +1984,22 @@ public class TapeStockServiceImpl implements TapeStockService {
             return "PACKAGING";
         }
 
+        // 强规则优先：离型膜/离型纸/薄膜类一律优先判定为薄膜仓，
+        // 避免被原料主数据中历史错误的“化工”标签误导。
+        if (isReleaseFilmOrPaperByText(code, name, spec)) {
+            return "RELEASE_FILM_PAPER";
+        }
+        // [MOD] 暂时去掉顶部的 isFilmByText 强判定，因为 ML-012 等化工料也以 M 开头，
+        // 放在后面更细致的 CHEMICAL 规则判定之后再进行 FILM 兜底，避免误入薄膜仓触发约束错误。
+
         try {
             TapeRawMaterial rawMaterial = tapeFormulaMapper.selectRawMaterialByCode(code);
             if (rawMaterial != null) {
+                String explicitCategory = resolveExplicitInboundCategoryFromRawMaterial(rawMaterial);
+                if (StringUtils.hasText(explicitCategory)) {
+                    return explicitCategory;
+                }
+
                 String category = normalizeLower(rawMaterial.getMaterialCategory());
                 String categoryRaw = normalizeLower(rawMaterial.getMaterialCategoryRaw());
                 String type = normalizeLower(rawMaterial.getMaterialType());
@@ -1872,7 +2015,7 @@ public class TapeStockServiceImpl implements TapeStockService {
                 }
                 if (containsAny(category, "chemical", "化工")
                         || containsAny(categoryRaw, "chemical", "化工")
-                        || containsAny(type, "solvent", "additive", "resin", "curing", "胶", "胶水", "溶剂", "助剂", "树脂", "固化")
+                        || containsAny(type, "solvent", "additive", "resin", "curing", "胶", "胶水", "溶剂", "助剂", "树脂", "固化", "色浆", "色粉", "浆", "涂料", "油漆")
                         || containsAny(rawUnit, "kg", "公斤", "千克", "桶", "包", "drum", "barrel")) {
                     return "CHEMICAL";
                 }
@@ -1886,11 +2029,11 @@ public class TapeStockServiceImpl implements TapeStockService {
         if (code.startsWith("PM") || name.contains("泡棉") || spec.contains("泡棉")) {
             return "FOAM";
         }
-        if (code.startsWith("LMR") || code.startsWith("HHFT") || code.startsWith("RH")
-                || name.contains("胶") || name.contains("胶水") || spec.contains("胶") || spec.contains("胶水")) {
+        if (code.startsWith("LMR") || code.startsWith("HHFT") || code.startsWith("RH") || code.startsWith("ML")
+                || name.contains("胶") || name.contains("胶水") || name.contains("色浆") || name.contains("色粉") || name.contains("浆") || name.contains("涂料") || name.contains("油漆")) {
             return "CHEMICAL";
         }
-        if (code.startsWith("M") || name.contains("薄膜") || name.contains("膜") || spec.contains("PET") || spec.contains("BOPP")) {
+        if (isFilmByText(code, name, spec)) {
             return "FILM";
         }
         if (name.contains("化工")
@@ -1904,6 +2047,91 @@ public class TapeStockServiceImpl implements TapeStockService {
             return "CHEMICAL";
         }
         return "GENERAL";
+    }
+
+    /**
+     * 按料号主数据显式入仓配置优先判定：
+     * - materialCategory 优先（film/chemical/packaging）
+     * - 其次解析 remark/materialMajor/materialCategoryRaw 中的仓库关键词
+     */
+    private String resolveExplicitInboundCategoryFromRawMaterial(TapeRawMaterial rawMaterial) {
+        if (rawMaterial == null) {
+            return null;
+        }
+        String category = normalizeLower(rawMaterial.getMaterialCategory());
+        if (containsAny(category, "packaging", "package", "包材", "纸箱", "管芯")) {
+            return "PACKAGING";
+        }
+        if (containsAny(category, "film", "薄膜", "原膜", "release", "离型")) {
+            return containsAny(category, "release", "离型") ? "RELEASE_FILM_PAPER" : "FILM";
+        }
+        if (containsAny(category, "chemical", "化工")) {
+            return "CHEMICAL";
+        }
+
+        String hint = String.join("|",
+                normalizeLower(rawMaterial.getMaterialCode()),
+                normalizeLower(rawMaterial.getMaterialName()),
+                normalizeLower(rawMaterial.getRemark()),
+                normalizeLower(rawMaterial.getMaterialMajor()),
+                normalizeLower(rawMaterial.getMaterialCategoryRaw()),
+                normalizeLower(rawMaterial.getMaterialType()));
+
+        if (containsAny(hint,
+                "inboundwarehouse=packaging", "warehouse=packaging", "包材仓", "包材", "纸箱", "管芯", "纸管", "管")) {
+            return "PACKAGING";
+        }
+        if (containsAny(hint,
+                "inboundwarehouse=film", "warehouse=film", "薄膜仓", "离型膜仓", "离型纸仓", "薄膜", "原膜", "离型", "film", "pet", "bopp")) {
+            return containsAny(hint, "离型") ? "RELEASE_FILM_PAPER" : "FILM";
+        }
+        if (containsAny(hint,
+                "inboundwarehouse=chemical", "warehouse=chemical", "化工仓", "化工", "胶水", "色浆", "色粉", "料", "resin", "solvent")) {
+            return "CHEMICAL";
+        }
+        return null;
+    }
+
+    private boolean isReleaseFilmOrPaperByText(String code, String name, String spec) {
+        String c = code == null ? "" : code;
+        String n = name == null ? "" : name;
+        String s = spec == null ? "" : spec;
+        if (containsAny(normalizeLower(n), "离型剂") || containsAny(normalizeLower(s), "离型剂")) {
+            return false;
+        }
+        return c.startsWith("LX")
+                || c.contains("LXM")
+                || n.contains("离型膜")
+                || n.contains("离型纸")
+                || s.contains("离型膜")
+                || s.contains("离型纸");
+    }
+
+    private boolean isFilmByText(String code, String name, String spec) {
+        String c = code == null ? "" : code;
+        String n = name == null ? "" : name;
+        String s = spec == null ? "" : spec;
+        String nLower = normalizeLower(n);
+        String sLower = normalizeLower(s);
+        // 若存在明显化工/包材关键词，不按薄膜兜底，避免误判
+        if (containsAny(nLower, "胶水", "溶剂", "助剂", "树脂", "固化剂", "离型剂", "硅油", "油墨", "涂料", "色浆", "色粉", "浆", "油漆")
+                || containsAny(sLower, "胶水", "溶剂", "助剂", "树脂", "固化剂", "离型剂", "硅油", "油墨", "涂料", "色浆", "色粉", "浆", "油漆")
+                || containsAny(nLower, "纸管", "管芯", "纸筒", "管", "纸箱", "包装箱")
+                || containsAny(sLower, "纸管", "管芯", "纸筒", "管", "纸箱", "包装箱")) {
+            return false;
+        }
+        return c.startsWith("M")
+                || c.startsWith("PET")
+                || c.startsWith("BOPP")
+                || c.contains("FILM")
+                || n.contains("薄膜")
+                || n.contains("原膜")
+                || n.contains("保护膜")
+                || n.contains("膜")
+                || s.contains("PET")
+                || s.contains("BOPP")
+                || s.contains("薄膜")
+                || s.contains("原膜");
     }
 
     private String normalizeLower(String value) {
@@ -4351,7 +4579,7 @@ public class TapeStockServiceImpl implements TapeStockService {
     // ============= 库存流水 =============
     
     @Override
-    public IPage<TapeStockLog> getStockLogPage(int page, int size, String type, String materialCode, String batchNo) {
+    public IPage<TapeStockLog> getStockLogPage(int page, int size, String type, String materialCode, String batchNo, String orderNo) {
         LambdaQueryWrapper<TapeStockLog> wrapper = new LambdaQueryWrapper<>();
         if (StringUtils.hasText(type)) {
             wrapper.eq(TapeStockLog::getType, type);
@@ -4362,14 +4590,28 @@ public class TapeStockServiceImpl implements TapeStockService {
         if (StringUtils.hasText(batchNo)) {
             wrapper.like(TapeStockLog::getBatchNo, batchNo);
         }
+        if (StringUtils.hasText(orderNo)) {
+            String orderNoLike = orderNo.trim().replace("'", "''");
+            wrapper.and(w -> w
+                    .inSql(TapeStockLog::getRefNo,
+                            "SELECT tor.request_no FROM tape_outbound_request tor WHERE IFNULL(tor.order_no, '') LIKE '%" + orderNoLike + "%'"
+                    )
+                    .or()
+                    .inSql(TapeStockLog::getRefNo,
+                            "SELECT tir.request_no FROM tape_inbound_request tir WHERE IFNULL(tir.remark, '') LIKE '%orderNo=" + orderNoLike + "%'"
+                    )
+            );
+        }
         wrapper.orderByDesc(TapeStockLog::getCreateTime);
         Page<TapeStockLog> pageParam = new Page<>(page, size);
         pageParam.setOptimizeCountSql(false); // 禁用COUNT优化，避免生成错误的SQL
-        return logMapper.selectPage(pageParam, wrapper);
+        IPage<TapeStockLog> result = logMapper.selectPage(pageParam, wrapper);
+        enrichInboundLogDisplayFields(result == null ? null : result.getRecords());
+        return result;
     }
 
     @Override
-    public IPage<TapeStockLog> getOutboundLogSummaryPage(int page, int size, String materialCode, String batchNo) {
+    public IPage<TapeStockLog> getOutboundLogSummaryPage(int page, int size, String materialCode, String batchNo, String orderNo) {
         QueryWrapper<TapeStockLog> wrapper = new QueryWrapper<>();
         wrapper.select(
                 "MAX(id) AS id",
@@ -4377,6 +4619,7 @@ public class TapeStockServiceImpl implements TapeStockService {
                 "material_code AS material_code",
                 "MAX(product_name) AS product_name",
                 "batch_no AS batch_no",
+                "MAX((SELECT tor.order_no FROM tape_outbound_request tor WHERE tor.request_no = ref_no LIMIT 1)) AS order_no",
                 "SUM(change_rolls) AS change_rolls",
                 "MIN(before_rolls) AS before_rolls",
                 "MAX(after_rolls) AS after_rolls",
@@ -4391,6 +4634,12 @@ public class TapeStockServiceImpl implements TapeStockService {
         }
         if (StringUtils.hasText(batchNo)) {
             wrapper.like("batch_no", batchNo.trim());
+        }
+        if (StringUtils.hasText(orderNo)) {
+            String orderNoLike = orderNo.trim().replace("'", "''");
+            wrapper.inSql("ref_no",
+                    "SELECT tor.request_no FROM tape_outbound_request tor WHERE IFNULL(tor.order_no, '') LIKE '%" + orderNoLike + "%'"
+            );
         }
         wrapper.groupBy("ref_no", "material_code", "batch_no");
         wrapper.orderByDesc("MAX(create_time)");
@@ -4408,6 +4657,7 @@ public class TapeStockServiceImpl implements TapeStockService {
             log.setMaterialCode(stringObj(row.get("material_code")));
             log.setProductName(stringObj(row.get("product_name")));
             log.setBatchNo(stringObj(row.get("batch_no")));
+            log.setOrderNo(stringObj(row.get("order_no")));
             log.setChangeRolls(parseIntObj(row.get("change_rolls")));
             log.setBeforeRolls(parseIntObj(row.get("before_rolls")));
             log.setAfterRolls(parseIntObj(row.get("after_rolls")));
@@ -4489,7 +4739,117 @@ public class TapeStockServiceImpl implements TapeStockService {
             wrapper.le(TapeStockLog::getCreateTime, LocalDate.parse(endDate).plusDays(1).atStartOfDay());
         }
         wrapper.orderByDesc(TapeStockLog::getCreateTime);
-        return logMapper.selectList(wrapper);
+        List<TapeStockLog> list = logMapper.selectList(wrapper);
+        enrichInboundLogDisplayFields(list);
+        return list;
+    }
+
+    private void enrichInboundLogDisplayFields(List<TapeStockLog> logs) {
+        if (logs == null || logs.isEmpty()) {
+            return;
+        }
+        Set<String> requestNos = new HashSet<>();
+        Set<String> outboundRequestNos = new HashSet<>();
+        for (TapeStockLog log : logs) {
+            if (log == null) {
+                continue;
+            }
+            String refNo = log.getRefNo() == null ? "" : log.getRefNo().trim();
+            if (TapeStockLog.TYPE_IN.equalsIgnoreCase(String.valueOf(log.getType())) && StringUtils.hasText(refNo)) {
+                requestNos.add(refNo);
+            }
+            if (TapeStockLog.TYPE_OUT.equalsIgnoreCase(String.valueOf(log.getType())) && StringUtils.hasText(refNo)) {
+                outboundRequestNos.add(refNo);
+            }
+        }
+        if (requestNos.isEmpty() && outboundRequestNos.isEmpty()) {
+            return;
+        }
+
+        Map<String, TapeInboundRequest> inboundByNo = new HashMap<>();
+        if (!requestNos.isEmpty()) {
+            LambdaQueryWrapper<TapeInboundRequest> inboundQ = new LambdaQueryWrapper<>();
+            inboundQ.in(TapeInboundRequest::getRequestNo, requestNos);
+            List<TapeInboundRequest> inboundRows = inboundMapper.selectList(inboundQ);
+            if (inboundRows != null) {
+                for (TapeInboundRequest req : inboundRows) {
+                    if (req == null || !StringUtils.hasText(req.getRequestNo())) {
+                        continue;
+                    }
+                    inboundByNo.put(req.getRequestNo().trim(), req);
+                }
+            }
+        }
+
+        Map<String, TapeOutboundRequest> outboundByNo = new HashMap<>();
+        if (!outboundRequestNos.isEmpty()) {
+            LambdaQueryWrapper<TapeOutboundRequest> outboundQ = new LambdaQueryWrapper<>();
+            outboundQ.in(TapeOutboundRequest::getRequestNo, outboundRequestNos);
+            List<TapeOutboundRequest> outboundRows = outboundMapper.selectList(outboundQ);
+            if (outboundRows != null) {
+                for (TapeOutboundRequest req : outboundRows) {
+                    if (req == null || !StringUtils.hasText(req.getRequestNo())) {
+                        continue;
+                    }
+                    outboundByNo.put(req.getRequestNo().trim(), req);
+                }
+            }
+        }
+
+        for (TapeStockLog log : logs) {
+            if (log == null) {
+                continue;
+            }
+            String refNo = log.getRefNo() == null ? "" : log.getRefNo().trim();
+            if (!StringUtils.hasText(refNo)) {
+                continue;
+            }
+
+            if (TapeStockLog.TYPE_IN.equalsIgnoreCase(String.valueOf(log.getType()))) {
+                TapeInboundRequest req = inboundByNo.get(refNo);
+                if (req == null) {
+                    continue;
+                }
+
+                String orderNo = extractInboundTokenFromRemark(req.getRemark(), "orderNo");
+                if (StringUtils.hasText(orderNo)) {
+                    log.setOrderNo(orderNo);
+                }
+                String specDesc = resolveInboundSpecDesc(req);
+                if (StringUtils.hasText(specDesc)) {
+                    log.setSpecDesc(specDesc);
+                }
+            }
+
+            if (TapeStockLog.TYPE_OUT.equalsIgnoreCase(String.valueOf(log.getType()))) {
+                TapeOutboundRequest req = outboundByNo.get(refNo);
+                if (req != null && StringUtils.hasText(req.getOrderNo())) {
+                    log.setOrderNo(req.getOrderNo().trim());
+                }
+            }
+        }
+    }
+
+    private String resolveInboundSpecDesc(TapeInboundRequest req) {
+        if (req == null) {
+            return "";
+        }
+        if (StringUtils.hasText(req.getSpecDesc())) {
+            return req.getSpecDesc().trim();
+        }
+        Integer t = req.getThickness();
+        Integer w = req.getWidth();
+        Integer l = req.getLength();
+        if (t != null && t > 0 && w != null && w > 0 && l != null && l > 0) {
+            return t + "μm*" + w + "mm*" + l + "m";
+        }
+        if (w != null && w > 0 && l != null && l > 0) {
+            return w + "mm*" + l + "m";
+        }
+        if (t != null && t > 0 && w != null && w > 0) {
+            return t + "μm*" + w + "mm";
+        }
+        return "";
     }
 
     @Override

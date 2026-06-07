@@ -75,31 +75,31 @@ public class QualityReportTemplateRuleController {
     public ResponseResult<?> getRule(@RequestParam("customerCode") String customerCode,
                                      @RequestParam(value = "inspectionType", required = false, defaultValue = "outbound") String inspectionType,
                                      @RequestParam(value = "materialCode", required = false) String materialCode) {
-        if (isBlank(customerCode)) {
-            return ResponseResult.error("customerCode不能为空");
-        }
         String normalizedCustomerCode = normalizeCustomerCode(customerCode);
         String normalizedInspectionType = normalizeInspectionType(inspectionType);
         String normalizedMaterialCode = normalizeMaterialCode(materialCode);
 
         String sql = "SELECT id, customer_code, inspection_type, material_code, material_prefix, priority, template_code, enabled, remark, updated_at "
                 + "FROM quality_report_template_rule "
-                + "WHERE customer_code=? AND inspection_type=? AND enabled=1 "
+            + "WHERE inspection_type=? AND enabled=1 "
+            + "AND (customer_code=? OR customer_code='' OR customer_code IS NULL) "
                 + "AND (material_code IS NULL OR material_code='' OR material_code=?) "
                 + "AND (material_prefix IS NULL OR material_prefix='' OR ? LIKE CONCAT(material_prefix, '%')) "
                 + "ORDER BY "
-                + "  CASE WHEN material_code IS NOT NULL AND material_code<>'' AND material_code=? THEN 3 "
-                + "       WHEN material_prefix IS NOT NULL AND material_prefix<>'' AND ? LIKE CONCAT(material_prefix, '%') THEN 2 "
-                + "       ELSE 1 END DESC, "
+            + "  CASE WHEN customer_code=? THEN 20 ELSE 10 END DESC, "
+            + "  CASE WHEN material_code IS NOT NULL AND material_code<>'' AND material_code=? THEN 3 "
+            + "       WHEN material_prefix IS NOT NULL AND material_prefix<>'' AND ? LIKE CONCAT(material_prefix, '%') THEN 2 "
+            + "       ELSE 1 END DESC, "
                 + "  CHAR_LENGTH(IFNULL(material_prefix,'')) DESC, "
                 + "  priority DESC, "
                 + "  updated_at DESC, id DESC LIMIT 1";
         List<Map<String, Object>> list = jdbcTemplate.queryForList(
                 sql,
-                normalizedCustomerCode,
                 normalizedInspectionType,
+            normalizedCustomerCode,
                 normalizedMaterialCode,
                 normalizedMaterialCode,
+            normalizedCustomerCode,
                 normalizedMaterialCode,
                 normalizedMaterialCode
         );
@@ -133,9 +133,6 @@ public class QualityReportTemplateRuleController {
         Integer enabled = number(body, "enabled");
         String remark = text(body, "remark");
 
-        if (isBlank(customerCode)) {
-            return ResponseResult.error("customerCode不能为空");
-        }
         if (isBlank(templateCode)) {
             return ResponseResult.error("templateCode不能为空");
         }

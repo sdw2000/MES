@@ -148,7 +148,7 @@ public class SchedulePlanController {
             @RequestParam(value = "status", required = false) String status,
             @RequestParam(value = "orderNo", required = false) String orderNo) {
 
-        return stagePage("COATING", pageNum, pageSize, status, orderNo, null, null);
+        return stagePage("COATING", pageNum, pageSize, status, orderNo, null, null, null, null);
     }
 
     @GetMapping("/stage/page")
@@ -158,6 +158,8 @@ public class SchedulePlanController {
             @RequestParam(value = "pageSize", defaultValue = "20") Integer pageSize,
             @RequestParam(value = "status", required = false) String status,
             @RequestParam(value = "orderNo", required = false) String orderNo,
+            @RequestParam(value = "materialCode", required = false) String materialCode,
+            @RequestParam(value = "specKeyword", required = false) String specKeyword,
             @RequestParam(value = "planDateStart", required = false) String planDateStart,
             @RequestParam(value = "planDateEnd", required = false) String planDateEnd) {
 
@@ -167,6 +169,21 @@ public class SchedulePlanController {
 
         if (orderNo != null && !orderNo.isEmpty()) {
             q.like("order_no", orderNo);
+        }
+        if (materialCode != null && !materialCode.isEmpty()) {
+            q.like("material_code", materialCode);
+        }
+
+        if (specKeyword != null && !specKeyword.trim().isEmpty()) {
+            String kw = specKeyword.trim();
+            String likeVal = "%" + kw + "%";
+            q.and(w -> w
+                    .apply("CAST(thickness AS CHAR) LIKE {0}", likeVal)
+                    .or()
+                    .apply("CAST(width AS CHAR) LIKE {0}", likeVal)
+                    .or()
+                    .apply("CAST(length AS CHAR) LIKE {0}", likeVal)
+            );
         }
 
         if (planDateStart != null && !planDateStart.isEmpty()) {

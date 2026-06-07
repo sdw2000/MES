@@ -4,10 +4,15 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fine.Dao.stock.*;
+import com.fine.modle.stock.MaterialIssueOrder;
+import com.fine.modle.stock.MaterialIssueOrderItem;
 import com.fine.model.stock.*;
+import com.fine.service.schedule.ManualScheduleService;
+import com.fine.service.stock.MaterialIssueOrderService;
 import com.fine.service.stock.MaterialScanService;
 import com.fine.service.stock.StockFlowLogService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,6 +42,14 @@ public class MaterialScanServiceImpl implements MaterialScanService {
     private ChemicalStockOutMapper chemicalStockOutMapper;
     @Autowired
     private StockFlowLogService stockFlowLogService;
+
+    @Lazy
+    @Autowired
+    private MaterialIssueOrderService materialIssueOrderService;
+
+    @Lazy
+    @Autowired
+    private ManualScheduleService manualScheduleService;
 
     @Override
     public Map<String, Object> resolveByCode(String code, String stockTypeHint) {
@@ -1022,6 +1035,92 @@ public class MaterialScanServiceImpl implements MaterialScanService {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> reportWorkByScan(Map<String, Object> payload) throws Exception {
+        String qrCode = trimToNull(stringVal(payload.get("qrCode")));
+        if (qrCode == null) {
+            throw new RuntimeException("二维码(领料单号)不能为空");
+        }
+
+        // 1. 获取领料单并执行“接收”（如果是第一次扫描）
+        MaterialIssueOrder issueOrder = materialIssueOrderService.getIssueOrderDetail(qrCode);
+        if (issueOrder == null) {
+            throw new RuntimeException("未找到对应的领料单: " + qrCode);
+        }
+
+        String operator = stringVal(payload.get("operator"));
+        materialIssueOrderService.receiveIssueOrder(qrCode, operator);
+
+        // 2. 查找关联的排程ID
+        // 领料单可能对应多个Item，但通常属于同一个排程任务或同一组订单
+        List<MaterialIssueOrderItem> items = issueOrder.getItems();
+        if (items == null || items.isEmpty()) {
+            throw new RuntimeException("领料单内无有效物料明细");
+        }
+
+        Long scheduleId = items.get(0).getScheduleId();
+        if (scheduleId == null) {
+            // 如果Item没有关联scheduleId，尝试从订单匹配（此处逻辑可根据业务扩展）
+            throw new RuntimeException("该领料单未关联具体的生产排程任务，无法自动报工");
+        }
+
+        // 3. 执行自动报工
+        BigDecimal producedQty = toBigDecimal(payload.get("producedQty"));
+        if (producedQty == null || producedQty.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new RuntimeException("报工数量必须大于0");
+        }
+
+        String processType = stringVal(payload.get("processType")); // 可选，默认由系统根据排程推断
+        String remark = stringVal(payload.get("remark"));
+        
+        // 构造报工时间（当前时间作为结束时间，假设此前已开工）
+        SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        String nowStr = df.format(new Date());
+        String startStr = df.format(new Date(System.currentTimeMillis() - 3600000)); // 默认1小时前开始
+
+        // 调用核心报工接口
+        boolean ok = manualScheduleService.reportProcessWork(
+                scheduleId,
+                null, // orderDetailId
+                processType,
+                startStr,
+                nowStr,
+                producedQty,
+                true, // proceedNextProcess
+                null, // producedRolls (如果需要逐卷扫描，此处需扩展)
+                null, // materialIssues
+                issueOrder.getMaterialCode(),
+                null, // reportMaterialName
+                null, // thickness
+                null, // width
+                null, // length
+                operator,
+                "[AUTO_APPROVE] 通过扫码领料单自动报工; " + (remark == null ? "" : remark)
+        );
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("success", ok);
+        result.put("issueNo", qrCode);
+        result.put("scheduleId", scheduleId);
+        result.put("producedQty", producedQty);
+
+        // 4. 物料转化逻辑：报工成功后，将领料单状态置为 CONSUMED
+        if (ok) {
+            issueOrder.setStatus("CONSUMED");
+            issueOrder.setUpdatedAt(new Date());
+            issueOrder.setRemark(appendRemark(issueOrder.getRemark(), "[CONVERTED] 报工完成自动结转"));
+            materialIssueOrderService.updateIssueOrder(issueOrder);
+        }
+
+        return result;
+    }
+
+    private String appendRemark(String old, String add) {
+        if (old == null || old.trim().isEmpty()) return add;
+        return old + "; " + add;
     }
 
     private BigDecimal nvl(BigDecimal value) {

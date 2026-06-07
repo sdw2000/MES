@@ -38,6 +38,7 @@ public class ProductionDashboardServiceImpl implements ProductionDashboardServic
     @Override
     public Map<String, Object> getSummary(String shiftCode) {
         LoginUser loginUser = getLoginUser();
+        List<String> operatorAliases = resolveOperatorAliases(loginUser);
         List<Map<String, Object>> rows = queryReportRows(LocalDate.now().withDayOfYear(1).minusDays(1), LocalDate.now().plusDays(1));
 
         BigDecimal todayArea = BigDecimal.ZERO;
@@ -50,7 +51,7 @@ public class ProductionDashboardServiceImpl implements ProductionDashboardServic
 
         LocalDate today = LocalDate.now();
         for (Map<String, Object> row : rows) {
-            if (!canViewRowByOperator(row, loginUser)) continue;
+            if (!canViewRowByOperator(row, loginUser, operatorAliases)) continue;
             LocalDateTime ts = extractReportDateTime(row);
 
             LocalDate statDate = ts.toLocalDate();
@@ -87,13 +88,14 @@ public class ProductionDashboardServiceImpl implements ProductionDashboardServic
     @Override
     public List<Map<String, Object>> getTopProcesses(String shiftCode) {
         LoginUser loginUser = getLoginUser();
+        List<String> operatorAliases = resolveOperatorAliases(loginUser);
         List<Map<String, Object>> rows = queryReportRows(LocalDate.now().withDayOfYear(1).minusDays(1), LocalDate.now().plusDays(1));
 
         LocalDate today = LocalDate.now();
         Map<String, BigDecimal> processAreaMap = new HashMap<>();
 
         for (Map<String, Object> row : rows) {
-            if (!canViewRowByOperator(row, loginUser)) continue;
+            if (!canViewRowByOperator(row, loginUser, operatorAliases)) continue;
             LocalDateTime ts = extractReportDateTime(row);
 
             LocalDate statDate = ts.toLocalDate();
@@ -123,12 +125,13 @@ public class ProductionDashboardServiceImpl implements ProductionDashboardServic
     @Override
     public Map<String, Object> getYearTrend(String shiftCode) {
         LoginUser loginUser = getLoginUser();
+        List<String> operatorAliases = resolveOperatorAliases(loginUser);
         List<Map<String, Object>> rows = queryReportRows(LocalDate.now().withDayOfYear(1).minusDays(1), LocalDate.now().plusDays(1));
         Map<String, BigDecimal> monthAreaMap = new HashMap<>();
         LocalDate today = LocalDate.now();
 
         for (Map<String, Object> row : rows) {
-            if (!canViewRowByOperator(row, loginUser)) continue;
+            if (!canViewRowByOperator(row, loginUser, operatorAliases)) continue;
             LocalDateTime ts = extractReportDateTime(row);
 
             LocalDate statDate = ts.toLocalDate();
@@ -155,12 +158,13 @@ public class ProductionDashboardServiceImpl implements ProductionDashboardServic
     @Override
     public List<Map<String, Object>> getTodayReports(String shiftCode) {
         LoginUser loginUser = getLoginUser();
+        List<String> operatorAliases = resolveOperatorAliases(loginUser);
         List<Map<String, Object>> rows = queryReportRows(LocalDate.now().minusDays(2), LocalDate.now().plusDays(1));
         LocalDate today = LocalDate.now();
 
         List<Map<String, Object>> result = new ArrayList<>();
         for (Map<String, Object> row : rows) {
-            if (!canViewRowByOperator(row, loginUser)) continue;
+            if (!canViewRowByOperator(row, loginUser, operatorAliases)) continue;
             LocalDateTime ts = extractReportDateTime(row);
             if (ts == null) continue;
             String groupCode = resolveShiftCode(row, ts);
@@ -394,7 +398,7 @@ public class ProductionDashboardServiceImpl implements ProductionDashboardServic
         return null;
     }
 
-    private boolean canViewRowByOperator(Map<String, Object> row, LoginUser loginUser) {
+    private boolean canViewRowByOperator(Map<String, Object> row, LoginUser loginUser, List<String> operatorAliases) {
         if (loginUser == null) {
             return true;
         }
@@ -408,7 +412,8 @@ public class ProductionDashboardServiceImpl implements ProductionDashboardServic
         }
         String op = operator.trim();
 
-        for (String alias : resolveOperatorAliases(loginUser)) {
+        List<String> aliases = operatorAliases == null ? new ArrayList<>() : operatorAliases;
+        for (String alias : aliases) {
             if (alias == null || alias.trim().isEmpty()) continue;
             String a = alias.trim();
             if (op.equalsIgnoreCase(a)

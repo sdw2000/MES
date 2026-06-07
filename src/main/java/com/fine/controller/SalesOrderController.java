@@ -38,13 +38,48 @@ public class SalesOrderController {
             @RequestParam(value = "customer", required = false) String customer,
             @RequestParam(value = "status", required = false) String lifecycleStatus,
             @RequestParam(value = "showCompleted", required = false, defaultValue = "false") Boolean showCompleted,
+            @RequestParam(value = "showProducedCompleted", required = false, defaultValue = "true") Boolean showProducedCompleted,
+            @RequestParam(value = "onlyUnshipped", required = false, defaultValue = "false") Boolean onlyUnshipped,
             @RequestParam(value = "startDate", required = false) String startDate,
             @RequestParam(value = "endDate", required = false) String endDate,
             @RequestParam(value = "sortProp", required = false) String sortProp,
             @RequestParam(value = "sortOrder", required = false) String sortOrder) {
-        log.debug("获取订单列表, pageNum={}, pageSize={}, orderNo={}, customer={}, status={}, showCompleted={}, sortProp={}, sortOrder={}",
-            pageNum, pageSize, orderNo, customer, lifecycleStatus, showCompleted, sortProp, sortOrder);
-        return salesOrderService.getAllOrders(pageNum, pageSize, orderNo, customer, lifecycleStatus, showCompleted, startDate, endDate, sortProp, sortOrder);
+        log.debug("获取订单列表, pageNum={}, pageSize={}, orderNo={}, customer={}, status={}, showCompleted={}, showProducedCompleted={}, onlyUnshipped={}, sortProp={}, sortOrder={}",
+            pageNum, pageSize, orderNo, customer, lifecycleStatus, showCompleted, showProducedCompleted, onlyUnshipped, sortProp, sortOrder);
+        return salesOrderService.getAllOrders(pageNum, pageSize, orderNo, customer, lifecycleStatus, showCompleted, showProducedCompleted, onlyUnshipped, startDate, endDate, sortProp, sortOrder);
+    }
+
+    /**
+     * 客户在指定时间段内的订单统计与详情
+     * GET /sales/orders/customer-period-stats
+     */
+    @GetMapping("/customer-period-stats")
+    public ResponseResult<?> getCustomerPeriodStats(
+            @RequestParam(value = "pageNum", defaultValue = "1") Integer pageNum,
+            @RequestParam(value = "pageSize", defaultValue = "10") Integer pageSize,
+            @RequestParam(value = "orderNo", required = false) String orderNo,
+            @RequestParam(value = "customer", required = false) String customer,
+            @RequestParam(value = "status", required = false) String lifecycleStatus,
+            @RequestParam(value = "showCompleted", required = false, defaultValue = "false") Boolean showCompleted,
+            @RequestParam(value = "showProducedCompleted", required = false, defaultValue = "true") Boolean showProducedCompleted,
+            @RequestParam(value = "startDate", required = false) String startDate,
+            @RequestParam(value = "endDate", required = false) String endDate,
+            @RequestParam(value = "sortProp", required = false) String sortProp,
+            @RequestParam(value = "sortOrder", required = false) String sortOrder) {
+        return salesOrderService.getCustomerPeriodStats(pageNum, pageSize, orderNo, customer, lifecycleStatus, showCompleted, showProducedCompleted, startDate, endDate, sortProp, sortOrder);
+    }
+
+    /**
+     * 生产未完成统计（实时）
+     * GET /sales/orders/production-pending-summary
+     */
+    @GetMapping("/production-pending-summary")
+    public ResponseResult<?> getProductionPendingSummary(
+            @RequestParam(value = "orderNo", required = false) String orderNo,
+            @RequestParam(value = "customer", required = false) String customer,
+            @RequestParam(value = "startDate", required = false) String startDate,
+            @RequestParam(value = "endDate", required = false) String endDate) {
+        return salesOrderService.getProductionPendingSummary(orderNo, customer, startDate, endDate);
     }
 
     /**

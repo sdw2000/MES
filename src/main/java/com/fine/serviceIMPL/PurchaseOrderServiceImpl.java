@@ -69,6 +69,18 @@ public class PurchaseOrderServiceImpl extends ServiceImpl<PurchaseOrderMapper, P
     }
 
     @Override
+    public ResponseResult<?> getOrdersWithoutReceipt(Integer pageNum, Integer pageSize, String orderNo, String supplier) {
+        try {
+            Page<PurchaseOrder> page = new Page<>(pageNum != null ? pageNum : 1, pageSize != null ? pageSize : 200);
+            IPage<PurchaseOrder> pageResult = purchaseOrderMapper.selectOrdersWithoutReceipt(page, orderNo, supplier);
+            return new ResponseResult<>(200, "success", pageResult);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return new ResponseResult<>(500, "Failed to get available purchase orders: " + e.getMessage());
+        }
+    }
+
+    @Override
     @Transactional(rollbackFor = Exception.class)
     public ResponseResult<?> createOrder(PurchaseOrder purchaseOrder) {
         try {
@@ -153,6 +165,19 @@ public class PurchaseOrderServiceImpl extends ServiceImpl<PurchaseOrderMapper, P
 
             purchaseOrderMapper.updateById(purchaseOrder);
 
+            LambdaQueryWrapper<PurchaseOrderItem> oldItemWrapper = new LambdaQueryWrapper<>();
+            oldItemWrapper.eq(PurchaseOrderItem::getOrderId, existing.getId())
+                    .eq(PurchaseOrderItem::getIsDeleted, 0);
+            List<PurchaseOrderItem> oldItems = purchaseOrderItemMapper.selectList(oldItemWrapper);
+            Map<Long, PurchaseOrderItem> oldItemMap = new HashMap<>();
+            if (oldItems != null) {
+                for (PurchaseOrderItem oldItem : oldItems) {
+                    if (oldItem != null && oldItem.getId() != null) {
+                        oldItemMap.put(oldItem.getId(), oldItem);
+                    }
+                }
+            }
+
             Set<Long> newItemIds = new HashSet<>();
             if (purchaseOrder.getItems() != null) {
                 for (PurchaseOrderItem item : purchaseOrder.getItems()) {
@@ -172,6 +197,15 @@ public class PurchaseOrderServiceImpl extends ServiceImpl<PurchaseOrderMapper, P
                     item.setUpdatedBy(username);
                     item.setUpdatedAt(new Date());
                     item.setIsDeleted(0);
+
+                    // 价格锁定：采购下单后既有明细单价不可变更
+                    if (item.getId() != null && item.getId() > 0) {
+                        PurchaseOrderItem oldItem = oldItemMap.get(item.getId());
+                        if (oldItem != null) {
+                            item.setUnitPrice(oldItem.getUnitPrice() == null ? BigDecimal.ZERO : oldItem.getUnitPrice());
+                        }
+                    }
+
                     calculateItemAmounts(item);
                     if (item.getId() != null && item.getId() > 0) {
                         purchaseOrderItemMapper.updateById(item);
@@ -182,6 +216,20 @@ public class PurchaseOrderServiceImpl extends ServiceImpl<PurchaseOrderMapper, P
                     }
                 }
             }
+
+                    // 按数据库当前有效明细回填订单总额/总数量，避免锁价后主单与明细不一致
+                    List<PurchaseOrderItem> activeItems = purchaseOrderItemMapper.selectList(
+                        new LambdaQueryWrapper<PurchaseOrderItem>()
+                            .eq(PurchaseOrderItem::getOrderId, purchaseOrder.getId())
+                            .eq(PurchaseOrderItem::getIsDeleted, 0)
+                    );
+                    PurchaseOrder totalsPatch = new PurchaseOrder();
+                    totalsPatch.setId(purchaseOrder.getId());
+                    totalsPatch.setItems(activeItems);
+                    calculateOrderTotals(totalsPatch);
+                    totalsPatch.setUpdatedBy(username);
+                    totalsPatch.setUpdatedAt(new Date());
+                    purchaseOrderMapper.updateById(totalsPatch);
 
             // 按业务要求：采购订单更新后不再自动同步到收货通知明细
             // 如需同步，改为由人工在收货通知页维护。

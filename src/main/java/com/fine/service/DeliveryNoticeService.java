@@ -3,6 +3,7 @@ package com.fine.service;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.fine.modle.DeliveryNotice;
 
+import java.util.List;
 import java.util.Map;
 
 public interface DeliveryNoticeService extends IService<DeliveryNotice> {
@@ -58,4 +59,20 @@ public interface DeliveryNoticeService extends IService<DeliveryNotice> {
      * @return 更新明细条数
      */
     int syncItemBatchNoByNoticeNo(String noticeNo, String materialCode, String batchNo);
+
+    /**
+     * RP客户共享发货口径：确认发货后按“同料号+同规格”重分配已报工完成量，
+     * 使当前发货订单优先占用可发额度，其他订单相应释放可再次报工数量。
+     * @param noticeId 发货通知ID
+     * @param operator 操作人
+     */
+    void rebalanceRpProducedCreditsByNotice(Long noticeId, String operator);
+
+    /**
+     * RP共享池预览：按订单明细返回同料号+同规格共享池的可发信息。
+     * @param orderItemIds 订单明细ID列表
+     * @param currentNoticeId 当前编辑中的发货单ID（可空，编辑时用于剔除自身已占用）
+     * @return key=orderItemId, value=共享池预览字段
+     */
+    Map<Long, Map<String, Object>> getRpPoolPreview(List<Long> orderItemIds, Long currentNoticeId);
 }

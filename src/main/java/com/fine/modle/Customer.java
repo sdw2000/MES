@@ -51,7 +51,7 @@ public class Customer {
     
     // 财务信息
     private BigDecimal creditLimit;     // 信用额度（元）
-    private String paymentTerms;        // 付款条件：现款现货、货到付款、月结30天、月结60天、预付30%
+    private String paymentTerms;        // 付款条件：现款现货、货到付款、月结30天、月结60天、月结90天、预付30%
     private BigDecimal taxRate;         // 税率(%)
     private Integer defaultReconciliationDay; // 默认对账日(1-31)
     private String reconciliationBasis; // 对账依据：SHIPPED(已发货) / RECEIVED(已收货)

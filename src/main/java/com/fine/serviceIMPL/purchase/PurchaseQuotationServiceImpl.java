@@ -355,27 +355,14 @@ public class PurchaseQuotationServiceImpl extends ServiceImpl<PurchaseQuotationM
         if (item == null) {
             return;
         }
-        String code = item.getMaterialCode();
-        String normalizedCode = normalizeMaterialCode(code);
-        String unit = null;
-        if (StringUtils.hasText(normalizedCode)) {
-            unit = unitCache.get(normalizedCode);
-            if (unit == null) {
-                unit = resolvePricingUnitFromMaterialMaster(code);
-                unitCache.put(normalizedCode, unit == null ? "" : unit);
-            }
-            if ("".equals(unit)) {
-                unit = null;
-            }
-        }
-        item.setUnit(unit);
+        // 允许同料号在不同供应商报价中采用不同计价单位，不再强制按料号主数据覆盖
+        item.setUnit(normalizeMasterUnit(item.getUnit()));
     }
 
     private ResponseResult<?> validateAndApplyPricingUnits(List<PurchaseQuotationItem> items) {
         if (CollectionUtils.isEmpty(items)) {
             return null;
         }
-        Map<String, String> unitCache = new HashMap<>();
         for (PurchaseQuotationItem item : items) {
             if (item == null) {
                 continue;
@@ -383,52 +370,19 @@ public class PurchaseQuotationServiceImpl extends ServiceImpl<PurchaseQuotationM
             if (!StringUtils.hasText(item.getMaterialCode())) {
                 return new ResponseResult<>(400, "存在未填写物料编码的明细，无法校验单位");
             }
-            String materialCode = item.getMaterialCode();
-            String normalizedCode = normalizeMaterialCode(materialCode);
-            String masterUnit = unitCache.get(normalizedCode);
-            if (masterUnit == null) {
-                masterUnit = resolvePricingUnitFromMaterialMaster(materialCode);
-                unitCache.put(normalizedCode, masterUnit == null ? "" : masterUnit);
+            String finalUnit = normalizeMasterUnit(item.getUnit());
+            if (!StringUtils.hasText(finalUnit)) {
+                // 未传单位时，按数据形态兜底：有宽长默认为㎡，否则默认kg
+                boolean looksFilm = item.getWidth() != null && item.getLength() != null;
+                finalUnit = looksFilm ? "㎡" : "kg";
             }
-            if ("".equals(masterUnit)) {
-                masterUnit = null;
-            }
-            if (!StringUtils.hasText(masterUnit)) {
+            if (!"㎡".equals(finalUnit) && !"kg".equals(finalUnit)) {
                 return new ResponseResult<>(400,
-                        "料号[" + materialCode + "]在料号表未维护单位，请先维护 tape_raw_material.unit");
+                        "料号[" + item.getMaterialCode() + "]单位不合法，仅支持 kg 或 ㎡");
             }
-            if (StringUtils.hasText(item.getUnit())) {
-                String reqUnit = comparableUnit(item.getUnit());
-                String masterCmp = comparableUnit(masterUnit);
-                if (!StringUtils.hasText(reqUnit) || !StringUtils.hasText(masterCmp) || !masterCmp.equals(reqUnit)) {
-                    return new ResponseResult<>(400,
-                            "料号[" + materialCode + "]报价单位与料号表不一致，必须使用单位: " + masterUnit);
-                }
-            }
-            item.setUnit(masterUnit);
+            item.setUnit(finalUnit);
         }
         return null;
-    }
-
-    private String resolvePricingUnitFromMaterialMaster(String materialCode) {
-        if (!StringUtils.hasText(materialCode)) {
-            return null;
-        }
-        List<String> rows = jdbcTemplate.query(
-                "SELECT unit FROM tape_raw_material WHERE status = 1 " +
-                        "AND REPLACE(UPPER(material_code),' ','') = REPLACE(UPPER(?),' ','') " +
-                        "ORDER BY id DESC LIMIT 1",
-                (rs, rowNum) -> rs.getString("unit"),
-                materialCode.trim()
-        );
-        if (CollectionUtils.isEmpty(rows)) {
-            return null;
-        }
-        return normalizeMasterUnit(rows.get(0));
-    }
-
-    private String normalizeMaterialCode(String materialCode) {
-        return materialCode == null ? null : materialCode.replace(" ", "").trim().toUpperCase();
     }
 
     private String normalizePricingUnit(String unit) {
@@ -453,17 +407,6 @@ public class PurchaseQuotationServiceImpl extends ServiceImpl<PurchaseQuotationM
         String raw = unit.trim();
         String normalized = normalizePricingUnit(raw);
         return StringUtils.hasText(normalized) ? normalized : raw;
-    }
-
-    private String comparableUnit(String unit) {
-        if (!StringUtils.hasText(unit)) {
-            return null;
-        }
-        String normalized = normalizePricingUnit(unit);
-        if (StringUtils.hasText(normalized)) {
-            return normalized;
-        }
-        return unit.trim().replace(" ", "").toUpperCase();
     }
 
     private Date resolveEditableDeadline(PurchaseQuotation quotation) {

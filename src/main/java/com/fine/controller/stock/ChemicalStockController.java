@@ -10,6 +10,7 @@ import com.fine.model.stock.ChemicalStock;
 import com.fine.model.stock.ChemicalStockDetail;
 import com.fine.model.stock.ChemicalStockOut;
 import com.fine.service.stock.ChemicalStockService;
+import com.fine.service.stock.StocktakeRecordService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.Row;
@@ -52,6 +53,9 @@ public class ChemicalStockController {
 
     @Autowired
     private ChemicalStockDetailMapper chemicalStockDetailMapper;
+
+    @Autowired
+    private StocktakeRecordService stocktakeRecordService;
     
     /** 查询所有化工库存 */
     @GetMapping("/list")
@@ -169,6 +173,71 @@ public class ChemicalStockController {
             return new ResponseResult<>(20000, "删除成功", true);
         } catch (Exception e) {
             return new ResponseResult<>(50000, "删除失败: " + e.getMessage(), null);
+        }
+    }
+
+    /** 化工库存明细盘点 */
+    @PostMapping("/{id}/details/{detailId}/stocktake")
+    @PreAuthorize("hasAnyAuthority('admin','warehouse')")
+    public ResponseResult<ChemicalStockDetail> stocktakeDetail(@PathVariable Long id,
+                                                               @PathVariable Long detailId,
+                                                               @RequestBody Map<String, Object> payload) {
+        try {
+            ChemicalStock stock = chemicalStockService.getById(id);
+            ChemicalStockDetail before = chemicalStockDetailMapper.selectById(detailId);
+            if (stock == null || before == null) {
+                return new ResponseResult<>(50000, "库存明细不存在", null);
+            }
+            if (!id.equals(before.getChemicalStockId())) {
+                return new ResponseResult<>(50000, "明细与库存不匹配", null);
+            }
+
+            BigDecimal actualQuantity = toBigDecimal(payload == null ? null : payload.get("actualQuantity"));
+            if (actualQuantity == null || actualQuantity.compareTo(BigDecimal.ZERO) < 0) {
+                return new ResponseResult<>(50000, "实盘数量必须大于等于0", null);
+            }
+            String operator = payload == null || payload.get("operator") == null ? null : String.valueOf(payload.get("operator"));
+            String reason = payload == null || payload.get("reason") == null ? null : String.valueOf(payload.get("reason"));
+
+            ChemicalStockDetail update = new ChemicalStockDetail();
+            update.setBatchNo(before.getBatchNo());
+            update.setContainerNo(before.getContainerNo());
+            update.setUnit(before.getUnit());
+            update.setWeight(actualQuantity);
+            update.setPackUom(before.getPackUom());
+            update.setPackCount(before.getPackCount());
+            update.setStdUom(before.getStdUom());
+            update.setStdQtyPerPack(before.getStdQtyPerPack());
+            update.setLocation(before.getLocation());
+            update.setSupplier(before.getSupplier());
+            update.setInboundDate(before.getInboundDate());
+            update.setExpiryDate(before.getExpiryDate());
+            update.setIsOpened(before.getIsOpened());
+            update.setDangerLevel(before.getDangerLevel());
+            update.setStatus(before.getStatus());
+            update.setRemark(before.getRemark());
+
+            ChemicalStockDetail updated = chemicalStockService.updateDetail(id, detailId, update);
+            stocktakeRecordService.record(
+                    "CHEMICAL",
+                    id,
+                    detailId,
+                    before.getMaterialCode(),
+                    stock.getMaterialName(),
+                    stock.getUnitWeight() == null ? null : stock.getUnitWeight().toPlainString() + "kg/" + (stock.getUnit() == null ? "" : stock.getUnit()),
+                    before.getBatchNo(),
+                    before.getContainerNo(),
+                    before.getLocation(),
+                    "kg",
+                    before.getWeight(),
+                    actualQuantity,
+                    operator,
+                    reason,
+                    "化工仓库存明细盘点"
+            );
+            return new ResponseResult<>(20000, "盘点成功", updated);
+        } catch (Exception e) {
+            return new ResponseResult<>(50000, "盘点失败: " + e.getMessage(), null);
         }
     }
     
@@ -470,6 +539,11 @@ public class ChemicalStockController {
         for (ChemicalStock stock : records) {
             List<ChemicalStockDetail> details = chemicalStockService.getDetailsByChemicalStockId(stock.getId());
             for (ChemicalStockDetail detail : details) {
+                // 仅导出在库数据（重量 > 0 且状态非 used）
+                if ("used".equalsIgnoreCase(detail.getStatus()) || 
+                    detail.getWeight() == null || detail.getWeight().compareTo(BigDecimal.ZERO) <= 0) {
+                    continue;
+                }
                 Row row = sheet.createRow(rowIndex++);
                 row.createCell(0).setCellValue(detail.getMaterialCode() == null ? "" : detail.getMaterialCode());
                 row.createCell(1).setCellValue(detail.getBatchNo() == null ? "" : detail.getBatchNo());
@@ -493,6 +567,49 @@ public class ChemicalStockController {
 
         response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         response.setHeader("Content-Disposition", "attachment;filename=" + URLEncoder.encode("化工库存明细导出-可回导.xlsx", "UTF-8"));
+        workbook.write(response.getOutputStream());
+        workbook.close();
+    }
+
+    /** 导出化工盘点表 */
+    @GetMapping("/export/stocktake")
+    @PreAuthorize("hasAnyAuthority('admin','warehouse')")
+    public void exportStocktake(
+            @RequestParam(required = false) String chemicalType,
+            @RequestParam(required = false) String materialCode,
+            HttpServletResponse response) throws IOException {
+        IPage<ChemicalStock> page = chemicalStockService.getChemicalStockPage(1, 100000, chemicalType, materialCode, "createTime", "descending");
+        List<ChemicalStock> records = page == null ? java.util.Collections.emptyList() : page.getRecords();
+        Workbook workbook = new XSSFWorkbook();
+        Sheet sheet = workbook.createSheet("化工仓盘点表");
+        Row header = sheet.createRow(0);
+        String[] headers = {"物料代码", "名称", "规格", "库存数量", "存放位置", "实盘数量"};
+        for (int i = 0; i < headers.length; i++) {
+            header.createCell(i).setCellValue(headers[i]);
+        }
+        int rowIndex = 1;
+        for (ChemicalStock stock : records) {
+            List<ChemicalStockDetail> details = chemicalStockService.getDetailsByChemicalStockId(stock.getId());
+            for (ChemicalStockDetail detail : details) {
+                // 仅导出在库数据（重量 > 0 且状态非 used）
+                if ("used".equalsIgnoreCase(detail.getStatus()) || 
+                    detail.getWeight() == null || detail.getWeight().compareTo(BigDecimal.ZERO) <= 0) {
+                    continue;
+                }
+                Row row = sheet.createRow(rowIndex++);
+                row.createCell(0).setCellValue(detail.getMaterialCode() == null ? "" : detail.getMaterialCode());
+                row.createCell(1).setCellValue(stock.getMaterialName() == null ? "" : stock.getMaterialName());
+                row.createCell(2).setCellValue(stock.getUnitWeight() == null ? "" : stock.getUnitWeight().toPlainString() + "kg/" + (stock.getUnit() == null ? "" : stock.getUnit()));
+                row.createCell(3).setCellValue(detail.getWeight() == null ? 0 : detail.getWeight().doubleValue());
+                row.createCell(4).setCellValue(detail.getLocation() == null ? "" : detail.getLocation());
+                row.createCell(5).setCellValue("");
+            }
+        }
+        for (int i = 0; i < headers.length; i++) {
+            sheet.autoSizeColumn(i);
+        }
+        response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        response.setHeader("Content-Disposition", "attachment;filename=" + URLEncoder.encode("化工仓盘点表.xlsx", "UTF-8"));
         workbook.write(response.getOutputStream());
         workbook.close();
     }

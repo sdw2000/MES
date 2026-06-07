@@ -35,7 +35,7 @@ import java.util.regex.Pattern;
 
 @RestController
 @RequestMapping("/sales/customer-material-mapping")
-@PreAuthorize("hasAnyAuthority('admin','sales','finance')")
+@PreAuthorize("isAuthenticated()")
 public class CustomerMaterialMappingController {
 
     private static final Pattern SPEC_NUMBER_PATTERN = Pattern.compile("\\d+(?:\\.\\d+)?");
@@ -77,6 +77,7 @@ public class CustomerMaterialMappingController {
             @RequestParam(required = false) BigDecimal customerWidth,
                 @RequestParam(required = false) BigDecimal widthTolerance,
             @RequestParam(required = false) BigDecimal customerLength,
+            @RequestParam(required = false) String customerMaterialCode,
             @RequestParam(required = false) Integer isActive
     ) {
         try {
@@ -104,6 +105,9 @@ public class CustomerMaterialMappingController {
             }
             if (materialCode != null && !materialCode.trim().isEmpty()) {
                 wrapper.eq("material_code", materialCode.trim());
+            }
+            if (customerMaterialCode != null && !customerMaterialCode.trim().isEmpty()) {
+                wrapper.eq("customer_material_code", customerMaterialCode.trim());
             }
             if (customerSpec != null && !customerSpec.trim().isEmpty()) {
                 wrapper.like("customer_spec", customerSpec.trim());
@@ -144,6 +148,7 @@ public class CustomerMaterialMappingController {
     }
 
     @PostMapping
+    @PreAuthorize("hasAnyAuthority('admin','sales','finance')")
     @Transactional(rollbackFor = Exception.class)
     public ResponseResult<?> save(@RequestBody CustomerMaterialMapping body) {
         try {
@@ -159,15 +164,6 @@ public class CustomerMaterialMappingController {
             if (materialCode.isEmpty()) {
                 return ResponseResult.error("materialCode不能为空");
             }
-            if (body.getThickness() == null) {
-                return ResponseResult.error("thickness不能为空");
-            }
-            if (body.getWidth() == null) {
-                return ResponseResult.error("width不能为空");
-            }
-            if (body.getLength() == null) {
-                return ResponseResult.error("length不能为空");
-            }
 
             LocalDateTime now = LocalDateTime.now();
             String user = body.getUpdateBy() == null || body.getUpdateBy().trim().isEmpty() ? "system" : body.getUpdateBy().trim();
@@ -181,11 +177,18 @@ public class CustomerMaterialMappingController {
             } else {
                 QueryWrapper<CustomerMaterialMapping> dupWrapper = new QueryWrapper<>();
                 dupWrapper.eq("customer_code", customerCode)
-                        .eq("material_code", materialCode)
-                    .eq("thickness", body.getThickness())
-                    .eq("width", body.getWidth())
-                    .eq("length", body.getLength())
-                        .last("limit 1");
+                        .eq("material_code", materialCode);
+                
+                if (body.getThickness() != null) dupWrapper.eq("thickness", body.getThickness());
+                else dupWrapper.isNull("thickness");
+                
+                if (body.getWidth() != null) dupWrapper.eq("width", body.getWidth());
+                else dupWrapper.isNull("width");
+                
+                if (body.getLength() != null) dupWrapper.eq("length", body.getLength());
+                else dupWrapper.isNull("length");
+
+                dupWrapper.last("limit 1");
                 entity = mappingMapper.selectOne(dupWrapper);
                 if (entity == null) {
                     entity = new CustomerMaterialMapping();
@@ -224,6 +227,7 @@ public class CustomerMaterialMappingController {
     }
 
     @PostMapping("/batch-save")
+    @PreAuthorize("hasAnyAuthority('admin','sales','finance')")
     @Transactional(rollbackFor = Exception.class)
     public ResponseResult<?> batchSave(@RequestBody List<CustomerMaterialMapping> list) {
         try {
@@ -238,7 +242,7 @@ public class CustomerMaterialMappingController {
 
                 String customerCode = body.getCustomerCode() == null ? "" : body.getCustomerCode().trim();
                 String materialCode = body.getMaterialCode() == null ? "" : body.getMaterialCode().trim();
-                if (customerCode.isEmpty() || materialCode.isEmpty() || body.getThickness() == null || body.getWidth() == null || body.getLength() == null) {
+                if (customerCode.isEmpty() || materialCode.isEmpty()) {
                     continue;
                 }
 
@@ -246,11 +250,18 @@ public class CustomerMaterialMappingController {
 
                 QueryWrapper<CustomerMaterialMapping> dupWrapper = new QueryWrapper<>();
                 dupWrapper.eq("customer_code", customerCode)
-                        .eq("material_code", materialCode)
-                    .eq("thickness", body.getThickness())
-                    .eq("width", body.getWidth())
-                    .eq("length", body.getLength())
-                        .last("limit 1");
+                        .eq("material_code", materialCode);
+                
+                if (body.getThickness() != null) dupWrapper.eq("thickness", body.getThickness());
+                else dupWrapper.isNull("thickness");
+                
+                if (body.getWidth() != null) dupWrapper.eq("width", body.getWidth());
+                else dupWrapper.isNull("width");
+                
+                if (body.getLength() != null) dupWrapper.eq("length", body.getLength());
+                else dupWrapper.isNull("length");
+
+                dupWrapper.last("limit 1");
                 CustomerMaterialMapping entity = mappingMapper.selectOne(dupWrapper);
                 if (entity == null) {
                     entity = new CustomerMaterialMapping();
@@ -296,6 +307,7 @@ public class CustomerMaterialMappingController {
          * 导入时自动解析规格字符串并拆分到 thickness/width/length 与 customerThickness/customerWidth/customerLength。
          */
     @PostMapping("/batch-import-structured")
+    @PreAuthorize("hasAnyAuthority('admin','sales','finance')")
     @Transactional(rollbackFor = Exception.class)
     public ResponseResult<?> batchImportStructured(@RequestBody List<Map<String, Object>> rows) {
         return doStructuredImport(rows, null);
@@ -305,10 +317,12 @@ public class CustomerMaterialMappingController {
      * 文件导入（兼容 Excel/WPS）：支持 .xlsx/.xls/.csv
      */
     @PostMapping("/batch-import-structured-file")
+    @PreAuthorize("hasAnyAuthority('admin','sales','finance')")
     @Transactional(rollbackFor = Exception.class)
     public ResponseResult<?> batchImportStructuredFile(
             @RequestParam("file") MultipartFile file,
-            @RequestParam(required = false) String operator) {
+            @RequestParam(required = false) String operator,
+            @RequestParam(required = false, defaultValue = "true") boolean overwrite) {
         try {
             if (file == null || file.isEmpty()) {
                 return ResponseResult.error("上传文件为空");
@@ -327,7 +341,7 @@ public class CustomerMaterialMappingController {
                 return ResponseResult.error("不支持的文件类型，请上传 .xlsx/.xls/.csv");
             }
 
-            return doStructuredImport(rows, operator);
+            return doStructuredImport(rows, operator, overwrite);
         } catch (Exception e) {
             e.printStackTrace();
             return ResponseResult.error("文件导入失败: " + e.getMessage());
@@ -335,6 +349,10 @@ public class CustomerMaterialMappingController {
     }
 
     private ResponseResult<?> doStructuredImport(List<Map<String, Object>> rows, String defaultOperator) {
+        return doStructuredImport(rows, defaultOperator, true);
+    }
+
+    private ResponseResult<?> doStructuredImport(List<Map<String, Object>> rows, String defaultOperator, boolean overwrite) {
         try {
             if (rows == null || rows.isEmpty()) {
                 return ResponseResult.error("导入数据为空");
@@ -344,6 +362,7 @@ public class CustomerMaterialMappingController {
             int inserted = 0;
             int updated = 0;
             int skipped = 0;
+            int existed = 0; // Added for tracking existing records when not overwriting
             List<String> errors = new ArrayList<>();
 
             for (int i = 0; i < rows.size(); i++) {
@@ -354,83 +373,96 @@ public class CustomerMaterialMappingController {
             }
 
             String customerCode = firstNotBlank(row,
-                "customerCode", "客户代码", "客户编码", "客户");
+                "customerCode", "CustomerCode", "客户代码", "客户编码", "客户");
             String materialCode = firstNotBlank(row,
-                "materialCode", "我司料号", "物料代码", "料号");
+                "materialCode", "MaterialCode", "我司料号", "物料代码", "料号");
             String customerMaterialCode = firstNotBlank(row,
-                "customerMaterialCode", "客户物料代码", "客户料号");
+                "customerMaterialCode", "CustomerMaterialCode", "客户物料代码", "客户料号", "客户物料编码");
             String customerMaterialName = firstNotBlank(row,
-                "customerMaterialName", "客户物料名称", "客户材料名称", "客户品名", "客户名称");
-            String remark = firstNotBlank(row, "remark", "备注");
-            String operator = firstNotBlank(row, "updateBy", "operator", "操作人");
+                "customerMaterialName", "CustomerMaterialName", "客户物料名称", "客户材料名称", "客户品名", "客户名称");
+            String remark = firstNotBlank(row, "remark", "Remark", "备注");
+            String operator = firstNotBlank(row, "updateBy", "operator", "Operator", "操作人");
             if (operator == null || operator.trim().isEmpty()) {
                 operator = (defaultOperator == null || defaultOperator.trim().isEmpty()) ? "system" : defaultOperator.trim();
             }
 
             String customerSpec = firstNotBlank(row,
-                "customerSpec", "customerSpecText", "客户标签规格", "客户规格");
+                "customerSpec", "CustomerSpec", "customerSpecText", "客户标签规格", "客户规格");
             String materialSpec = firstNotBlank(row,
-                "materialSpec", "spec", "specText", "我司规格", "规格");
+                "materialSpec", "MaterialSpec", "spec", "Spec", "specText", "我司规格", "规格");
 
             BigDecimal[] customerDims = parseSpecDimensions(customerSpec);
             BigDecimal[] materialDims = parseSpecDimensions(materialSpec);
 
             BigDecimal thickness = firstPositive(
-                materialDims[0],
                 toBigDecimal(row.get("thickness")),
-                toBigDecimal(row.get("厚度"))
+                toBigDecimal(row.get("Thickness")),
+                toBigDecimal(row.get("厚度")),
+                materialDims[0]
             );
             BigDecimal width = firstPositive(
-                materialDims[1],
                 toBigDecimal(row.get("width")),
-                toBigDecimal(row.get("宽度"))
+                toBigDecimal(row.get("Width")),
+                toBigDecimal(row.get("宽度")),
+                materialDims[1]
             );
             BigDecimal length = firstPositive(
-                materialDims[2],
                 toBigDecimal(row.get("length")),
-                toBigDecimal(row.get("长度"))
+                toBigDecimal(row.get("Length")),
+                toBigDecimal(row.get("长度")),
+                materialDims[2]
             );
 
             BigDecimal customerThickness = firstPositive(
-                customerDims[0],
                 toBigDecimal(row.get("customerThickness")),
+                toBigDecimal(row.get("CustomerThickness")),
                 toBigDecimal(row.get("客户厚度")),
+                customerDims[0],
                 thickness
             );
             BigDecimal customerWidth = firstPositive(
-                customerDims[1],
                 toBigDecimal(row.get("customerWidth")),
+                toBigDecimal(row.get("CustomerWidth")),
                 toBigDecimal(row.get("客户宽度")),
+                customerDims[1],
                 width
             );
             BigDecimal customerLength = firstPositive(
-                customerDims[2],
                 toBigDecimal(row.get("customerLength")),
+                toBigDecimal(row.get("CustomerLength")),
                 toBigDecimal(row.get("客户长度")),
+                customerDims[2],
                 length
             );
 
             BigDecimal widthTolerance = firstPositive(
                 toBigDecimal(row.get("widthTolerance")),
+                toBigDecimal(row.get("WidthTolerance")),
                 toBigDecimal(row.get("宽度公差")),
                 toBigDecimal(row.get("宽度公差(mm)")),
                 toBigDecimal(row.get("宽度公差（mm）"))
             );
 
-            if (customerCode == null || customerCode.isEmpty() || materialCode == null || materialCode.isEmpty()
-                || thickness == null || width == null || length == null) {
+            if (customerCode == null || customerCode.isEmpty() || materialCode == null || materialCode.isEmpty()) {
                 skipped++;
-                errors.add("第" + (i + 1) + "行缺少必填项（客户代码/我司料号/我司规格）");
+                errors.add("第" + (i + 1) + "行缺少必填项（客户代码/我司料号）");
                 continue;
             }
 
             QueryWrapper<CustomerMaterialMapping> dupWrapper = new QueryWrapper<>();
             dupWrapper.eq("customer_code", customerCode)
-                .eq("material_code", materialCode)
-                .eq("thickness", thickness)
-                .eq("width", width)
-                .eq("length", length)
-                .last("limit 1");
+                .eq("material_code", materialCode);
+            
+            if (thickness != null) dupWrapper.eq("thickness", thickness);
+            else dupWrapper.isNull("thickness");
+            
+            if (width != null) dupWrapper.eq("width", width);
+            else dupWrapper.isNull("width");
+            
+            if (length != null) dupWrapper.eq("length", length);
+            else dupWrapper.isNull("length");
+
+            dupWrapper.last("limit 1");
 
             CustomerMaterialMapping entity = mappingMapper.selectOne(dupWrapper);
             boolean isInsert = false;
@@ -439,6 +471,10 @@ public class CustomerMaterialMappingController {
                 entity.setCreateBy(operator);
                 entity.setCreateTime(now);
                 isInsert = true;
+            } else if (!overwrite) {
+                // If not overwriting and record exists, skip it
+                existed++;
+                continue;
             }
 
             entity.setCustomerCode(customerCode);
@@ -472,6 +508,7 @@ public class CustomerMaterialMappingController {
             result.put("inserted", inserted);
             result.put("updated", updated);
             result.put("skipped", skipped);
+            result.put("existed", existed);
             result.put("errors", errors.size() > 20 ? errors.subList(0, 20) : errors);
             result.put("errorCount", errors.size());
             return ResponseResult.success("导入完成", result);
@@ -482,6 +519,7 @@ public class CustomerMaterialMappingController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyAuthority('admin','sales','finance')")
     @Transactional(rollbackFor = Exception.class)
     public ResponseResult<?> delete(@PathVariable Long id) {
         try {
@@ -530,7 +568,7 @@ public class CustomerMaterialMappingController {
             Map<String, Object> result = new HashMap<>();
             result.put("mode", "structured-spec-v1");
             result.put("headers", headers);
-            result.put("requiredHeaders", java.util.Arrays.asList("客户代码", "我司料号", "我司规格"));
+            result.put("requiredHeaders", java.util.Arrays.asList("客户代码", "我司料号"));
             result.put("sample", sample);
             return ResponseResult.success(result);
         } catch (Exception e) {
@@ -544,7 +582,7 @@ public class CustomerMaterialMappingController {
      * 未命中时回退“客户+料号+厚度”，再回退“客户+料号”最新启用配置。
      */
     @GetMapping("/match")
-    @PreAuthorize("hasAnyAuthority('admin','sales','finance','production','packaging','plan','warehouse','quality','rd')")
+    @PreAuthorize("isAuthenticated()")
     public ResponseResult<?> match(
             @RequestParam String customerCode,
             @RequestParam String materialCode,
@@ -561,13 +599,15 @@ public class CustomerMaterialMappingController {
 
             CustomerMaterialMapping hit = null;
 
+            // 1. 尝试完全匹配 (客户+料号+厚度+宽度+长度)
+            // 使用 ABS(...) < 0.001 解决 BigDecimal 精度/末尾0导致的匹配失败问题
             if (thickness != null && width != null && length != null) {
                 QueryWrapper<CustomerMaterialMapping> exact = new QueryWrapper<>();
                 exact.eq("customer_code", c)
                         .eq("material_code", m)
-                        .eq("thickness", thickness)
-                        .eq("width", width)
-                        .eq("length", length)
+                        .apply("ABS(thickness - {0}) < 0.001", thickness)
+                        .apply("ABS(width - {0}) < 0.001", width)
+                        .apply("ABS(length - {0}) < 0.001", length)
                         .eq("is_active", 1)
                         .orderByDesc("update_time")
                         .orderByDesc("id")
@@ -575,19 +615,23 @@ public class CustomerMaterialMappingController {
                 hit = mappingMapper.selectOne(exact);
             }
 
-            if (hit == null && thickness != null) {
-                QueryWrapper<CustomerMaterialMapping> byThickness = new QueryWrapper<>();
-                byThickness.eq("customer_code", c)
+            // 2. 退而求其次：尺寸匹配 (忽略长度，但必须保证厚度和宽度正确)
+            if (hit == null && thickness != null && width != null) {
+                QueryWrapper<CustomerMaterialMapping> byDim = new QueryWrapper<>();
+                byDim.eq("customer_code", c)
                         .eq("material_code", m)
-                        .eq("thickness", thickness)
+                        .apply("ABS(thickness - {0}) < 0.001", thickness)
+                        .apply("ABS(width - {0}) < 0.001", width)
                         .eq("is_active", 1)
                         .orderByDesc("update_time")
                         .orderByDesc("id")
                         .last("limit 1");
-                hit = mappingMapper.selectOne(byThickness);
+                hit = mappingMapper.selectOne(byDim);
             }
 
-            if (hit == null) {
+            // 3. 最后保底：仅当请求中没有提供厚度和宽度时，才允许按料号模糊匹配
+            // 如果提供了厚度宽度但没匹配到，说明该规格没有配置别名，不应随意匹配其他规格的别名
+            if (hit == null && thickness == null && width == null) {
                 QueryWrapper<CustomerMaterialMapping> fallback = new QueryWrapper<>();
                 fallback.eq("customer_code", c)
                         .eq("material_code", m)
@@ -811,6 +855,7 @@ public class CustomerMaterialMappingController {
      * 3) 若已存在同键(customer+material+thickness+width+length)，则仅在为空时补值，保留人工维护结果
      */
     @PostMapping("/init-from-history")
+    @PreAuthorize("hasAnyAuthority('admin','sales','finance')")
     @Transactional(rollbackFor = Exception.class)
     public ResponseResult<?> initFromHistory(@RequestBody(required = false) Map<String, Object> body) {
         try {
@@ -859,11 +904,18 @@ public class CustomerMaterialMappingController {
 
                 QueryWrapper<CustomerMaterialMapping> dupWrapper = new QueryWrapper<>();
                 dupWrapper.eq("customer_code", c)
-                        .eq("material_code", m)
-                    .eq("thickness", t)
-                    .eq("width", w)
-                    .eq("length", l)
-                        .last("limit 1");
+                        .eq("material_code", m);
+                
+                if (t != null) dupWrapper.eq("thickness", t);
+                else dupWrapper.isNull("thickness");
+                
+                if (w != null) dupWrapper.eq("width", w);
+                else dupWrapper.isNull("width");
+                
+                if (l != null) dupWrapper.eq("length", l);
+                else dupWrapper.isNull("length");
+
+                dupWrapper.last("limit 1");
                 CustomerMaterialMapping entity = mappingMapper.selectOne(dupWrapper);
 
                 if (entity == null) {

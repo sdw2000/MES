@@ -59,7 +59,11 @@ public class CustomerServiceImpl implements CustomerService {
     @Override
     public IPage<CustomerDTO> getCustomerPage(Integer current, Integer size, CustomerDTO query) {
         Page<CustomerDTO> page = new Page<>(current, size);
-        page.setOptimizeCountSql(false); // 禁用COUNT优化，修复MyBatis-Plus 3.4.1的bug
+        // 复杂统计字段（上月/本年/出货金额）会导致自动COUNT极慢，改为轻量COUNT
+        page.setSearchCount(false);
+        page.setOptimizeCountSql(false);
+        Long total = customerMapper.selectCustomerPage_COUNT(query);
+        page.setTotal(total == null ? 0L : total);
         return customerMapper.selectCustomerPage(page, query);
     }
     
@@ -172,6 +176,16 @@ public class CustomerServiceImpl implements CustomerService {
         }
 
         return customer;
+    }
+
+    @Override
+    public CustomerDTO getCustomerByCode(String code) {
+        if (code == null || code.trim().isEmpty()) return null;
+        com.fine.modle.Customer customer = customerMapper.selectByCustomerCode(code.trim());
+        if (customer != null && customer.getId() != null) {
+            return this.getCustomerDetailById(customer.getId());
+        }
+        return null;
     }
 
     private String formatDate(java.util.Date date) {
@@ -474,7 +488,7 @@ public class CustomerServiceImpl implements CustomerService {
                 {"订单号后缀", "可选，如：-SZ"},
                 {"销售", "可选，填写系统用户名或真实姓名，需已存在于users表"},
                 {"跟单员", "可选，填写系统用户名或真实姓名，需已存在于users表"},
-                {"付款条件", "现款现货 / 货到付款 / 月结30天 / 月结60天 / 预付30%"},
+                {"付款条件", "现款现货 / 货到付款 / 月结30天 / 月结60天 / 月结90天 / 预付30%"},
                 {"状态", "正常 / 冻结 / 黑名单，默认：正常"},
                 {"", ""},
                 {"【联系人信息表】", ""},

@@ -1,6 +1,7 @@
 package com.fine.serviceIMPL;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fine.Dao.SampleOrderMapper;
@@ -10,6 +11,7 @@ import com.fine.Dao.CustomerContactMapper;
 import com.fine.Dao.UserMapper;
 import com.fine.Utils.ResponseResult;
 import com.fine.modle.*;
+import com.fine.service.LogisticsCompanyService;
 import com.fine.service.SampleOrderService;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.ss.usermodel.DateUtil;
@@ -44,6 +46,9 @@ import java.util.stream.Collectors;
  */
 @Service
 public class SampleOrderServiceImpl implements SampleOrderService {
+        private static final String SAMPLE_STATUS_COMPLETED = "已完成";
+        private static final String SAMPLE_STATUS_UNCOMPLETED = "未完成";
+
       @Autowired
     private SampleOrderMapper sampleOrderMapper;
     
@@ -58,6 +63,9 @@ public class SampleOrderServiceImpl implements SampleOrderService {
 
     @Autowired
     private UserMapper userMapper;
+
+    @Autowired
+    private LogisticsCompanyService logisticsCompanyService;
 
     @Value("${mes.logistics.enabled:false}")
     private boolean logisticsEnabled;
@@ -89,9 +97,14 @@ public class SampleOrderServiceImpl implements SampleOrderService {
             wrapper.like(SampleOrder::getCustomerName, customerName);
         }
         
-        // 状态筛选
+        // 状态筛选（仅保留：已完成/未完成）
         if (StringUtils.hasText(status)) {
-            wrapper.eq(SampleOrder::getStatus, status);
+            String normalizedStatus = normalizeSampleStatus(status);
+            if (SAMPLE_STATUS_COMPLETED.equals(normalizedStatus)) {
+                wrapper.eq(SampleOrder::getStatus, SAMPLE_STATUS_COMPLETED);
+            } else {
+                wrapper.ne(SampleOrder::getStatus, SAMPLE_STATUS_COMPLETED);
+            }
         }
         
         // 快递单号查询
@@ -126,6 +139,91 @@ public class SampleOrderServiceImpl implements SampleOrderService {
         dtoPage.setRecords(dtoList);
         
         return dtoPage;
+    }
+
+    @Override
+    public Map<String, Long> stats(String customerName, String status, String trackingNumber) {
+        Map<String, Long> result = new HashMap<>();
+        result.put("orderCount", 0L);
+        result.put("itemCount", 0L);
+
+        LambdaQueryWrapper<SampleOrder> wrapper = new LambdaQueryWrapper<>();
+
+        if (StringUtils.hasText(customerName)) {
+            wrapper.like(SampleOrder::getCustomerName, customerName);
+        }
+        if (StringUtils.hasText(status)) {
+            String normalizedStatus = normalizeSampleStatus(status);
+            if (SAMPLE_STATUS_COMPLETED.equals(normalizedStatus)) {
+                wrapper.eq(SampleOrder::getStatus, SAMPLE_STATUS_COMPLETED);
+            } else {
+                wrapper.ne(SampleOrder::getStatus, SAMPLE_STATUS_COMPLETED);
+            }
+        }
+        if (StringUtils.hasText(trackingNumber)) {
+            wrapper.like(SampleOrder::getTrackingNumber, trackingNumber);
+        }
+
+        wrapper.eq(SampleOrder::getIsDeleted, false);
+
+        LoginUser loginUser = getLoginUser();
+        if (loginUser != null && !hasRole(loginUser, "admin")) {
+            Long uid = getCurrentUserId(loginUser);
+            List<Long> allowedIds = customerMapper.selectCustomerIdsByOwner(uid);
+            if (allowedIds == null || allowedIds.isEmpty()) {
+                return result;
+            }
+            wrapper.in(SampleOrder::getCustomerId, allowedIds);
+        }
+
+        Long orderCount = sampleOrderMapper.selectCount(wrapper);
+        long safeOrderCount = orderCount == null ? 0L : orderCount;
+        result.put("orderCount", safeOrderCount);
+        if (safeOrderCount <= 0) {
+            return result;
+        }
+
+        LambdaQueryWrapper<SampleOrder> sampleNoWrapper = new LambdaQueryWrapper<>();
+        if (StringUtils.hasText(customerName)) {
+            sampleNoWrapper.like(SampleOrder::getCustomerName, customerName);
+        }
+        if (StringUtils.hasText(status)) {
+            sampleNoWrapper.eq(SampleOrder::getStatus, status);
+        }
+        if (StringUtils.hasText(trackingNumber)) {
+            sampleNoWrapper.like(SampleOrder::getTrackingNumber, trackingNumber);
+        }
+        sampleNoWrapper.eq(SampleOrder::getIsDeleted, false);
+
+        if (loginUser != null && !hasRole(loginUser, "admin")) {
+            Long uid = getCurrentUserId(loginUser);
+            List<Long> allowedIds = customerMapper.selectCustomerIdsByOwner(uid);
+            if (allowedIds == null || allowedIds.isEmpty()) {
+                return result;
+            }
+            sampleNoWrapper.in(SampleOrder::getCustomerId, allowedIds);
+        }
+
+        sampleNoWrapper.select(SampleOrder::getSampleNo);
+        List<SampleOrder> orders = sampleOrderMapper.selectList(sampleNoWrapper);
+        if (orders == null || orders.isEmpty()) {
+            return result;
+        }
+
+        List<String> sampleNos = orders.stream()
+            .map(SampleOrder::getSampleNo)
+            .filter(StringUtils::hasText)
+            .distinct()
+            .collect(Collectors.toList());
+
+        if (sampleNos.isEmpty()) {
+            return result;
+        }
+
+        Long itemCount = sampleItemMapper.selectCount(new LambdaQueryWrapper<SampleItem>()
+            .in(SampleItem::getSampleNo, sampleNos));
+        result.put("itemCount", itemCount == null ? 0L : itemCount);
+        return result;
     }
     
     @Override
@@ -178,7 +276,9 @@ public class SampleOrderServiceImpl implements SampleOrderService {
             
             // 设置默认状态
             if (!StringUtils.hasText(order.getStatus())) {
-                order.setStatus("待发货");
+                order.setStatus(SAMPLE_STATUS_UNCOMPLETED);
+            } else {
+                order.setStatus(normalizeSampleStatus(order.getStatus()));
             }
             
             // 保存主表
@@ -216,6 +316,7 @@ public class SampleOrderServiceImpl implements SampleOrderService {
         
         // 更新主表
         BeanUtils.copyProperties(dto, order, "id", "sampleNo", "createTime", "createBy");
+        order.setStatus(normalizeSampleStatus(order.getStatus()));
         sampleOrderMapper.updateById(order);
         
         // 删除旧明细
@@ -286,18 +387,11 @@ public class SampleOrderServiceImpl implements SampleOrderService {
         
         if (StringUtils.hasText(dto.getDeliveryDate())) {
             order.setDeliveryDate(LocalDate.parse(dto.getDeliveryDate()));
-            // 选择送达日期后，状态自动置为“已送达”
-            order.setStatus("已送达");
         }
         
-        // 如果填写了快递单号，且未送达，自动更新状态为"已发货"
-        if (!StringUtils.hasText(dto.getDeliveryDate())
-                && StringUtils.hasText(dto.getTrackingNumber())
-                && "待发货".equals(order.getStatus())) {
-            order.setStatus("已发货");
-            if (order.getShipDate() == null) {
-                order.setShipDate(order.getSendDate() != null ? order.getSendDate() : LocalDate.now());
-            }
+        // 物流维护不再覆盖送样主状态（主状态仅：已完成/未完成）
+        if (StringUtils.hasText(dto.getTrackingNumber()) && order.getShipDate() == null) {
+            order.setShipDate(order.getSendDate() != null ? order.getSendDate() : LocalDate.now());
         }
         
         // 尝试查询物流信息
@@ -324,7 +418,7 @@ public class SampleOrderServiceImpl implements SampleOrderService {
             return false;
         }
         
-        order.setStatus(newStatus);
+        order.setStatus(normalizeSampleStatus(newStatus));
         return sampleOrderMapper.updateById(order) > 0;
     }
     
@@ -397,10 +491,12 @@ public class SampleOrderServiceImpl implements SampleOrderService {
                 return result;
             }
 
-            List<String> companyCodes = resolveExpressCodeCandidates(order.getExpressCompany());
+            List<String> companyCodes = resolveExpressCodeCandidates(order.getExpressCompany(), normalizedTrackingNo);
             if (companyCodes.isEmpty()) {
                 result.put("success", false);
                 result.put("message", "未识别快递公司，请先在物流中选择标准快递公司");
+                result.put("carrierName", order.getExpressCompany());
+                result.put("carrierNo", normalizedTrackingNo);
                 return result;
             }
 
@@ -408,11 +504,15 @@ public class SampleOrderServiceImpl implements SampleOrderService {
             if (!StringUtils.hasText(phoneTail4) && containsSfCarrierCode(companyCodes)) {
                 result.put("success", false);
                 result.put("message", "顺丰查询需提供收件手机号后4位，请补充联系人手机号");
+                result.put("carrierName", order.getExpressCompany());
+                result.put("carrierNo", normalizedTrackingNo);
+                result.put("triedCompanyCodes", companyCodes);
                 return result;
             }
 
             Map<String, Object> apiResp = null;
             String failMsg = "物流接口查询失败";
+            boolean triedAutoCode = false;
             for (String companyCode : companyCodes) {
                 apiResp = queryKuaidi100(companyCode, normalizedTrackingNo, phoneTail4);
                 if (isKuaidi100Success(apiResp)) {
@@ -426,9 +526,29 @@ public class SampleOrderServiceImpl implements SampleOrderService {
                 apiResp = null;
             }
 
+            // 兜底：若返回“公司不支持/编码不支持”，再尝试快递100自动识别编码
+            if ((apiResp == null || !isKuaidi100Success(apiResp)) && isUnsupportedCarrierMessage(failMsg)) {
+                triedAutoCode = true;
+                Map<String, Object> autoResp = queryKuaidi100("auto", normalizedTrackingNo, phoneTail4);
+                if (isKuaidi100Success(autoResp)) {
+                    apiResp = autoResp;
+                } else {
+                    failMsg = buildKuaidi100FailMessage(autoResp);
+                    apiResp = null;
+                }
+            }
+
             if (apiResp == null || !isKuaidi100Success(apiResp)) {
                 result.put("success", false);
                 result.put("message", failMsg);
+                result.put("carrierName", order.getExpressCompany());
+                result.put("carrierNo", normalizedTrackingNo);
+                List<String> triedCodes = new ArrayList<>(companyCodes);
+                if (triedAutoCode && !triedCodes.contains("auto")) {
+                    triedCodes.add("auto");
+                }
+                result.put("triedCompanyCodes", triedCodes);
+                result.put("lastApiResponse", apiResp == null ? "" : String.valueOf(apiResp));
                 return result;
             }
 
@@ -444,17 +564,14 @@ public class SampleOrderServiceImpl implements SampleOrderService {
             result.put("status", statusText);
             result.put("lastUpdate", lastUpdate);
             result.put("traces", traces);
+            result.put("carrierName", order.getExpressCompany());
+            result.put("carrierNo", normalizedTrackingNo);
 
             order.setLogisticsStatus(statusText);
             order.setLastLogisticsQueryTime(LocalDateTime.now());
             if ("已送达".equals(statusText) || "已签收".equals(statusText)) {
-                order.setStatus("已送达");
                 if (order.getDeliveryDate() == null) {
                     order.setDeliveryDate(LocalDate.now());
-                }
-            } else if ("运输中".equals(statusText) || "派件中".equals(statusText)) {
-                if (!"已送达".equals(order.getStatus()) && !"已签收".equals(order.getStatus())) {
-                    order.setStatus("运输中");
                 }
             }
 
@@ -507,13 +624,15 @@ public class SampleOrderServiceImpl implements SampleOrderService {
         return new RestTemplate(factory);
     }
 
-    private List<String> resolveExpressCodeCandidates(String expressCompany) {
+    private List<String> resolveExpressCodeCandidates(String expressCompany, String trackingNo) {
         String v = expressCompany == null ? "" : expressCompany.trim();
         if (!StringUtils.hasText(v)) return java.util.Collections.emptyList();
         Map<String, String> map = new HashMap<>();
         map.put("顺丰速运", "shunfeng");
         map.put("顺丰", "shunfeng");
         map.put("顺丰快递", "shunfeng");
+        map.put("顺丰快运", "shunfengkuaiyun");
+        map.put("顺丰快运物流", "shunfengkuaiyun");
         map.put("SF", "shunfeng");
         map.put("SF EXPRESS", "shunfeng");
         map.put("圆通速递", "yuantong");
@@ -535,10 +654,41 @@ public class SampleOrderServiceImpl implements SampleOrderService {
         map.put("跨越", "kuayue");
 
         java.util.LinkedHashSet<String> codes = new java.util.LinkedHashSet<>();
+
+        // 优先使用物流公司主数据中的 company_code
+        String codeFromMaster = resolveCompanyCodeFromMaster(v);
+        if (StringUtils.hasText(codeFromMaster)) {
+            codes.add(codeFromMaster);
+        }
+
         String code = map.get(v);
+        if (!StringUtils.hasText(code) && StringUtils.hasText(v)) {
+            code = map.get(v.toUpperCase());
+        }
         if (StringUtils.hasText(code)) {
             codes.add(code);
         }
+
+        // 标准化后做一次模糊匹配，兼容别名/后缀差异
+        String normalized = normalizeCarrierNameForMatch(v);
+        if (StringUtils.hasText(normalized)) {
+            for (Map.Entry<String, String> entry : map.entrySet()) {
+                String keyNorm = normalizeCarrierNameForMatch(entry.getKey());
+                if (StringUtils.hasText(keyNorm) && normalized.contains(keyNorm)) {
+                    codes.add(entry.getValue());
+                }
+            }
+        }
+
+        // 顺丰增强：根据公司名/单号前缀补充 sf 兜底
+        if (isSfTrackingNumber(trackingNo) || v.contains("顺丰") || v.toUpperCase().contains("SF")) {
+            codes.add("shunfeng");
+            codes.add("sf");
+            if (v.contains("快运")) {
+                codes.add("shunfengkuaiyun");
+            }
+        }
+
         // 跨越在不同渠道可能存在不同编码，按顺序兜底重试
         if (v.contains("跨越")) {
             codes.add("kuayue");
@@ -548,6 +698,61 @@ public class SampleOrderServiceImpl implements SampleOrderService {
         // 默认兜底：将原值当编码尝试一次
         codes.add(v);
         return new java.util.ArrayList<>(codes);
+    }
+
+    private String resolveCompanyCodeFromMaster(String carrierName) {
+        if (!StringUtils.hasText(carrierName)) return "";
+        try {
+            QueryWrapper<LogisticsCompany> exactQw = new QueryWrapper<>();
+            exactQw.eq("company_name", carrierName.trim()).eq("is_deleted", 0).last("LIMIT 1");
+            LogisticsCompany exact = logisticsCompanyService.getOne(exactQw, false);
+            if (exact != null && StringUtils.hasText(exact.getCompanyCode())) {
+                String code = exact.getCompanyCode().trim();
+                if (isLikelyKuaidiCompanyCode(code)) {
+                    return code;
+                }
+            }
+
+            QueryWrapper<LogisticsCompany> likeQw = new QueryWrapper<>();
+            likeQw.like("company_name", carrierName.trim()).eq("is_deleted", 0).orderByDesc("updated_at").last("LIMIT 1");
+            LogisticsCompany fuzzy = logisticsCompanyService.getOne(likeQw, false);
+            if (fuzzy != null && StringUtils.hasText(fuzzy.getCompanyCode())) {
+                String code = fuzzy.getCompanyCode().trim();
+                if (isLikelyKuaidiCompanyCode(code)) {
+                    return code;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return "";
+    }
+
+    private boolean isLikelyKuaidiCompanyCode(String code) {
+        if (!StringUtils.hasText(code)) {
+            return false;
+        }
+        return code.trim().matches("^[A-Za-z0-9_-]+$");
+    }
+
+    private String normalizeCarrierNameForMatch(String name) {
+        if (!StringUtils.hasText(name)) {
+            return "";
+        }
+        return name.trim()
+                .toUpperCase(Locale.ROOT)
+                .replaceAll("[\\s\\-_/（）()·,.，。]", "")
+                .replace("速运", "")
+                .replace("快递", "")
+                .replace("快运", "")
+                .replace("物流", "");
+    }
+
+    private boolean isSfTrackingNumber(String trackingNo) {
+        if (!StringUtils.hasText(trackingNo)) {
+            return false;
+        }
+        String normalized = trackingNo.trim().toUpperCase(Locale.ROOT);
+        return normalized.startsWith("SF");
     }
 
     private String normalizeTrackingNumber(String trackingNo) {
@@ -614,17 +819,47 @@ public class SampleOrderServiceImpl implements SampleOrderService {
         if (customer.getId() != null) {
             CustomerContact primary = customerContactMapper.selectPrimaryContact(customer.getId());
             if (primary != null) {
-                tail4 = extractPhoneTail4(primary.getContactMobile());
-                if (StringUtils.hasText(tail4)) {
-                    return tail4;
-                }
-                tail4 = extractPhoneTail4(primary.getContactPhone());
+                tail4 = resolvePhoneTail4FromContact(primary);
                 if (StringUtils.hasText(tail4)) {
                     return tail4;
                 }
             }
+
+            // 客户资料-联系人列表兜底（优先收货人，其次其他联系人）
+            List<CustomerContact> contacts = customerContactMapper.selectByCustomerId(customer.getId());
+            if (contacts != null && !contacts.isEmpty()) {
+                for (CustomerContact one : contacts) {
+                    if (one != null && Integer.valueOf(1).equals(one.getIsReceiver())) {
+                        tail4 = resolvePhoneTail4FromContact(one);
+                        if (StringUtils.hasText(tail4)) {
+                            return tail4;
+                        }
+                    }
+                }
+                for (CustomerContact one : contacts) {
+                    tail4 = resolvePhoneTail4FromContact(one);
+                    if (StringUtils.hasText(tail4)) {
+                        return tail4;
+                    }
+                }
+            }
         }
 
+        return "";
+    }
+
+    private String resolvePhoneTail4FromContact(CustomerContact contact) {
+        if (contact == null) {
+            return "";
+        }
+        String tail4 = extractPhoneTail4(contact.getContactMobile());
+        if (StringUtils.hasText(tail4)) {
+            return tail4;
+        }
+        tail4 = extractPhoneTail4(contact.getContactPhone());
+        if (StringUtils.hasText(tail4)) {
+            return tail4;
+        }
         return "";
     }
 
@@ -641,7 +876,10 @@ public class SampleOrderServiceImpl implements SampleOrderService {
 
     private boolean isPhoneRequiredCarrier(String companyCode) {
         String code = companyCode == null ? "" : companyCode.trim().toLowerCase();
-        return "shunfeng".equals(code) || "sf".equals(code) || "sfexpress".equals(code);
+        return "shunfeng".equals(code)
+                || "sf".equals(code)
+                || "sfexpress".equals(code)
+                || "shunfengkuaiyun".equals(code);
     }
 
     private boolean containsSfCarrierCode(List<String> companyCodes) {
@@ -737,7 +975,19 @@ public class SampleOrderServiceImpl implements SampleOrderService {
         if (!StringUtils.hasText(failMsg)) return false;
         return failMsg.contains("不支持此快递公司")
                 || failMsg.contains("公司编码")
-                || failMsg.contains("查询无结果");
+                || failMsg.contains("查询无结果")
+                || failMsg.contains("参数异常")
+                || failMsg.contains("验证错误");
+    }
+
+    private boolean isUnsupportedCarrierMessage(String failMsg) {
+        if (!StringUtils.hasText(failMsg)) {
+            return false;
+        }
+        return failMsg.contains("不支持此快递公司")
+                || failMsg.contains("公司编码")
+                || failMsg.contains("快递公司不存在")
+                || failMsg.contains("快递公司错误");
     }
       @Override
     @Transactional(rollbackFor = Exception.class)
@@ -788,6 +1038,7 @@ public class SampleOrderServiceImpl implements SampleOrderService {
         SampleOrderDTO dto = new SampleOrderDTO();
         if (order != null) {
             BeanUtils.copyProperties(order, dto);
+            dto.setStatus(normalizeSampleStatus(dto.getStatus()));
 
             // 制单人（账号）
             dto.setCreateByName(order.getCreateBy());
@@ -805,6 +1056,22 @@ public class SampleOrderServiceImpl implements SampleOrderService {
         }
         
         return dto;
+    }
+
+    private String normalizeSampleStatus(String status) {
+        String raw = String.valueOf(status == null ? "" : status).trim();
+        if (raw.isEmpty()) {
+            return SAMPLE_STATUS_UNCOMPLETED;
+        }
+        String upper = raw.toUpperCase(Locale.ROOT);
+        if (SAMPLE_STATUS_COMPLETED.equals(raw)
+                || "COMPLETED".equals(upper)
+                || "DONE".equals(upper)
+                || "已送达".equals(raw)
+                || "已签收".equals(raw)) {
+            return SAMPLE_STATUS_COMPLETED;
+        }
+        return SAMPLE_STATUS_UNCOMPLETED;
     }
 
     private String resolveApplicantName(SampleOrder order) {
@@ -882,7 +1149,7 @@ public class SampleOrderServiceImpl implements SampleOrderService {
                     order.setTrackingNumber(getCellStringValue(row.getCell(7)));
                     
                     String status = getCellStringValue(row.getCell(8));
-                    order.setStatus(status != null && !status.isEmpty() ? status : "待发货");
+                    order.setStatus(normalizeSampleStatus(status));
                     
                     order.setRemark(getCellStringValue(row.getCell(9)));
                     order.setCreateTime(LocalDateTime.now());
@@ -938,7 +1205,7 @@ public class SampleOrderServiceImpl implements SampleOrderService {
             map.put("sendDate", order.getSendDate());
             map.put("expressCompany", order.getExpressCompany());
             map.put("trackingNumber", order.getTrackingNumber());
-            map.put("status", order.getStatus());
+            map.put("status", normalizeSampleStatus(order.getStatus()));
             map.put("remark", order.getRemark());
             return map;
         }).collect(Collectors.toList());
@@ -966,6 +1233,9 @@ public class SampleOrderServiceImpl implements SampleOrderService {
         if (order == null) return true;
         if (loginUser == null) return false;
         if (hasRole(loginUser, "admin")) return true;
+        if (hasRole(loginUser, "production") || hasRole(loginUser, "packaging") || hasRole(loginUser, "packing")) {
+            return true;
+        }
         Long uid = getCurrentUserId(loginUser);
         if (uid == null) return false;
         List<Long> allowedIds = customerMapper.selectCustomerIdsByOwner(uid);

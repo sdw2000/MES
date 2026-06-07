@@ -63,6 +63,10 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
         "PAYMENT_PARTIAL", "PAID", "CLOSED", "CANCELLED"
     ));
 
+    private static final Set<String> RP_CUSTOMER_CODES = new HashSet<>(Arrays.asList(
+        "RP01", "GDRP01", "JSRP01", "JXRP001", "LZRP01", "SHRP001"
+    ));
+
     private static final Logger log = LoggerFactory.getLogger(SalesOrderServiceImpl.class);
 
     private final DataFormatter dataFormatter = new DataFormatter();
@@ -103,8 +107,15 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
     private String lifecycleV2EnforceDate;
 
     @Override
+    public ResponseResult<?> getAllOrders(Integer current, Integer size, String orderNo, String customerKeyword, String startDate, String endDate, Boolean showFullyShipped, Boolean showCancelled, String materialCode, String customerOrderNo, Long startId, Long endId, String sortBy, String sortOrder) {
+        Page<SalesOrder> page = new Page<>(current, size);
+        IPage<SalesOrder> result = salesOrderMapper.selectOrdersWithCustomerSearch(page, orderNo, customerKeyword, startDate, endDate, showFullyShipped, showCancelled, materialCode, customerOrderNo, startId, endId, sortBy, sortOrder);
+        return ResponseResult.success(result);
+    }
+
+    @Override
     public ResponseResult<?> getAllOrders(Integer pageNum, Integer pageSize, String orderNo, String customer, String lifecycleStatus,
-                                          Boolean showCompleted, String startDate, String endDate, String sortProp, String sortOrder) {
+                                          Boolean showCompleted, Boolean showProducedCompleted, Boolean onlyUnshipped, String startDate, String endDate, String sortProp, String sortOrder) {
         try {
             LoginUser loginUser = getLoginUser();
             Long salesUserId = null;
@@ -132,6 +143,8 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
                 customer,  // 现在支持客户代码、客户名称、简称的模糊搜索
                 lifecycleStatus,
                 showCompleted,
+                showProducedCompleted,
+                onlyUnshipped,
                 startDate, 
                 endDate,
                 salesUserId,
@@ -143,18 +156,20 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
             if (pageResult.getRecords() != null) {
                 for (SalesOrder record : pageResult.getRecords()) {
                     enrichOrderCustomerFields(record);
-                    Integer shippedRolls = record.getShippedRolls();
-                    Integer remainingRolls = record.getRemainingRolls();
-                    if (shippedRolls == null || remainingRolls == null) {
-                        Map<String, Object> rollProgress = salesOrderItemMapper.selectOrderRollProgress(record.getId());
-                        if (rollProgress != null) {
+                    // 欠卷总数统一按明细remaining_qty汇总口径展示，避免与详情明细不一致
+                    Map<String, Object> rollProgress = salesOrderItemMapper.selectOrderRollProgress(record.getId());
+                    if (rollProgress != null) {
+                        record.setRemainingRolls(getIntFromObject(rollProgress.get("remaining_rolls")));
+                        if (record.getShippedRolls() == null) {
                             record.setShippedRolls(getIntFromObject(rollProgress.get("completed_rolls")));
-                            record.setRemainingRolls(getIntFromObject(rollProgress.get("remaining_rolls")));
-                        } else {
+                        }
+                    } else if (record.getRemainingRolls() == null) {
+                        record.setRemainingRolls(0);
+                        if (record.getShippedRolls() == null) {
                             record.setShippedRolls(0);
-                            record.setRemainingRolls(0);
                         }
                     }
+                    alignRemainingRollsForDisplay(record);
                 }
             }
             
@@ -167,6 +182,133 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
         }
     }
 
+    @Override
+    public ResponseResult<?> getCustomerPeriodStats(Integer pageNum, Integer pageSize, String orderNo, String customer, String lifecycleStatus,
+                                                    Boolean showCompleted, Boolean showProducedCompleted, String startDate, String endDate, String sortProp, String sortOrder) {
+        try {
+            LoginUser loginUser = getLoginUser();
+            Long salesUserId = null;
+            Long documentationPersonUserId = null;
+            if (loginUser != null && !hasGlobalOrderScope(loginUser)) {
+                Long uid = getCurrentUserId(loginUser);
+                if (uid == null) {
+                    Map<String, Object> empty = new HashMap<>();
+                    empty.put("summary", buildEmptyCustomerPeriodSummary(customer));
+                    empty.put("page", new Page<SalesOrder>(pageNum != null ? pageNum : 1, pageSize != null ? pageSize : 10));
+                    return new ResponseResult<>(200, "success", empty);
+                }
+                salesUserId = uid;
+                documentationPersonUserId = uid;
+            }
+
+            Page<Map<String, Object>> groupPage = new Page<>(pageNum != null ? pageNum : 1, pageSize != null ? pageSize : 10);
+        String safeSortProp = normalizeStatsSortProp(sortProp);
+        String safeSortOrder = "ascending".equalsIgnoreCase(sortOrder) ? "ascending" : "descending";
+            IPage<Map<String, Object>> groupResult = salesOrderMapper.selectCustomerPeriodStatsGroupPage(
+                    groupPage,
+                    orderNo,
+                    customer,
+                    lifecycleStatus,
+                    showCompleted,
+                    showProducedCompleted,
+                    startDate,
+                    endDate,
+                    salesUserId,
+            documentationPersonUserId,
+            safeSortProp,
+            safeSortOrder
+            );
+
+            Map<String, Object> summaryRaw = salesOrderMapper.selectCustomerPeriodSummary(
+                    orderNo,
+                    customer,
+                    lifecycleStatus,
+                    showCompleted,
+                    showProducedCompleted,
+                    startDate,
+                    endDate,
+                    salesUserId,
+                    documentationPersonUserId
+            );
+
+            Map<String, Object> summary = buildEmptyCustomerPeriodSummary(customer);
+            if (summaryRaw != null) {
+                summary.put("orderCount", getIntFromObject(summaryRaw.get("order_count")));
+                summary.put("totalArea", getBigDecimalFromObject(summaryRaw.get("total_area")));
+                summary.put("totalAmount", getBigDecimalFromObject(summaryRaw.get("total_amount")));
+                summary.put("unshippedRolls", getIntFromObject(summaryRaw.get("unshipped_rolls")));
+                summary.put("unshippedArea", getBigDecimalFromObject(summaryRaw.get("unshipped_area")));
+                summary.put("unshippedAmount", getBigDecimalFromObject(summaryRaw.get("unshipped_amount")));
+            }
+
+            List<Map<String, Object>> outputRows = groupResult.getRecords() == null ? new ArrayList<>() : groupResult.getRecords();
+
+            Map<String, Object> pageData = new HashMap<>();
+            pageData.put("records", outputRows);
+            pageData.put("list", outputRows);
+            pageData.put("total", groupResult.getTotal());
+            pageData.put("current", groupResult.getCurrent());
+            pageData.put("size", groupResult.getSize());
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("summary", summary);
+            result.put("page", pageData);
+            return new ResponseResult<>(200, "success", result);
+        } catch (Exception e) {
+            log.error("客户周期统计查询失败", e);
+            return new ResponseResult<>(500, "Failed to get customer period stats: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public ResponseResult<?> getProductionPendingSummary(String orderNo, String customer, String startDate, String endDate) {
+        try {
+            LoginUser loginUser = getLoginUser();
+            Long salesUserId = null;
+            Long documentationPersonUserId = null;
+            if (loginUser != null && !hasGlobalOrderScope(loginUser)) {
+                Long uid = getCurrentUserId(loginUser);
+                if (uid == null) {
+                    Map<String, Object> empty = new HashMap<>();
+                    empty.put("pendingOrderCount", 0);
+                    empty.put("pendingItemCount", 0);
+                    return new ResponseResult<>(200, "success", empty);
+                }
+                salesUserId = uid;
+                documentationPersonUserId = uid;
+            }
+
+            Map<String, Object> raw = salesOrderMapper.selectProductionPendingSummary(
+                    orderNo,
+                    customer,
+                    startDate,
+                    endDate,
+                    salesUserId,
+                    documentationPersonUserId
+            );
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("pendingOrderCount", raw == null ? 0 : getIntFromObject(raw.get("pending_order_count")));
+            result.put("pendingItemCount", raw == null ? 0 : getIntFromObject(raw.get("pending_item_count")));
+            return new ResponseResult<>(200, "success", result);
+        } catch (Exception e) {
+            log.error("查询生产未完成统计失败", e);
+            return new ResponseResult<>(500, "Failed to get production pending summary: " + e.getMessage());
+        }
+    }
+
+    private Map<String, Object> buildEmptyCustomerPeriodSummary(String customer) {
+        Map<String, Object> summary = new HashMap<>();
+        summary.put("customer", customer == null ? "" : customer);
+        summary.put("orderCount", 0);
+        summary.put("totalArea", BigDecimal.ZERO);
+        summary.put("totalAmount", BigDecimal.ZERO);
+        summary.put("unshippedRolls", 0);
+        summary.put("unshippedArea", BigDecimal.ZERO);
+        summary.put("unshippedAmount", BigDecimal.ZERO);
+        return summary;
+    }
+
     private String normalizeSortProp(String sortProp) {
         if (sortProp == null) {
             return null;
@@ -174,7 +316,24 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
         String key = sortProp.trim();
         if ("customerDisplay".equals(key) || "orderNo".equals(key) || "totalAmount".equals(key)
                 || "totalArea".equals(key) || "orderDate".equals(key) || "deliveryDate".equals(key)
-                || "completionStatus".equals(key)) {
+                || "completionStatus".equals(key) || "rpShippable".equals(key)) {
+            return key;
+        }
+        return null;
+    }
+
+    private String normalizeStatsSortProp(String sortProp) {
+        if (sortProp == null) {
+            return null;
+        }
+        String key = sortProp.trim();
+        if ("customerDisplay".equals(key)
+                || "orderCount".equals(key)
+                || "totalArea".equals(key)
+                || "totalAmount".equals(key)
+                || "unshippedArea".equals(key)
+                || "unshippedRolls".equals(key)
+                || "unshippedAmount".equals(key)) {
             return key;
         }
         return null;
@@ -379,6 +538,50 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
         return normalized.isEmpty() ? null : normalized;
     }
 
+    private boolean isRpCustomerCode(String customerCode) {
+        String normalized = trimToNull(customerCode);
+        if (normalized == null) {
+            return false;
+        }
+        String upper = normalized.toUpperCase(Locale.ROOT);
+        if (RP_CUSTOMER_CODES.contains(upper)) {
+            return true;
+        }
+        // 兼容历史数据：customer字段可能存客户名称而非代码
+        String compact = upper
+                .replace("（", "(")
+                .replace("）", ")")
+                .replaceAll("\\s+", "");
+        return compact.contains("瑞浦") || compact.contains("RP");
+    }
+
+    /**
+     * 统一列表展示欠卷口径：
+     * - RP客户：优先使用 rpShippable（报工-发货）
+     * - 其他客户：沿用 remainingRolls（订单-发货）
+     */
+    private void alignRemainingRollsForDisplay(SalesOrder order) {
+        if (order == null) {
+            return;
+        }
+        if (order.getRemainingRolls() != null) {
+            // 已有明细remaining_qty汇总结果时，不再覆盖
+            return;
+        }
+        String customerCode = firstNonBlank(order.getCustomerCode(), order.getCustomer());
+        if (!isRpCustomerCode(customerCode)) {
+            return;
+        }
+
+        Integer rpShippable = order.getRpShippable();
+        if (rpShippable == null) {
+            int produced = order.getRpProducedRolls() == null ? 0 : Math.max(order.getRpProducedRolls(), 0);
+            int shipped = order.getRpShippedRolls() == null ? 0 : Math.max(order.getRpShippedRolls(), 0);
+            rpShippable = Math.max(produced - shipped, 0);
+        }
+        order.setRemainingRolls(Math.max(rpShippable, 0));
+    }
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ResponseResult<?> createOrder(SalesOrder salesOrder) {
@@ -452,6 +655,9 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
                     salesOrderItemMapper.insert(item);
                     log.debug("保存明细 index={}, materialCode={}, materialName={}", itemIndex, item.getMaterialCode(), item.getMaterialName());
                 }
+
+                // 以数据库真实明细为准回算主单生命周期状态，避免“明细已完成但主单仍CREATED”
+                refreshOrderStatusFromDb(salesOrder.getId(), username);
             }
 
                     populateItemDisplayFields(salesOrder.getItems());
@@ -477,9 +683,13 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
             normalizeIncomingOrderCustomer(salesOrder);
             // 获取当前登录用户
             String username = getCurrentUsername();
+            boolean adminFullEdit = salesOrder != null && Boolean.TRUE.equals(salesOrder.getAdminFullEdit());
 
             if (salesOrder == null) {
                 return new ResponseResult<>(400, "请求参数不能为空");
+            }
+            if (adminFullEdit && !hasRole(loginUser, "admin")) {
+                return new ResponseResult<>(403, "仅管理员可使用全量修改模式");
             }
             if (trimToNull(salesOrder.getOrderNo()) == null) {
                 return new ResponseResult<>(400, "订单编号不能为空");
@@ -529,14 +739,16 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
             if (incomingStatus != null && !incomingStatus.equalsIgnoreCase(existingStatus == null ? "" : existingStatus)) {
                 String normalizedIncoming = incomingStatus.toLowerCase(Locale.ROOT);
                 boolean isCancelAction = "cancelled".equals(normalizedIncoming) || "canceled".equals(normalizedIncoming);
-                if (!isCancelAction) {
+                if (!adminFullEdit && !isCancelAction) {
                     return new ResponseResult<>(400, "订单状态不允许手工修改，仅支持取消订单并填写取消原因");
                 }
-                String cancelReason = trimToNull(salesOrder.getCancelReason());
-                if (cancelReason == null) {
-                    return new ResponseResult<>(400, "取消订单必须填写取消原因");
+                if (isCancelAction) {
+                    String cancelReason = trimToNull(salesOrder.getCancelReason());
+                    if (cancelReason == null) {
+                        return new ResponseResult<>(400, "取消订单必须填写取消原因");
+                    }
+                    salesOrder.setRemark(appendCancelReason(existingOrder.getRemark(), cancelReason, username));
                 }
-                salesOrder.setRemark(appendCancelReason(existingOrder.getRemark(), cancelReason, username));
             }
 
             // 订单号唯一性校验（允许本订单保持原编号）
@@ -565,7 +777,10 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
             enrichItemsWithSpecInfo(salesOrder.getItems());
 
             // 状态统一按明细进度推导（取消/关闭除外）
-            normalizeOrderStatusByItems(salesOrder);
+            boolean preserveManualStatus = adminFullEdit && trimToNull(salesOrder.getStatus()) != null;
+            if (!preserveManualStatus) {
+                normalizeOrderStatusByItems(salesOrder);
+            }
             
             // 更新订单主表
             salesOrderMapper.updateById(salesOrder);
@@ -582,6 +797,12 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
             itemWrapper.eq(SalesOrderItem::getOrderId, existingOrder.getId())
                       .eq(SalesOrderItem::getIsDeleted, 0);
             List<SalesOrderItem> oldItems = salesOrderItemMapper.selectList(itemWrapper);
+            Map<Long, SalesOrderItem> oldItemMap = new HashMap<>();
+            for (SalesOrderItem oldItem : oldItems) {
+                if (oldItem != null && oldItem.getId() != null) {
+                    oldItemMap.put(oldItem.getId(), oldItem);
+                }
+            }
             
             log.debug("数据库中旧明细数量={}", oldItems.size());
             for (SalesOrderItem oldItem : oldItems) {
@@ -648,6 +869,14 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
                     item.setUpdatedBy(username);
                     item.setUpdatedAt(new Date());
                     item.setIsDeleted(0);
+
+                    // 价格锁定：下单后既有明细单价不可变更
+                    if (item.getId() != null && item.getId() > 0) {
+                        SalesOrderItem oldItem = oldItemMap.get(item.getId());
+                        if (oldItem != null) {
+                            item.setUnitPrice(oldItem.getUnitPrice() == null ? BigDecimal.ZERO : oldItem.getUnitPrice());
+                        }
+                    }
                     
                     // 计算平方米数和金额
                     calculateItemAmounts(item);
@@ -667,8 +896,17 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
                 }
             }
 
+            // 按数据库当前有效明细回填订单总额/总面积，避免价格锁定后总额与明细不一致
+            LambdaQueryWrapper<SalesOrderItem> activeItemsWrapper = new LambdaQueryWrapper<>();
+            activeItemsWrapper.eq(SalesOrderItem::getOrderId, salesOrder.getId())
+                    .eq(SalesOrderItem::getIsDeleted, 0);
+            List<SalesOrderItem> activeItems = salesOrderItemMapper.selectList(activeItemsWrapper);
+            refreshOrderTotalsFromItems(salesOrder, activeItems, username);
+
             // 以数据库当前有效明细为准再归一一次订单状态，避免删除明细后状态滞后
-            refreshOrderStatusFromDb(salesOrder.getId(), username);
+            if (!preserveManualStatus) {
+                refreshOrderStatusFromDb(salesOrder.getId(), username);
+            }
 
             populateItemDisplayFields(salesOrder.getItems());
             
@@ -1499,14 +1737,7 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
                         BigDecimal excelAmount = getCellDecimal(getCellByHeaderOrIndex(row, headerIndexMap, 17, "金额", "amount"));
                             String itemRemark = getCellString(getCellByHeaderOrIndex(row, headerIndexMap, 18, "明细备注", "备注", "itemRemark"));
                             Date coatingDate = getCellDate(getCellByHeaderOrIndex(row, headerIndexMap, 19, "涂布日期", "coatingDate"));
-                            Integer completedRolls = getCellInteger(getCellByHeaderOrIndex(row, headerIndexMap, 20,
-                                "完成卷数", "已完成卷数", "完成数量", "completedRolls"));
-                            String completionStatus = getCellString(getCellByHeaderOrIndex(row, headerIndexMap, 21,
-                                "完成状态", "completionStatus", "完工状态"));
-
-                    // 厚度统一按 μm 存储，不做单位换算
-
-                    if (customer == null || customer.isEmpty()) {
+                            Integer completedRolls = getCellInteger(getCellByHeaderOrIndex
                         throw new IllegalArgumentException("客户编码不能为空");
                     }
                     if (orderDate == null) {
@@ -1704,6 +1935,7 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
                         if (insertedForExisting > 0) {
                             mergedOrders++;
                             refreshOrderTotalsFromItems(existing, existingItems, username);
+                            refreshOrderStatusFromDb(existingId, username);
                         }
                         continue;
                     }
@@ -1718,6 +1950,9 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
                         salesOrderItemMapper.insert(item);
                         successItems++;
                     }
+
+                    // 新导入订单在明细落库后再次按DB回算生命周期状态，确保与明细一致
+                    refreshOrderStatusFromDb(order.getId(), username);
                 } catch (Exception e) {
                     String msg = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
                     errors.add("订单导入失败（订单号=" + safeString(order.getOrderNo()) + "）：" + msg);
@@ -2079,6 +2314,8 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
 
     private void normalizeItemCompletionFields(SalesOrderItem item) {
         int rolls = item.getRolls() == null ? 0 : Math.max(item.getRolls(), 0);
+        String rawStatus = trimToNull(item.getProductionStatus());
+        String normalizedStatus = rawStatus == null ? null : rawStatus.toLowerCase(Locale.ROOT);
 
         int completed = item.getDeliveredQty() == null ? 0 : Math.max(item.getDeliveredQty(), 0);
         if (completed > rolls) {
@@ -2096,18 +2333,46 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
             remaining = Math.max(rolls - completed, 0);
         }
 
+        // 状态/数量双向兜底：任何入口都保证 completed/remaining/status 三者一致
+        if (rolls > 0) {
+            if ("completed".equals(normalizedStatus)) {
+                completed = rolls;
+                remaining = 0;
+            } else if ("not_started".equals(normalizedStatus) || "pending".equals(normalizedStatus)) {
+                completed = 0;
+                remaining = rolls;
+            } else if ("partial".equals(normalizedStatus) || "processing".equals(normalizedStatus)) {
+                if (completed <= 0) {
+                    completed = Math.min(Math.max(rolls - remaining, 0), rolls - 1);
+                }
+                if (completed <= 0) {
+                    completed = 1;
+                }
+                if (completed >= rolls && rolls > 1) {
+                    completed = rolls - 1;
+                }
+                remaining = Math.max(rolls - completed, 0);
+            } else {
+                if (remaining <= 0) {
+                    completed = rolls;
+                    remaining = 0;
+                } else if (completed <= 0 && item.getRemainingQty() != null) {
+                    completed = Math.max(rolls - remaining, 0);
+                    remaining = Math.max(rolls - completed, 0);
+                }
+            }
+        }
+
         item.setDeliveredQty(completed);
         item.setRemainingQty(remaining);
 
-        String status = trimToNull(item.getProductionStatus());
-        if (status == null) {
-            if (remaining <= 0) {
-                status = "completed";
-            } else if (completed <= 0) {
-                status = "not_started";
-            } else {
-                status = "partial";
-            }
+        String status;
+        if (remaining <= 0) {
+            status = "completed";
+        } else if (completed <= 0) {
+            status = "not_started";
+        } else {
+            status = "partial";
         }
         item.setProductionStatus(status);
     }
@@ -2526,6 +2791,23 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
             return Integer.parseInt(String.valueOf(value));
         } catch (Exception e) {
             return 0;
+        }
+    }
+
+    private BigDecimal getBigDecimalFromObject(Object value) {
+        if (value == null) {
+            return BigDecimal.ZERO;
+        }
+        if (value instanceof BigDecimal) {
+            return (BigDecimal) value;
+        }
+        if (value instanceof Number) {
+            return BigDecimal.valueOf(((Number) value).doubleValue());
+        }
+        try {
+            return new BigDecimal(String.valueOf(value));
+        } catch (Exception e) {
+            return BigDecimal.ZERO;
         }
     }
 

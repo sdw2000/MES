@@ -46,6 +46,14 @@ public class TapeStockLog {
     
     /** 备注 */
     private String remark;
+
+    /** 订单号（展示字段，不落库） */
+    @TableField(exist = false)
+    private String orderNo;
+
+    /** 规格（展示字段，不落库） */
+    @TableField(exist = false)
+    private String specDesc;
     
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;

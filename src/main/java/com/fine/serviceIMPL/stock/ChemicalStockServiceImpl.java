@@ -265,7 +265,8 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
         row.setChemicalStockId(chemicalStockId);
         row.setMaterialCode(StringUtils.hasText(stock.getMaterialCode()) ? stock.getMaterialCode().trim() : null);
         row.setBatchNo(detail.getBatchNo());
-        row.setContainerNo(detail.getContainerNo());
+        // 如果桶号/包号为空字符串，则写入 null，避免触发唯一索引冲突
+        row.setContainerNo(StringUtils.hasText(detail.getContainerNo()) ? detail.getContainerNo().trim() : null);
         row.setUnit(StringUtils.hasText(detail.getUnit()) ? detail.getUnit().trim() :
                 (StringUtils.hasText(stock.getUnit()) ? stock.getUnit().trim() : "桶"));
         row.setWeight(detail.getWeight() != null ? detail.getWeight() : BigDecimal.ZERO);
@@ -305,7 +306,8 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
         }
 
         existed.setBatchNo(detail.getBatchNo());
-        existed.setContainerNo(detail.getContainerNo());
+        // 更新时若桶号/包号为空，则设为 null，防止多个空字符串违背唯一索引约束
+        existed.setContainerNo(StringUtils.hasText(detail.getContainerNo()) ? detail.getContainerNo().trim() : null);
         if (StringUtils.hasText(detail.getUnit())) {
             existed.setUnit(detail.getUnit().trim());
         }

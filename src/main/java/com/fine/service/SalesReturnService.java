@@ -7,7 +7,7 @@ import com.fine.modle.SalesReturn;
 public interface SalesReturnService extends IService<SalesReturn> {
 
     ResponseResult<?> getAllReturns(Integer pageNum, Integer pageSize, String returnNo, String customer,
-                                    String startDate, String endDate, String status);
+                                    String startDate, String endDate, String status, String sortField, String sortOrder);
 
     ResponseResult<?> createReturn(SalesReturn salesReturn);
 

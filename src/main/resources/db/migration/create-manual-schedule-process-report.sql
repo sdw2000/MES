@@ -7,12 +7,16 @@ CREATE TABLE IF NOT EXISTS manual_schedule_process_report (
   end_time DATETIME NOT NULL COMMENT '结束时间',
   produced_qty DECIMAL(12,2) NOT NULL COMMENT '本次报工产量(卷)',
   operator_name VARCHAR(64) DEFAULT NULL COMMENT '操作人',
+  source_type VARCHAR(20) NOT NULL DEFAULT 'NORMAL' COMMENT '来源类型:NORMAL/SAMPLE',
+  source_no VARCHAR(64) DEFAULT NULL COMMENT '来源单号(样板=sample_no)',
+  source_item_id BIGINT DEFAULT NULL COMMENT '来源明细ID(样板=sample_item_id)',
   remark VARCHAR(255) DEFAULT NULL COMMENT '备注',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   is_deleted TINYINT(1) NOT NULL DEFAULT 0 COMMENT '逻辑删除:0否1是',
   PRIMARY KEY (id),
   KEY idx_schedule_process (schedule_id, process_type, is_deleted),
+  KEY idx_source (source_type, source_no, source_item_id),
   KEY idx_start_time (start_time),
   KEY idx_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='手动排程工序报工记录';

@@ -18,6 +18,11 @@ public interface SampleOrderService {
      * 分页查询送样订单列表
      */
     Page<SampleOrderDTO> list(int current, int size, String customerName, String status, String trackingNumber);
+
+    /**
+     * 送样统计（主单数 + 明细条数）
+     */
+    Map<String, Long> stats(String customerName, String status, String trackingNumber);
     
     /**
      * 根据编号查询送样订单详情（包含明细）

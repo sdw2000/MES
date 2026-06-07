@@ -38,6 +38,8 @@ public class MaterialIssueOrder {
 
     private String status;
 
+    private String targetWorkshop;
+
     private String remark;
 
     private String createdBy;

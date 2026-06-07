@@ -39,4 +39,12 @@ public interface SalesReconciliationService {
 
     // 管理接口：诊断 sales_statement_delivery_confirm 中被标记为已删除但仍可能影响显示的记录
     ResponseResult<?> adminDiagnoseDeletedConfirms(String noticeItemIdsCsv);
+
+    // 管理接口：回退财务确认
+    ResponseResult<?> adminRollbackFinanceConfirm(String customerCode, String month);
+
+    /**
+     * 一键同步所有“财务已确认”的对账单到 AR 收款明细
+     */
+    ResponseResult<?> batchSyncConfirmedStatementsToAr();
 }

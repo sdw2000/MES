@@ -22,7 +22,7 @@ public interface TapeSpecMapper {
             "<if test='colorCode != null and colorCode != \"\"'> AND color_code = #{colorCode}</if>" +
             "<if test='baseMaterial != null and baseMaterial != \"\"'> AND base_material = #{baseMaterial}</if>" +
             "<if test='status != null'> AND status = #{status}</if>" +
-            " ORDER BY create_time DESC" +
+            " ORDER BY ${orderBy} ${orderDirection}, id DESC" +
             " LIMIT #{offset}, #{size}" +
             "</script>")
     @Results(id = "tapeSpecResultMap", value = {
@@ -74,7 +74,9 @@ public interface TapeSpecMapper {
                               @Param("baseMaterial") String baseMaterial,
                               @Param("status") Integer status,
                               @Param("offset") int offset,
-                              @Param("size") int size);
+                              @Param("size") int size,
+                              @Param("orderBy") String orderBy,
+                              @Param("orderDirection") String orderDirection);
 
     /**
      * 分页查询规格列表（简化版）

@@ -24,9 +24,11 @@ public class SalesReturnController {
             @RequestParam(value = "customer", required = false) String customer,
             @RequestParam(value = "startDate", required = false) String startDate,
             @RequestParam(value = "endDate", required = false) String endDate,
-            @RequestParam(value = "status", required = false) String status
+            @RequestParam(value = "status", required = false) String status,
+            @RequestParam(value = "sortField", required = false) String sortField,
+            @RequestParam(value = "sortOrder", required = false) String sortOrder
     ) {
-        return salesReturnService.getAllReturns(pageNum, pageSize, returnNo, customer, startDate, endDate, status);
+        return salesReturnService.getAllReturns(pageNum, pageSize, returnNo, customer, startDate, endDate, status, sortField, sortOrder);
     }
 
     @PostMapping

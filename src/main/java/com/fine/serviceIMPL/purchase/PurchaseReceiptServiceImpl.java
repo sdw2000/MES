@@ -21,6 +21,7 @@ import com.fine.modle.purchase.PurchaseReceipt;
 import com.fine.modle.purchase.PurchaseReceiptItem;
 import com.fine.modle.purchase.PurchaseSupplier;
 import com.fine.modle.stock.TapeInboundRequest;
+import com.fine.modle.stock.TapeStock;
 import com.fine.service.purchase.PurchaseReceiptService;
 import com.fine.service.stock.TapeStockService;
 import com.fine.service.system.SystemMessageService;
@@ -492,7 +493,8 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
                 }
                 Map<String, Object> m = new HashMap<>();
                 String supplierCode = resolveSupplierCode(row.getSupplier());
-                String supplierName = resolveSupplierDisplayName(row.getSupplier());
+                // 修改：前端要求列表显示供应商代码，此处统一
+                String supplierName = supplierCode;
                 m.put("id", row.getId());
                 m.put("receiptNo", defaultString(row.getReceiptNo(), "-"));
                 m.put("purchaseOrderNo", defaultString(row.getPurchaseOrderNo(), "-"));
@@ -533,7 +535,8 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
         List<TapeInboundRequest> requests = listInboundRequestsByReceiptId(receipt.getId());
         Map<Long, TapeInboundRequest> latestByItemId = buildLatestInboundByItemId(requests);
         String supplierCode = resolveSupplierCode(receipt.getSupplier());
-        String supplierName = resolveSupplierDisplayName(receipt.getSupplier());
+        // 修改：详情页/扫描页原本显示供应商名称，现在统一显示代码
+        String supplierName = supplierCode;
 
         List<Map<String, Object>> itemRows = new ArrayList<>();
         List<String> validBatchNos = new ArrayList<>();
@@ -785,7 +788,8 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
         String receiptNo = extractInboundTokenValue(firstRemark, "receiptNo");
         String supplier = extractInboundTokenValue(firstRemark, "supplier");
         String supplierCode = resolveSupplierCode(supplier);
-        String supplierName = resolveSupplierDisplayName(supplier);
+        // 修改：扫描详情原本显示供应商名称，现在统一显示代码
+        String supplierName = supplierCode;
 
         for (TapeInboundRequest req : requests) {
             if (req == null || req.getId() == null) {
@@ -1555,6 +1559,7 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
         }
 
         String materialDisplayName = resolveMaterialDisplayName(item, new HashMap<>());
+        String generatedBatchNo = buildBatchNo(receipt, item);
 
         if (inbound != null) {
             if (inbound.getStatus() != null && inbound.getStatus().intValue() == TapeInboundRequest.STATUS_APPROVED) {
@@ -1562,8 +1567,8 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
             }
             inbound.setMaterialCode(defaultString(item.getMaterialCode()));
             inbound.setProductName(defaultString(materialDisplayName));
-            inbound.setBatchNo(buildBatchNo(receipt, item));
-            inbound.setCustomerBatchNo(buildBatchNo(receipt, item));
+            inbound.setBatchNo(generatedBatchNo);
+            inbound.setCustomerBatchNo(generatedBatchNo);
             inbound.setRolls(targetRolls);
             inbound.setQtyUnit(resolveInboundQtyUnit(item, poItem));
             inbound.setLocation(defaultString(receipt.getReceiveAddress(), "待上架"));
@@ -1585,8 +1590,8 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
         request.setRequestNo(requestNo);
         request.setMaterialCode(defaultString(item.getMaterialCode()));
         request.setProductName(defaultString(materialDisplayName));
-        request.setBatchNo(buildBatchNo(receipt, item));
-        request.setCustomerBatchNo(buildBatchNo(receipt, item));
+        request.setBatchNo(generatedBatchNo);
+        request.setCustomerBatchNo(generatedBatchNo);
         request.setRolls(targetRolls);
         request.setQtyUnit(resolveInboundQtyUnit(item, poItem));
         request.setLocation(defaultString(receipt.getReceiveAddress(), "待上架"));
@@ -1951,6 +1956,26 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
         String code = defaultString(item == null ? null : item.getMaterialCode()).toUpperCase();
         String name = defaultString(item == null ? null : item.getMaterialName());
         String spec = defaultString(item == null ? null : item.getSpecification());
+        String merged = (code + " " + name + " " + spec).toLowerCase();
+
+        // 0) 采购下单时的原始意图判定（最准）
+        if (poItem != null) {
+            String rawSpec = poItem.getRawSpec();
+            if (StringUtils.hasText(rawSpec)) {
+                String rs = rawSpec.toLowerCase();
+                // 含有原材料规格描述（如：200KG/桶）的，直接判定为化工或包材
+                if (containsAny(rs, "kg", "公斤", "桶", "包", "升", " l", " drum", " bucket", "色浆", "胶水")) {
+                    return "CHEMICAL";
+                }
+                if (containsAny(rs, "支", "个", "箱", "件", "芯", "条")) {
+                    return "PACKAGING";
+                }
+            }
+            if (StringUtils.hasText(poItem.getFilmSpecRaw())) {
+                // 有薄膜专用规格描述（如：25μm*1250mm*3000m），直接判定为薄膜
+                return "FILM";
+            }
+        }
 
         // 统一口径：PEG/PE管类按包材仓入库，避免误入化工仓
         if (isPegTubeMaterial(item, poItem)) {
@@ -1961,9 +1986,29 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
             return "PACKAGING";
         }
 
+        // 强规则优先：离型膜/离型纸/薄膜类一律优先判定为薄膜仓，
+        // 避免被原料主数据中的历史“化工”标签误导。
+        if (containsAny(merged, "离型", "release", "release film", "release paper")
+                || code.startsWith("LX")
+                || code.contains("LXM")) {
+            return "RELEASE_FILM_PAPER";
+        }
+
+        // FILM 判定：需避开化工和包材关键词
+        // [MOD] 调低 FILM 判定优先级，先让下面的 CHEMICAL/FOAM 等强前缀规则生效
+        boolean isFilmCandidate = (containsAny(merged, "薄膜", "原膜", "film", "pet", "bopp", "opp", "cpp", "ops", "tpu")
+                || code.startsWith("M")
+                || code.startsWith("PET")
+                || code.startsWith("BOPP"));
+
         try {
             TapeRawMaterial rawMaterial = tapeFormulaMapper.selectRawMaterialByCode(code);
             if (rawMaterial != null) {
+                String explicitCategory = resolveExplicitInboundCategoryFromRawMaterial(rawMaterial);
+                if (StringUtils.hasText(explicitCategory)) {
+                    return explicitCategory;
+                }
+
                 String category = normalizeLower(rawMaterial.getMaterialCategory());
                 String categoryRaw = normalizeLower(rawMaterial.getMaterialCategoryRaw());
                 String type = normalizeLower(rawMaterial.getMaterialType());
@@ -1980,7 +2025,7 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
                 }
                 if (containsAny(category, "chemical", "化工")
                         || containsAny(categoryRaw, "chemical", "化工")
-                        || containsAny(type, "solvent", "additive", "resin", "curing", "胶", "胶水", "溶剂", "助剂", "树脂", "固化")
+                        || containsAny(type, "solvent", "additive", "resin", "curing", "胶", "胶水", "溶剂", "助剂", "树脂", "固化", "色浆", "色粉", "浆", "涂料", "油漆")
                         || containsAny(unit, "kg", "公斤", "千克", "桶", "包", "drum", "barrel")) {
                     return "CHEMICAL";
                 }
@@ -1988,19 +2033,23 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
         } catch (Exception ignored) {
         }
 
-        String merged = (code + " " + name + " " + spec).toLowerCase();
         if (containsAny(merged, "泡棉", "foam") || code.startsWith("PM")) {
             return "FOAM";
         }
-        if (containsAny(merged, "release", "离型", "release film", "release paper")) {
+        if (containsAny(merged, "release", "离型", "release film", "release paper") || code.startsWith("LX") || code.contains("LXM")) {
             return "RELEASE_FILM_PAPER";
         }
-        if (containsAny(merged, "薄膜", "原膜", "film", "pet", "bopp", "opp", "cpp", "ops", "tpu") || code.startsWith("M")) {
-            return "FILM";
+        if (containsAny(merged, "纸管", "管芯", "纸筒", "管", "纸箱", "包装箱") || code.startsWith("BG")) {
+            return "PACKAGING";
         }
-        if (containsAny(merged, "化工", "胶", "胶水", "树脂", "溶剂", "助剂", "固化", "resin", "solvent", "additive", "curing")
-                || code.startsWith("LMR") || code.startsWith("HHFT") || code.startsWith("RH")) {
+        if (containsAny(merged, "化工", "胶", "胶水", "色浆", "色粉", "浆", "涂料", "油漆", "树脂", "溶剂", "助剂", "固化", "resin", "solvent", "additive", "curing")
+                || code.startsWith("LMR") || code.startsWith("HHFT") || code.startsWith("RH") || code.startsWith("ML")) {
             return "CHEMICAL";
+        }
+
+        // FILM 兜底判定（确保排除了化工和包材关键词，因为前面的 check 没过，说明不是化工/包材）
+        if (isFilmCandidate) {
+            return "FILM";
         }
 
         String[] units = new String[] {
@@ -2023,6 +2072,41 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
         }
 
         return "GENERAL";
+    }
+
+    private String resolveExplicitInboundCategoryFromRawMaterial(TapeRawMaterial rawMaterial) {
+        if (rawMaterial == null) {
+            return null;
+        }
+        String category = normalizeLower(rawMaterial.getMaterialCategory());
+        if (containsAny(category, "packaging", "package", "包材", "纸箱", "管芯")) {
+            return "PACKAGING";
+        }
+        if (containsAny(category, "film", "薄膜", "原膜", "release", "离型")) {
+            return containsAny(category, "release", "离型") ? "RELEASE_FILM_PAPER" : "FILM";
+        }
+        if (containsAny(category, "chemical", "化工")) {
+            return "CHEMICAL";
+        }
+
+        String hint = String.join("|",
+                normalizeLower(rawMaterial.getRemark()),
+                normalizeLower(rawMaterial.getMaterialMajor()),
+                normalizeLower(rawMaterial.getMaterialCategoryRaw()),
+                normalizeLower(rawMaterial.getMaterialType()));
+        if (containsAny(hint,
+                "inboundwarehouse=packaging", "warehouse=packaging", "包材仓", "包材", "纸箱", "管芯")) {
+            return "PACKAGING";
+        }
+        if (containsAny(hint,
+                "inboundwarehouse=film", "warehouse=film", "薄膜仓", "离型膜仓", "离型纸仓", "薄膜", "原膜", "离型")) {
+            return containsAny(hint, "离型") ? "RELEASE_FILM_PAPER" : "FILM";
+        }
+        if (containsAny(hint,
+                "inboundwarehouse=chemical", "warehouse=chemical", "化工仓", "化工")) {
+            return "CHEMICAL";
+        }
+        return null;
     }
 
     private String resolveInboundQtyUnit(PurchaseReceiptItem item, PurchaseOrderItem poItem) {
@@ -2221,7 +2305,51 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
         String receiptNo = defaultString(receipt.getReceiptNo(), "PR");
         String materialCode = defaultString(item.getMaterialCode(), "MAT");
         String itemId = item.getId() == null ? "0" : String.valueOf(item.getId());
-        return receiptNo + "-" + materialCode + "-" + itemId;
+        String baseBatchNo = receiptNo + "-" + materialCode + "-" + itemId;
+        return pickSafeBatchNo(baseBatchNo, materialCode);
+    }
+
+    private String pickSafeBatchNo(String baseBatchNo, String materialCode) {
+        String base = defaultString(baseBatchNo, "PR-MAT-0");
+        String normalizedMaterial = defaultString(materialCode);
+        String candidate = base;
+        int suffix = 1;
+        while (hasCrossMaterialBatchConflict(candidate, normalizedMaterial)) {
+            candidate = base + "-R" + suffix;
+            suffix++;
+            if (suffix > 999) {
+                throw new RuntimeException("自动生成批次号失败：存在大量同名冲突，请联系管理员处理。base=" + base);
+            }
+        }
+        return candidate;
+    }
+
+    private boolean hasCrossMaterialBatchConflict(String batchNo, String materialCode) {
+        if (!StringUtils.hasText(batchNo) || !StringUtils.hasText(materialCode)) {
+            return false;
+        }
+        String normalizedMaterial = materialCode.trim();
+
+        // 1) 与库存中的批次冲突（已存在且料号不同）
+        TapeStock stock = tapeStockService.getStockByBatchNo(batchNo.trim());
+        if (stock != null
+                && StringUtils.hasText(stock.getMaterialCode())
+                && !stock.getMaterialCode().trim().equalsIgnoreCase(normalizedMaterial)) {
+            return true;
+        }
+
+        // 2) 与入库申请中的有效单据冲突（待审批/已审批）
+        LambdaQueryWrapper<TapeInboundRequest> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(TapeInboundRequest::getBatchNo, batchNo.trim())
+                .in(TapeInboundRequest::getStatus,
+                        TapeInboundRequest.STATUS_PENDING,
+                        TapeInboundRequest.STATUS_APPROVED)
+                .orderByDesc(TapeInboundRequest::getId)
+                .last("LIMIT 1");
+        TapeInboundRequest exists = tapeInboundRequestMapper.selectOne(wrapper);
+        return exists != null
+                && StringUtils.hasText(exists.getMaterialCode())
+                && !exists.getMaterialCode().trim().equalsIgnoreCase(normalizedMaterial);
     }
 
     private String defaultString(String value) {
@@ -2388,6 +2516,7 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
         }
 
         String supplierCode = resolveSupplierCode(receipt.getSupplier());
+        // 修改：采购通知原本显示供应商简名/全名，现在改为只显示供应商代码 (supplierCode)
         String supplierDisplayName = supplierCode;
         String receiptNo = StringUtils.hasText(receipt.getReceiptNo()) ? receipt.getReceiptNo() : "-";
         String bizType = "PURCHASE_RECEIPT_ARRIVAL";

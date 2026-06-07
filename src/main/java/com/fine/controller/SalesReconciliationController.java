@@ -61,6 +61,11 @@ public class SalesReconciliationController {
         return salesReconciliationService.confirmStatementDetails(request);
     }
 
+    @PostMapping("/sync-to-ar")
+    public ResponseResult<?> syncToAr() {
+        return salesReconciliationService.batchSyncConfirmedStatementsToAr();
+    }
+
     @GetMapping("/unreconciled-candidates")
     public ResponseResult<?> queryUnreconciledCandidates(@RequestParam String customerCode,
                                                          @RequestParam String month,
@@ -92,6 +97,20 @@ public class SalesReconciliationController {
     @PreAuthorize("hasAuthority('admin')")
     public ResponseResult<?> clearOverviewCache() {
         return salesReconciliationService.adminClearOverviewCache();
+    }
+
+    @PostMapping("/admin/rollback-finance-confirm")
+    @PreAuthorize("hasAuthority('admin')")
+    public ResponseResult<?> rollbackFinanceConfirm(@RequestParam String customerCode,
+                                                    @RequestParam String month) {
+        return salesReconciliationService.adminRollbackFinanceConfirm(customerCode, month);
+    }
+
+    @PostMapping("/rollback-finance-confirm")
+    @PreAuthorize("hasAuthority('admin')")
+    public ResponseResult<?> rollbackFinanceConfirmPublic(@RequestParam String customerCode,
+                                                          @RequestParam String month) {
+        return salesReconciliationService.adminRollbackFinanceConfirm(customerCode, month);
     }
 
     @GetMapping("/admin/diagnose-deleted-confirms")

@@ -292,6 +292,32 @@ public class DeliveryNoticeServiceImpl extends ServiceImpl<DeliveryNoticeMapper,
 
         String noticeBatchNos = notice == null || notice.getBatchNos() == null ? "" : notice.getBatchNos().trim();
         if (!StringUtils.hasText(noticeBatchNos)) {
+            // 优先规则：存在“库存卷数=本次发货卷数”的分切批次时，自动选择最新批次。
+            // 目的：避免同料号多批次时，用户未填批次导致无法发货。
+            List<TapeStock> exactQtyCandidates = tapeStockMapper.selectList(new QueryWrapper<TapeStock>()
+                    .eq("material_code", materialCode)
+                    .eq("roll_type", "分切卷")
+                    .eq("status", 1)
+                    .eq("total_rolls", qty)
+                    .orderByDesc("id")
+                    .last("LIMIT 1"));
+            if (exactQtyCandidates != null && !exactQtyCandidates.isEmpty()) {
+                TapeStock chosen = exactQtyCandidates.get(0);
+                String inferredBatch = chosen == null || chosen.getBatchNo() == null ? "" : chosen.getBatchNo().trim();
+                if (StringUtils.hasText(inferredBatch)) {
+                    if (item != null && item.getId() != null) {
+                        item.setBatchNo(inferredBatch);
+                        deliveryNoticeItemMapper.updateById(item);
+                    }
+                    if (notice != null && notice.getId() != null) {
+                        notice.setBatchNos(mergeUniqueBatchNos(notice.getBatchNos(), inferredBatch));
+                        notice.setUpdatedAt(new Date());
+                        deliveryNoticeMapper.updateById(notice);
+                    }
+                    return inferredBatch;
+                }
+            }
+
             // 历史兼容：主单和明细都缺批次时，尝试从可用分切库存中自动推断唯一批次。
             List<TapeStock> candidates = tapeStockMapper.selectList(new QueryWrapper<TapeStock>()
                     .eq("material_code", materialCode)
@@ -501,6 +527,8 @@ public class DeliveryNoticeServiceImpl extends ServiceImpl<DeliveryNoticeMapper,
         }
 
         Map<Long, Integer> requestQtyMap = new HashMap<>();
+        Map<String, Integer> rpPoolRequestMap = new HashMap<>();
+        Map<String, SalesOrderItem> rpPoolAnchorMap = new HashMap<>();
         for (DeliveryNoticeItem item : items) {
             if (item == null || item.getOrderItemId() == null) continue;
             int qty = item.getQuantity() == null ? 0 : item.getQuantity();
@@ -521,7 +549,9 @@ public class DeliveryNoticeServiceImpl extends ServiceImpl<DeliveryNoticeMapper,
             }
 
             int orderQty = orderItem.getRolls() == null ? 0 : orderItem.getRolls();
-            int shippedQty = deliveryNoticeItemMapper.getShippedQuantityByOrderItemId(orderItemId);
+            // 与订单详情页/发货弹窗口径保持一致：仅统计已确认发货(已发货/已收货)，
+            // 待发货草稿不应占用“已发”额度，否则会出现前端可发>0但后端校验可发=0的误拦截。
+            int shippedQty = deliveryNoticeItemMapper.getConfirmedShippedQuantityByOrderItemId(orderItemId);
             int selfQty = 0;
             if (currentNoticeId != null) {
                 selfQty = deliveryNoticeItemMapper.getNoticeItemQuantity(currentNoticeId, orderItemId);
@@ -530,22 +560,130 @@ public class DeliveryNoticeServiceImpl extends ServiceImpl<DeliveryNoticeMapper,
             String customerCode = resolveCustomerCodeByOrderItem(orderItem);
             boolean rpCustomer = isRpCustomerCode(customerCode);
             int effectiveShippedQty = Math.max(0, shippedQty - selfQty);
+            int itemPendingQty = Math.max(0, orderQty - effectiveShippedQty);
 
-            int remainQty;
-            if (rpCustomer) {
-                int producedQty = resolveProducedQtyForDelivery(orderItem);
-                remainQty = Math.max(0, producedQty - effectiveShippedQty);
-            } else {
-                remainQty = Math.max(0, orderQty - effectiveShippedQty);
+            // 无论是否RP客户，发货都不能超过订单明细欠货量
+            if (requestQty > itemPendingQty) {
+                throw new RuntimeException("发货数量不能多过当前订单欠货数量（订单明细ID=" + orderItemId + "，欠货=" + itemPendingQty + "，本次=" + requestQty + "）");
             }
 
-            if (requestQty > remainQty) {
-                if (rpCustomer) {
-                    throw new RuntimeException("RP客户发货数量不能超过已报工可发数量（订单明细ID=" + orderItemId + "，可发=" + remainQty + "，本次=" + requestQty + "）");
+            if (rpCustomer) {
+                // RP客户采用“共享池”口径：同料号+同规格在RP客户之间共享已报工可发额度
+                // 不再用单订单明细的欠货/可发做前置拦截，避免“共享可发>0但单明细可发=0”误拦截。
+                String poolKey = buildRpPoolKey(orderItem);
+                Integer oldPoolRequest = rpPoolRequestMap.get(poolKey);
+                rpPoolRequestMap.put(poolKey, (oldPoolRequest == null ? 0 : oldPoolRequest) + requestQty);
+                rpPoolAnchorMap.putIfAbsent(poolKey, orderItem);
+            } else {
+                int remainQty = itemPendingQty;
+                if (requestQty > remainQty) {
+                    throw new RuntimeException("发货数量不能多过欠货数量（订单明细ID=" + orderItemId + "，欠货=" + remainQty + "，本次=" + requestQty + "）");
                 }
-                throw new RuntimeException("发货数量不能多过欠货数量（订单明细ID=" + orderItemId + "，欠货=" + remainQty + "，本次=" + requestQty + "）");
             }
         }
+
+        // RP共享池二次校验：同料号+同规格在RP客户之间共享“已报工可发额度”
+        for (Map.Entry<String, Integer> poolEntry : rpPoolRequestMap.entrySet()) {
+            String poolKey = poolEntry.getKey();
+            int requestTotal = poolEntry.getValue() == null ? 0 : poolEntry.getValue();
+            SalesOrderItem anchor = rpPoolAnchorMap.get(poolKey);
+            if (anchor == null) {
+                continue;
+            }
+
+            int sharedShippable = calculateRpSharedShippable(anchor, currentNoticeId);
+            if (requestTotal > sharedShippable) {
+                throw new RuntimeException("RP共享可发数量不足（料号规格=" + poolKey + "，共享可发=" + sharedShippable + "，本次=" + requestTotal + "）");
+            }
+        }
+    }
+
+    private int calculateRpSharedShippable(SalesOrderItem anchor, Long currentNoticeId) {
+        if (anchor == null) {
+            return 0;
+        }
+        List<SalesOrderItem> peers = findRpPeerItemsBySpec(anchor);
+        int producedTotal = 0;
+        int shippedTotal = 0;
+        for (SalesOrderItem peer : peers) {
+            if (peer == null || peer.getId() == null) {
+                continue;
+            }
+            int producedQty = resolveProducedQtyForDelivery(peer);
+            int shippedQty = deliveryNoticeItemMapper.getConfirmedShippedQuantityByOrderItemId(peer.getId());
+            if (currentNoticeId != null) {
+                Integer selfQty = deliveryNoticeItemMapper.getNoticeItemQuantity(currentNoticeId, peer.getId());
+                shippedQty = Math.max(0, shippedQty - (selfQty == null ? 0 : Math.max(selfQty, 0)));
+            }
+            producedTotal += Math.max(producedQty, 0);
+            shippedTotal += Math.max(shippedQty, 0);
+        }
+        return Math.max(producedTotal - shippedTotal, 0);
+    }
+
+    private List<SalesOrderItem> findRpPeerItemsBySpec(SalesOrderItem anchor) {
+        if (anchor == null || !StringUtils.hasText(anchor.getMaterialCode())) {
+            return new ArrayList<>();
+        }
+        String materialCode = anchor.getMaterialCode().trim();
+        List<SalesOrderItem> sameMaterialItems = salesOrderItemMapper.selectList(
+                new QueryWrapper<SalesOrderItem>()
+                        .eq("is_deleted", 0)
+                        .eq("material_code", materialCode)
+        );
+        if (sameMaterialItems == null || sameMaterialItems.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        List<SalesOrderItem> peers = new ArrayList<>();
+        for (SalesOrderItem candidate : sameMaterialItems) {
+            if (candidate == null || candidate.getOrderId() == null) {
+                continue;
+            }
+            if (!sameSpec(anchor, candidate)) {
+                continue;
+            }
+            SalesOrder order = salesOrderMapper.selectById(candidate.getOrderId());
+            if (order == null || (order.getIsDeleted() != null && order.getIsDeleted() == 1)) {
+                continue;
+            }
+            String customerCode = order.getCustomer() == null ? "" : order.getCustomer().trim();
+            if (!isRpCustomerCode(customerCode)) {
+                continue;
+            }
+            peers.add(candidate);
+        }
+        return peers;
+    }
+
+    private boolean sameSpec(SalesOrderItem a, SalesOrderItem b) {
+        if (a == null || b == null) {
+            return false;
+        }
+        return decimalEquals(a.getThickness(), b.getThickness())
+                && decimalEquals(a.getWidth(), b.getWidth())
+                && decimalEquals(a.getLength(), b.getLength());
+    }
+
+    private boolean decimalEquals(BigDecimal a, BigDecimal b) {
+        if (a == null && b == null) {
+            return true;
+        }
+        if (a == null || b == null) {
+            return false;
+        }
+        return a.compareTo(b) == 0;
+    }
+
+    private String buildRpPoolKey(SalesOrderItem item) {
+        if (item == null) {
+            return "";
+        }
+        String code = item.getMaterialCode() == null ? "" : item.getMaterialCode().trim();
+        String thickness = item.getThickness() == null ? "" : item.getThickness().stripTrailingZeros().toPlainString();
+        String width = item.getWidth() == null ? "" : item.getWidth().stripTrailingZeros().toPlainString();
+        String length = item.getLength() == null ? "" : item.getLength().stripTrailingZeros().toPlainString();
+        return code + "|" + thickness + "*" + width + "*" + length;
     }
 
     private String resolveCustomerCodeByOrderItem(SalesOrderItem orderItem) {
@@ -578,6 +716,183 @@ public class DeliveryNoticeServiceImpl extends ServiceImpl<DeliveryNoticeMapper,
             return Math.max(orderQty - Math.max(orderItem.getRemainingQty(), 0), 0);
         }
         return 0;
+    }
+
+    @Override
+    public Map<Long, Map<String, Object>> getRpPoolPreview(List<Long> orderItemIds, Long currentNoticeId) {
+        Map<Long, Map<String, Object>> result = new LinkedHashMap<>();
+        if (orderItemIds == null || orderItemIds.isEmpty()) {
+            return result;
+        }
+
+        for (Long orderItemId : orderItemIds) {
+            if (orderItemId == null) {
+                continue;
+            }
+            SalesOrderItem orderItem = salesOrderItemMapper.selectById(orderItemId);
+            if (orderItem == null) {
+                continue;
+            }
+
+            int orderQty = orderItem.getRolls() == null ? 0 : Math.max(orderItem.getRolls(), 0);
+            int itemProducedQty = Math.max(resolveProducedQtyForDelivery(orderItem), 0);
+            int itemShippedQty = Math.max(deliveryNoticeItemMapper.getConfirmedShippedQuantityByOrderItemId(orderItemId), 0);
+            if (currentNoticeId != null) {
+                Integer selfQty = deliveryNoticeItemMapper.getNoticeItemQuantity(currentNoticeId, orderItemId);
+                itemShippedQty = Math.max(0, itemShippedQty - (selfQty == null ? 0 : Math.max(selfQty, 0)));
+            }
+            int itemPendingQty = Math.max(orderQty - itemShippedQty, 0);
+
+            String customerCode = resolveCustomerCodeByOrderItem(orderItem);
+            boolean rpCustomer = isRpCustomerCode(customerCode);
+
+            List<SalesOrderItem> peers = rpCustomer ? findRpPeerItemsBySpec(orderItem) : new ArrayList<>();
+            int poolProducedQty = 0;
+            int poolShippedQty = 0;
+            for (SalesOrderItem peer : peers) {
+                if (peer == null || peer.getId() == null) {
+                    continue;
+                }
+                int producedQty = Math.max(resolveProducedQtyForDelivery(peer), 0);
+                int shippedQty = Math.max(deliveryNoticeItemMapper.getConfirmedShippedQuantityByOrderItemId(peer.getId()), 0);
+                if (currentNoticeId != null) {
+                    Integer selfQty = deliveryNoticeItemMapper.getNoticeItemQuantity(currentNoticeId, peer.getId());
+                    shippedQty = Math.max(0, shippedQty - (selfQty == null ? 0 : Math.max(selfQty, 0)));
+                }
+                poolProducedQty += producedQty;
+                poolShippedQty += shippedQty;
+            }
+            int poolShippableQty = Math.max(poolProducedQty - poolShippedQty, 0);
+
+            Map<String, Object> preview = new LinkedHashMap<>();
+            preview.put("orderItemId", orderItemId);
+            preview.put("rpCustomer", rpCustomer);
+            preview.put("poolKey", buildRpPoolKey(orderItem));
+            preview.put("poolPeerCount", peers.size());
+            preview.put("poolProducedQty", poolProducedQty);
+            preview.put("poolShippedQty", poolShippedQty);
+            preview.put("poolShippableQty", poolShippableQty);
+            preview.put("itemOrderQty", orderQty);
+            preview.put("itemProducedQty", itemProducedQty);
+            preview.put("itemShippedQty", itemShippedQty);
+            preview.put("itemPendingQty", itemPendingQty);
+            result.put(orderItemId, preview);
+        }
+
+        return result;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void rebalanceRpProducedCreditsByNotice(Long noticeId, String operator) {
+        if (noticeId == null) {
+            return;
+        }
+        DeliveryNotice notice = deliveryNoticeMapper.selectById(noticeId);
+        if (notice == null || notice.getIsDeleted() != null && notice.getIsDeleted() == 1) {
+            return;
+        }
+
+        List<DeliveryNoticeItem> noticeItems = deliveryNoticeItemMapper.selectByNoticeId(noticeId);
+        if (noticeItems == null || noticeItems.isEmpty()) {
+            return;
+        }
+
+        Map<Long, SalesOrderItem> itemCache = new HashMap<>();
+
+        for (DeliveryNoticeItem noticeItem : noticeItems) {
+            if (noticeItem == null || noticeItem.getOrderItemId() == null) {
+                continue;
+            }
+            Long targetItemId = noticeItem.getOrderItemId();
+            SalesOrderItem target = itemCache.computeIfAbsent(targetItemId, salesOrderItemMapper::selectById);
+            if (target == null || target.getOrderId() == null) {
+                continue;
+            }
+
+            SalesOrder targetOrder = salesOrderMapper.selectById(target.getOrderId());
+            if (targetOrder == null || !isRpCustomerCode(targetOrder.getCustomer())) {
+                continue;
+            }
+
+            int shippedQty = Math.max(0, deliveryNoticeItemMapper.getConfirmedShippedQuantityByOrderItemId(targetItemId));
+            int producedQty = Math.max(0, resolveProducedQtyForDelivery(target));
+            int shortage = Math.max(shippedQty - producedQty, 0);
+            if (shortage <= 0) {
+                continue;
+            }
+
+            List<SalesOrderItem> peers = findRpPeerItemsBySpec(target);
+            for (SalesOrderItem donorRaw : peers) {
+                if (shortage <= 0) {
+                    break;
+                }
+                if (donorRaw == null || donorRaw.getId() == null || donorRaw.getId().equals(targetItemId)) {
+                    continue;
+                }
+
+                SalesOrderItem donor = itemCache.computeIfAbsent(donorRaw.getId(), salesOrderItemMapper::selectById);
+                if (donor == null) {
+                    continue;
+                }
+
+                int donorProduced = Math.max(0, resolveProducedQtyForDelivery(donor));
+                int donorShipped = Math.max(0, deliveryNoticeItemMapper.getConfirmedShippedQuantityByOrderItemId(donor.getId()));
+                int donorSpare = Math.max(donorProduced - donorShipped, 0);
+                if (donorSpare <= 0) {
+                    continue;
+                }
+
+                int transfer = Math.min(shortage, donorSpare);
+                if (transfer <= 0) {
+                    continue;
+                }
+
+                applyProducedQtyDelta(donor, -transfer, operator);
+                applyProducedQtyDelta(target, transfer, operator);
+
+                shortage -= transfer;
+                producedQty += transfer;
+                itemCache.put(donor.getId(), donor);
+                itemCache.put(target.getId(), target);
+            }
+
+            if (shortage > 0) {
+                throw new RuntimeException("RP共享发货重分配失败：同规格共享可发不足（订单明细ID=" + targetItemId + "，缺口=" + shortage + "）");
+            }
+        }
+    }
+
+    private void applyProducedQtyDelta(SalesOrderItem item, int delta, String operator) {
+        if (item == null || item.getId() == null || delta == 0) {
+            return;
+        }
+        int orderQty = item.getRolls() == null ? 0 : Math.max(item.getRolls(), 0);
+        int currentProduced = Math.max(0, resolveProducedQtyForDelivery(item));
+        int nextProduced = currentProduced + delta;
+        if (nextProduced < 0) {
+            nextProduced = 0;
+        }
+        if (nextProduced > orderQty) {
+            nextProduced = orderQty;
+        }
+
+        int nextRemaining = Math.max(orderQty - nextProduced, 0);
+        String nextStatus;
+        if (nextProduced <= 0) {
+            nextStatus = "not_started";
+        } else if (nextRemaining <= 0) {
+            nextStatus = "completed";
+        } else {
+            nextStatus = "partial";
+        }
+
+        item.setDeliveredQty(nextProduced);
+        item.setRemainingQty(nextRemaining);
+        item.setProductionStatus(nextStatus);
+        item.setUpdatedBy(StringUtils.hasText(operator) ? operator : "system");
+        item.setUpdatedAt(new Date());
+        salesOrderItemMapper.updateById(item);
     }
 
     @Override
@@ -849,6 +1164,8 @@ public class DeliveryNoticeServiceImpl extends ServiceImpl<DeliveryNoticeMapper,
         map.put("顺丰速运", "shunfeng");
         map.put("顺丰", "shunfeng");
         map.put("顺丰快递", "shunfeng");
+        map.put("顺丰快运", "shunfengkuaiyun");
+        map.put("顺丰快运物流", "shunfengkuaiyun");
         map.put("SF", "shunfeng");
         map.put("SF EXPRESS", "shunfeng");
         map.put("邮政", "youzhengguonei");
@@ -928,6 +1245,9 @@ public class DeliveryNoticeServiceImpl extends ServiceImpl<DeliveryNoticeMapper,
         if (v.contains("顺丰") || v.toUpperCase().contains("SF")) {
             codes.add("shunfeng");
             codes.add("sf");
+            if (v.contains("快运")) {
+                codes.add("shunfengkuaiyun");
+            }
         }
         if (v.contains("跨越")) {
             codes.add("kuayue");
@@ -952,18 +1272,31 @@ public class DeliveryNoticeServiceImpl extends ServiceImpl<DeliveryNoticeMapper,
             exactQw.eq("company_name", carrierName.trim()).eq("is_deleted", 0).last("LIMIT 1");
             LogisticsCompany exact = logisticsCompanyService.getOne(exactQw, false);
             if (exact != null && StringUtils.hasText(exact.getCompanyCode())) {
-                return exact.getCompanyCode().trim();
+                String code = exact.getCompanyCode().trim();
+                if (isLikelyKuaidiCompanyCode(code)) {
+                    return code;
+                }
             }
 
             QueryWrapper<LogisticsCompany> likeQw = new QueryWrapper<>();
             likeQw.like("company_name", carrierName.trim()).eq("is_deleted", 0).orderByDesc("updated_at").last("LIMIT 1");
             LogisticsCompany fuzzy = logisticsCompanyService.getOne(likeQw, false);
             if (fuzzy != null && StringUtils.hasText(fuzzy.getCompanyCode())) {
-                return fuzzy.getCompanyCode().trim();
+                String code = fuzzy.getCompanyCode().trim();
+                if (isLikelyKuaidiCompanyCode(code)) {
+                    return code;
+                }
             }
         } catch (Exception ignored) {
         }
         return "";
+    }
+
+    private boolean isLikelyKuaidiCompanyCode(String code) {
+        if (!StringUtils.hasText(code)) {
+            return false;
+        }
+        return code.trim().matches("^[A-Za-z0-9_-]+$");
     }
 
     private String normalizeCarrierNameForMatch(String name) {
@@ -1019,7 +1352,9 @@ public class DeliveryNoticeServiceImpl extends ServiceImpl<DeliveryNoticeMapper,
     private boolean isPhoneRequiredCarrier(String companyCode) {
         if (!StringUtils.hasText(companyCode)) return false;
         String code = companyCode.trim().toLowerCase();
-        return "shunfeng".equals(code) || "sf".equals(code);
+        return "shunfeng".equals(code)
+                || "sf".equals(code)
+                || "shunfengkuaiyun".equals(code);
     }
 
     private boolean containsSfCarrierCode(List<String> companyCodes) {
@@ -1145,7 +1480,9 @@ public class DeliveryNoticeServiceImpl extends ServiceImpl<DeliveryNoticeMapper,
         return failMsg.contains("不支持此快递公司")
                 || failMsg.contains("公司编码")
             || failMsg.contains("手机号")
-            || failMsg.contains("手机尾号");
+            || failMsg.contains("手机尾号")
+            || failMsg.contains("参数异常")
+            || failMsg.contains("验证错误");
     }
 
     @Override

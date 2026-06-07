@@ -17,6 +17,12 @@
             <if test="rollCode != null and rollCode != ''">
                 AND roll_code LIKE CONCAT('%', #{rollCode}, '%')
             </if>
+            <if test="materialCode != null and materialCode != ''">
+                AND material_code LIKE CONCAT('%', #{materialCode}, '%')
+            </if>
+            <if test="inspectorName != null and inspectorName != ''">
+                AND inspector_name LIKE CONCAT('%', #{inspectorName}, '%')
+            </if>
             <if test="result != null and result != ''">
                 AND overall_result = #{result}
             </if>
@@ -24,7 +30,7 @@
                 AND inspection_time &gt;= #{startDate}
             </if>
             <if test="endDate != null and endDate != ''">
-                AND inspection_time &lt;= #{endDate}
+                AND inspection_time &lt; #{endDate}
             </if>
         </where>
         ORDER BY inspection_time DESC, id DESC
@@ -49,6 +55,25 @@
           AND defect_type != ''
         GROUP BY defect_type
         ORDER BY totalCount DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="selectDistinctBatchNos" resultType="java.lang.String">
+        SELECT DISTINCT batch_no
+        FROM quality_inspection
+        <where>
+            inspection_type = #{type}
+            AND is_deleted = 0
+            AND batch_no IS NOT NULL
+            AND batch_no != ''
+            <if test="materialCode != null and materialCode != ''">
+                AND material_code = #{materialCode}
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND batch_no LIKE CONCAT('%', #{keyword}, '%')
+            </if>
+        </where>
+        ORDER BY batch_no DESC
         LIMIT #{limit}
     </select>
 

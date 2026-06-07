@@ -1,5 +1,6 @@
 package com.fine.serviceIMPL.stock;
 
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.fine.Dao.production.SalesOrderMapper;
 import com.fine.Dao.stock.MaterialIssueOrderItemMapper;
 import com.fine.Dao.stock.MaterialIssueOrderMapper;
@@ -204,6 +205,90 @@ public class MaterialIssueOrderServiceImpl implements MaterialIssueOrderService 
         return data;
     }
 
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void receiveIssueOrder(String issueNo, String operator) throws Exception {
+        if (!notBlank(issueNo)) {
+            throw new IllegalArgumentException("领料单号不能为空");
+        }
+        MaterialIssueOrder order = materialIssueOrderMapper.selectByIssueNo(issueNo.trim());
+        if (order == null) {
+            throw new IllegalArgumentException("未找到领料单: " + issueNo);
+        }
+        if ("RECEIVED".equalsIgnoreCase(order.getStatus())) {
+            return; // 幂等处理
+        }
+        if ("CANCELLED".equalsIgnoreCase(order.getStatus())) {
+            throw new IllegalArgumentException("领料单已取消，无法接收");
+        }
+
+        order.setStatus("RECEIVED");
+        order.setUpdatedAt(new Date());
+        if (notBlank(operator)) {
+            order.setRemark(appendRemark(order.getRemark(), "车间接收人: " + operator));
+        }
+        materialIssueOrderMapper.updateById(order);
+
+        log.info("领料单已接收: {}, 操作人: {}", issueNo, operator);
+    }
+
+    @Override
+    public void updateIssueOrder(MaterialIssueOrder order) {
+        if (order != null && order.getId() != null) {
+            materialIssueOrderMapper.updateById(order);
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void cancelIssueOrder(Long id, String operator) throws Exception {
+        MaterialIssueOrder order = materialIssueOrderMapper.selectById(id);
+        if (order == null) {
+            throw new IllegalArgumentException("未找到领料单");
+        }
+        if ("RECEIVED".equalsIgnoreCase(order.getStatus())) {
+            throw new IllegalArgumentException("领料单已被车间接收，无法取消");
+        }
+
+        order.setStatus("CANCELLED");
+        order.setUpdatedAt(new Date());
+        materialIssueOrderMapper.updateById(order);
+    }
+
+    @Override
+    public List<Map<String, Object>> getWorkshopStock(String workshop) {
+        QueryWrapper<MaterialIssueOrder> wrapper = new QueryWrapper<>();
+        wrapper.eq("status", "RECEIVED");
+        if (notBlank(workshop)) {
+            wrapper.eq("target_workshop", workshop);
+        }
+        wrapper.orderByDesc("updated_at");
+        
+        List<MaterialIssueOrder> orders = materialIssueOrderMapper.selectList(wrapper);
+        List<Map<String, Object>> result = new ArrayList<>();
+        
+        for (MaterialIssueOrder order : orders) {
+            Map<String, Object> map = new HashMap<>();
+            map.put("issueNo", order.getIssueNo());
+            map.put("materialCode", order.getMaterialCode());
+            map.put("totalArea", order.getTotalArea());
+            map.put("workshop", order.getTargetWorkshop());
+            map.put("receiveDate", order.getUpdatedAt());
+            map.put("orderNo", order.getOrderNo());
+            result.add(map);
+        }
+        return result;
+    }
+
+    private String appendRemark(String old, String add) {
+        if (!notBlank(old)) return add;
+        return old + "; " + add;
+    }
+
+    private boolean notBlank(String s) {
+        return s != null && !s.trim().isEmpty();
+    }
+
     private String generateIssueNo(LocalDate date) {
         LocalDate d = date == null ? LocalDate.now() : date;
         String day = d.format(DateTimeFormatter.ofPattern("yyMMdd"));
@@ -228,10 +313,6 @@ public class MaterialIssueOrderServiceImpl implements MaterialIssueOrderService 
             return values.iterator().next();
         }
         return "多项";
-    }
-
-    private boolean notBlank(String s) {
-        return s != null && !s.trim().isEmpty();
     }
 
     private boolean isLocked(Object status) {

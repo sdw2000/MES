@@ -83,6 +83,15 @@ public class PurchaseOrderController {
         return purchaseOrderService.searchOrders(keyword, status);
     }
 
+    @GetMapping("/available-for-receipt")
+    public ResponseResult<?> getOrdersAvailableForReceipt(
+            @RequestParam(value = "pageNum", defaultValue = "1") Integer pageNum,
+            @RequestParam(value = "pageSize", defaultValue = "200") Integer pageSize,
+            @RequestParam(value = "orderNo", required = false) String orderNo,
+            @RequestParam(value = "supplier", required = false) String supplier) {
+        return purchaseOrderService.getOrdersWithoutReceipt(pageNum, pageSize, orderNo, supplier);
+    }
+
     @GetMapping("/generate-no")
     public ResponseResult<?> generateOrderNo() {
         return ResponseResult.success(purchaseOrderService.generateOrderNo());
