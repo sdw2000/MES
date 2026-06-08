@@ -51,7 +51,7 @@ import java.util.LinkedHashMap;
 
 @RestController
 @RequestMapping("/delivery")
-@PreAuthorize("hasAnyAuthority('admin', 'sales', 'finance')")
+@PreAuthorize("hasAnyAuthority('admin','sales','finance','production','packaging','packing','plan','warehouse','quality','rd')")
 public class DeliveryController {
 
     private static final Set<String> RP_CUSTOMER_CODES = new LinkedHashSet<>(Arrays.asList(
@@ -932,6 +932,7 @@ public class DeliveryController {
     /**
      * 标签打印时：按送货单号追加批次号（逗号分隔、唯一值）
      */
+    @PreAuthorize("hasAnyAuthority('admin','sales','finance','production','packaging','packing','plan','warehouse','quality','rd')")
     @PostMapping("/append-batch-no")
     public ResponseResult<?> appendBatchNo(@RequestBody Map<String, Object> body) {
         String noticeNo = body == null ? "" : String.valueOf(body.getOrDefault("noticeNo", "")).trim();
@@ -943,6 +944,7 @@ public class DeliveryController {
     /**
      * 兼容入口：支持 query 参数调用，避免客户端方法不一致导致 405。
      */
+    @PreAuthorize("hasAnyAuthority('admin','sales','finance','production','packaging','packing','plan','warehouse','quality','rd')")
     @GetMapping("/append-batch-no")
     public ResponseResult<?> appendBatchNoGet(@RequestParam String noticeNo,
                                               @RequestParam String batchNo,

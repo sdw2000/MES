@@ -65,20 +65,17 @@ public class LabelQrRuleController {
 
         Map<String, Object> data = new HashMap<>();
 
-        // 附加客户简称
-        try {
-            List<Map<String, Object>> customerList = jdbcTemplate.queryForList("SELECT short_name FROM customer WHERE customer_code = ? LIMIT 1", customerCode.trim());
-            if (customerList != null && !customerList.isEmpty()) {
-                data.put("customerShortName", customerList.get(0).get("short_name"));
-            }
-        } catch (Exception e) {
-            // 忽略客户查询失败
+        // 附加客户简称（按客户编码查询）
+        String customerShortName = queryCustomerShortName(customerCode.trim());
+        if (!isBlank(customerShortName)) {
+            data.put("customerShortName", customerShortName);
         }
 
-        // 附加公司基本信息 (从 SystemConfig 或 Hardcoded 逻辑获取，这里先手动组装)
-        data.put("myCompanyName", "东莞市方恩电子材料科技有限公司");
-        data.put("myCompanyAddress", "广东省东莞市桥头镇东新路13号2号楼102室");
-        data.put("myCompanyPhone", "0769-82551118");
+        // 附加公司基本信息（优先 system_company_config，失败则回退默认值）
+        Map<String, String> companyInfo = queryCompanyInfo();
+        data.put("myCompanyName", companyInfo.getOrDefault("myCompanyName", "东莞市方恩电子材料科技有限公司"));
+        data.put("myCompanyAddress", companyInfo.getOrDefault("myCompanyAddress", "广东省东莞市桥头镇东新路13号2号楼102室"));
+        data.put("myCompanyPhone", companyInfo.getOrDefault("myCompanyPhone", "0769-82551118"));
 
         // 如果规则存在，填充规则详情
         if (list != null && !list.isEmpty()) {
@@ -258,5 +255,56 @@ public class LabelQrRuleController {
             return "SLITTING_OUTER_LABEL";
         }
         return text;
+    }
+
+    private String queryCustomerShortName(String customerCode) {
+        if (isBlank(customerCode)) {
+            return "";
+        }
+        try {
+            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                "SELECT short_name, customer_name, customer_code FROM customers "
+                    + "WHERE IFNULL(is_deleted,0)=0 "
+                    + "AND (customer_code = ? OR short_name = ? OR customer_name = ?) "
+                    + "LIMIT 1",
+                customerCode, customerCode, customerCode
+            );
+            if (rows != null && !rows.isEmpty()) {
+                Map<String, Object> row = rows.get(0);
+                String shortName = String.valueOf(row.getOrDefault("short_name", "")).trim();
+                if (!shortName.isEmpty()) return shortName;
+                String customerName = String.valueOf(row.getOrDefault("customer_name", "")).trim();
+                if (!customerName.isEmpty()) return customerName;
+                return String.valueOf(row.getOrDefault("customer_code", "")).trim();
+            }
+        } catch (Exception ignore) {
+            // ignore
+        }
+        return "";
+    }
+
+    private Map<String, String> queryCompanyInfo() {
+        Map<String, String> out = new HashMap<>();
+        out.put("myCompanyName", "东莞市方恩电子材料科技有限公司");
+        out.put("myCompanyAddress", "广东省东莞市桥头镇东新路13号2号楼102室");
+        out.put("myCompanyPhone", "0769-82551118");
+
+        try {
+            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                    "SELECT company_name, address, phone FROM system_company_config WHERE id = 1 LIMIT 1"
+            );
+            if (rows != null && !rows.isEmpty()) {
+                Map<String, Object> row = rows.get(0);
+                String companyName = String.valueOf(row.getOrDefault("company_name", "")).trim();
+                String address = String.valueOf(row.getOrDefault("address", "")).trim();
+                String phone = String.valueOf(row.getOrDefault("phone", "")).trim();
+                if (!companyName.isEmpty()) out.put("myCompanyName", companyName);
+                if (!address.isEmpty()) out.put("myCompanyAddress", address);
+                if (!phone.isEmpty()) out.put("myCompanyPhone", phone);
+            }
+        } catch (Exception ignore) {
+            // ignore and keep default
+        }
+        return out;
     }
 }

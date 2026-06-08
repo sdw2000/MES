@@ -41,12 +41,27 @@ public class LabelPrintTemplateConfigController {
     private static final String BIZ_TYPE_DELIVERY_NOTICE_TEMPLATE = "delivery_notice_template";
     private static final String BIZ_TYPE_DELIVERY_NOTICE_DEFAULT = "delivery_notice_default";
         private static final String LIST_SCOPE_LABEL_RULE = "label-rule";
+        private static final String LIST_SCOPE_LABEL_GATEWAY = "label-gateway";
+        private static final String BIZ_TYPE_GATEWAY_BASE_CONFIG = "GATEWAY_BASE_CONFIG";
+        private static final String BIZ_TYPE_GATEWAY_TEMPLATE_MAPPING = "GATEWAY_TEMPLATE_MAPPING";
         private static final String DELIVERY_TEMPLATE_DEFAULT_REMARK = "{\"compact\":false,\"showCarrierPhone\":true,\"showCustomerOrderNo\":true,\"showItemArea\":true,\"showItemBox\":true,\"showItemRemark\":true,\"showFooterNotes\":true}";
         private static final List<String> RESERVED_TEMPLATE_BIZ_TYPES = Arrays.asList(
             BIZ_TYPE_SALES_CONTRACT_TEMPLATE,
             BIZ_TYPE_SALES_CONTRACT_DEFAULT,
             BIZ_TYPE_DELIVERY_NOTICE_TEMPLATE,
             BIZ_TYPE_DELIVERY_NOTICE_DEFAULT
+        );
+        private static final List<String> GATEWAY_TEMPLATE_BIZ_TYPES = Arrays.asList(
+            BIZ_TYPE_GATEWAY_BASE_CONFIG,
+            BIZ_TYPE_GATEWAY_TEMPLATE_MAPPING
+        );
+        private static final List<String> EXCLUDED_BIZ_TYPES_FOR_LABEL_RULE = Arrays.asList(
+            BIZ_TYPE_SALES_CONTRACT_TEMPLATE,
+            BIZ_TYPE_SALES_CONTRACT_DEFAULT,
+            BIZ_TYPE_DELIVERY_NOTICE_TEMPLATE,
+            BIZ_TYPE_DELIVERY_NOTICE_DEFAULT,
+            BIZ_TYPE_GATEWAY_BASE_CONFIG,
+            BIZ_TYPE_GATEWAY_TEMPLATE_MAPPING
         );
     private static final String TEMPLATE_PREVIEW_SAMPLE_DATA_KEY = "label_print:template_preview_sample_data";
 
@@ -77,7 +92,10 @@ public class LabelPrintTemplateConfigController {
         try {
             QueryWrapper<LabelPrintTemplateConfig> wrapper = new QueryWrapper<>();
             if (isLabelRuleScope(scope)) {
-                wrapper.notIn("biz_type", RESERVED_TEMPLATE_BIZ_TYPES);
+                wrapper.notIn("biz_type", EXCLUDED_BIZ_TYPES_FOR_LABEL_RULE);
+            }
+            if (isLabelGatewayScope(scope)) {
+                wrapper.in("biz_type", GATEWAY_TEMPLATE_BIZ_TYPES);
             }
             if (bizType != null && !bizType.trim().isEmpty()) {
                 wrapper.like("biz_type", bizType.trim());
@@ -118,9 +136,14 @@ public class LabelPrintTemplateConfigController {
         try {
             QueryWrapper<LabelPrintTemplateConfig> deleteWrapper = new QueryWrapper<>();
             boolean labelRuleScope = isLabelRuleScope(scope);
+            boolean labelGatewayScope = isLabelGatewayScope(scope);
             if (labelRuleScope) {
                 // 仅覆盖“标签规则”域，避免误删送货单/合同模板配置
-                deleteWrapper.notIn("biz_type", RESERVED_TEMPLATE_BIZ_TYPES);
+                deleteWrapper.notIn("biz_type", EXCLUDED_BIZ_TYPES_FOR_LABEL_RULE);
+            }
+            if (labelGatewayScope) {
+                // 仅覆盖“网关与模板映射”域，避免影响其他配置
+                deleteWrapper.in("biz_type", GATEWAY_TEMPLATE_BIZ_TYPES);
             }
             configMapper.delete(deleteWrapper);
 
@@ -138,8 +161,12 @@ public class LabelPrintTemplateConfigController {
                     if (item.getTemplateKey() == null || item.getTemplateKey().trim().isEmpty()) {
                         continue;
                     }
-                    if (labelRuleScope && RESERVED_TEMPLATE_BIZ_TYPES.contains(item.getBizType().trim())) {
+                    if (labelRuleScope && EXCLUDED_BIZ_TYPES_FOR_LABEL_RULE.contains(item.getBizType().trim())) {
                         // 标签规则域禁止写入其他模板域
+                        continue;
+                    }
+                    if (labelGatewayScope && !GATEWAY_TEMPLATE_BIZ_TYPES.contains(item.getBizType().trim())) {
+                        // 网关配置域仅允许写入网关相关类型
                         continue;
                     }
 
@@ -926,6 +953,10 @@ public class LabelPrintTemplateConfigController {
 
     private boolean isLabelRuleScope(String scope) {
         return LIST_SCOPE_LABEL_RULE.equalsIgnoreCase(scope == null ? "" : scope.trim());
+    }
+
+    private boolean isLabelGatewayScope(String scope) {
+        return LIST_SCOPE_LABEL_GATEWAY.equalsIgnoreCase(scope == null ? "" : scope.trim());
     }
 
     private void ensureDeliveryTemplatesReferencedByDefaultsExist() {
