@@ -1,0 +1,8 @@
+回写涂布日期失败: 
+### Error updating database.  Cause: java.sql.SQLException: Illegal mix of collations (utf8mb4_0900_ai_ci,IMPLICIT) and (utf8mb4_unicode_ci,IMPLICIT) for operation '='
+### The error may exist in com/fine/Dao/schedule/ManualScheduleMapper.java (best guess)
+### The error may involve com.fine.Dao.schedule.ManualScheduleMapper.updateSalesOrderCoatingDateByScheduleAllocation-Inline
+### The error occurred while setting parameters
+### SQL: UPDATE sales_order_items soi JOIN sales_orders o ON soi.order_id = o.id JOIN manual_schedule_coating_allocation ca ON ca.schedule_id = ?   AND ca.included_flag = 1   AND ca.order_no = o.order_no SET soi.coating_date = ? WHERE soi.material_code = ca.material_code AND (ca.thickness IS NULL OR soi.thickness = ca.thickness) AND soi.is_deleted = 0 AND o.is_deleted = 0 AND (o.status IS NULL OR LOWER(o.status) NOT IN ('completed','cancelled','canceled','closed'))
+### Cause: java.sql.SQLException: Illegal mix of collations (utf8mb4_0900_ai_ci,IMPLICIT) and (utf8mb4_unicode_ci,IMPLICIT) for operation '='
+; uncategorized SQLException; SQL state [HY000]; error code [1267]; Illegal mix of collations (utf8mb4_0900_ai_ci,IMPLICIT) and (utf8mb4_unicode_ci,IMPLICIT) for operation '='; nested exception is java.sql.SQLException: Illegal mix of collations (utf8mb4_0900_ai_ci,IMPLICIT) and (utf8mb4_unicode_ci,IMPLICIT) for operation '='

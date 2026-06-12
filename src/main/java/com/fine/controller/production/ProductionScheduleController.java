@@ -486,7 +486,7 @@ public class ProductionScheduleController {
      */
     @PostMapping("/slitting/{id}/complete")
     public ResponseResult<String> completeSlittingTask(@PathVariable Long id,
-                                                       @RequestParam(required = false) Integer actualRolls,
+                                                       @RequestParam(required = false) Double actualRolls,
                                                        @RequestParam(defaultValue = "admin") String operator) {
         try {
             int rows = scheduleService.completeSlittingTask(id, actualRolls, operator);

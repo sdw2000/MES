@@ -49,22 +49,22 @@ public class SalesOrderItem {
     private BigDecimal length;
     
     // 卷数
-    private Integer rolls;
+    private Double rolls;
 
     // 已完成卷数（维护口径）
     @TableField("delivered_qty")
-    private Integer deliveredQty;
+    private Double deliveredQty;
 
     // 欠卷数（维护口径）
     @TableField("remaining_qty")
-    private Integer remainingQty;
+    private Double remainingQty;
 
     // 完成状态（not_started/partial/completed）
     @TableField("production_status")
     private String productionStatus;
     
     // 已排程数量
-    private Integer scheduledQty;
+    private Double scheduledQty;
 
     // 已排程面积（㎡）
     private BigDecimal scheduledArea;
@@ -113,7 +113,7 @@ public class SalesOrderItem {
 
     // 已发货卷数（不映射到数据库）
     @TableField(exist = false)
-    private Integer shippedRolls;
+    private Double shippedRolls;
 
     // 订单号（关联字段，不入库）
     @TableField(exist = false)

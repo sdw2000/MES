@@ -142,20 +142,20 @@ public class ChemicalRequisitionServiceImpl implements ChemicalRequisitionServic
                 }
 
                 ChemicalStock stock = pickChemicalStock(rawCode);
-                int requiredQty = convertKgToQty(needKg, stock);
-                int lockedQty = 0;
+                double requiredQty = convertKgToQty(needKg, stock);
+                double lockedQty = 0.0;
                 Long stockId = null;
                 String status = "PENDING";
 
-                if (stock != null && requiredQty > 0) {
-                    int availableQty = resolveChemicalAvailableQty(stock, null);
-                    int canLock = Math.min(requiredQty, Math.max(availableQty, 0));
-                    if (canLock > 0) {
+                if (stock != null && requiredQty > 0.0001) {
+                    double availableQty = resolveChemicalAvailableQty(stock, null);
+                    double canLock = Math.min(requiredQty, Math.max(availableQty, 0.0));
+                    if (canLock > 0.0001) {
                         int ok = chemicalStockMapper.lockStock(stock.getId(), canLock);
                         if (ok > 0) {
                             lockedQty = canLock;
                             stockId = stock.getId();
-                            status = lockedQty >= requiredQty ? "LOCKED" : "PARTIAL";
+                            status = lockedQty >= requiredQty - 0.0001 ? "LOCKED" : "PARTIAL";
                             lockCount++;
                         }
                     }
@@ -180,8 +180,8 @@ public class ChemicalRequisitionServiceImpl implements ChemicalRequisitionServic
                 lock.setUpdateTime(new Date());
                 chemicalMaterialLockMapper.insert(lock);
 
-                if (requiredQty > lockedQty) {
-                    int shortage = requiredQty - lockedQty;
+                if (requiredQty > lockedQty + 0.0001) {
+                    double shortage = requiredQty - lockedQty;
                     ChemicalPurchaseRequestItem reqItem = new ChemicalPurchaseRequestItem();
                     reqItem.setRequestId(req.getId());
                     reqItem.setScheduleId(planScheduleId);
@@ -235,7 +235,7 @@ public class ChemicalRequisitionServiceImpl implements ChemicalRequisitionServic
         }
 
         Map<Long, ChemicalStock> stockMap = new HashMap<>();
-        Map<Long, Integer> chemicalAvailableQtyMap = new HashMap<>();
+        Map<Long, Double> chemicalAvailableQtyMap = new HashMap<>();
         Map<String, FilmStock> filmStockByCodeMap = new HashMap<>();
         Map<Long, BigDecimal> filmAvailableAreaMap = new HashMap<>();
         Map<Long, BigDecimal> filmAvailableLengthMap = new HashMap<>();
@@ -246,8 +246,8 @@ public class ChemicalRequisitionServiceImpl implements ChemicalRequisitionServic
                 continue;
             }
 
-            Integer requiredQty = lock.getRequiredQty() == null ? 0 : lock.getRequiredQty();
-            Integer lockedQty = lock.getLockedQty() == null ? 0 : lock.getLockedQty();
+            int requiredQty = lock.getRequiredQty() == null ? 0 : lock.getRequiredQty().intValue();
+            int lockedQty = lock.getLockedQty() == null ? 0 : lock.getLockedQty().intValue();
             int shortageQty = Math.max(requiredQty - lockedQty, 0);
 
             ChemicalStock stock = null;
@@ -321,13 +321,13 @@ public class ChemicalRequisitionServiceImpl implements ChemicalRequisitionServic
         if (stock == null) {
             return 0;
         }
-        Integer availableRolls = stock.getAvailableRolls();
+        Double availableRolls = stock.getAvailableRolls();
         if (availableRolls != null && availableRolls > 0) {
-            return availableRolls;
+            return availableRolls.intValue();
         }
-        Integer availablePackCount = stock.getAvailablePackCount();
+        Double availablePackCount = stock.getAvailablePackCount();
         if (availablePackCount != null && availablePackCount > 0) {
-            return availablePackCount;
+            return availablePackCount.intValue();
         }
         return 0;
     }
@@ -578,7 +578,7 @@ public class ChemicalRequisitionServiceImpl implements ChemicalRequisitionServic
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void updateRequestedQty(Long itemId, Integer requestedQty) {
+    public void updateRequestedQty(Long itemId, Double requestedQty) {
         if (itemId == null || requestedQty == null || requestedQty < 0) {
             throw new RuntimeException("参数无效");
         }
@@ -654,7 +654,7 @@ public class ChemicalRequisitionServiceImpl implements ChemicalRequisitionServic
 
         BigDecimal totalQty = BigDecimal.ZERO;
         for (ChemicalPurchaseRequestItem item : items) {
-            Integer qty = item.getRequestedQty() == null ? 0 : item.getRequestedQty();
+            Double qty = item.getRequestedQty() == null ? 0.0 : item.getRequestedQty();
             if (qty > 0) {
                 totalQty = totalQty.add(BigDecimal.valueOf(qty));
             }
@@ -678,7 +678,7 @@ public class ChemicalRequisitionServiceImpl implements ChemicalRequisitionServic
         purchaseOrderMapper.insert(po);
 
         for (ChemicalPurchaseRequestItem reqItem : items) {
-            int qty = reqItem.getRequestedQty() == null ? 0 : reqItem.getRequestedQty();
+            Double qty = reqItem.getRequestedQty() == null ? 0.0 : reqItem.getRequestedQty().doubleValue();
             if (qty <= 0) {
                 continue;
             }
@@ -686,7 +686,7 @@ public class ChemicalRequisitionServiceImpl implements ChemicalRequisitionServic
             poi.setOrderId(po.getId());
             poi.setMaterialCode(reqItem.getRawMaterialCode());
             poi.setMaterialName(reqItem.getRawMaterialName());
-            poi.setRolls(qty);
+            poi.setRolls(qty.intValue());
             poi.setSqm(BigDecimal.valueOf(qty));
             poi.setUnitPrice(BigDecimal.ZERO);
             poi.setAmount(BigDecimal.ZERO);
@@ -708,7 +708,7 @@ public class ChemicalRequisitionServiceImpl implements ChemicalRequisitionServic
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public Map<String, Object> receiveAndFulfill(String requestNo, Map<Long, Integer> receiveQtyMap) {
+    public Map<String, Object> receiveAndFulfill(String requestNo, Map<Long, Double> receiveQtyMap) {
         ChemicalPurchaseRequest req = chemicalPurchaseRequestMapper.selectByRequestNo(requestNo);
         if (req == null) {
             throw new RuntimeException("请购单不存在");
@@ -721,8 +721,8 @@ public class ChemicalRequisitionServiceImpl implements ChemicalRequisitionServic
         }
         if (ChemicalRequisitionStatus.RECEIVED.equals(currentStatus)) {
             Map<String, Object> done = new LinkedHashMap<>();
-            done.put("receivedQty", 0);
-            done.put("fulfilledQty", 0);
+            done.put("receivedQty", 0.0);
+            done.put("fulfilledQty", 0.0);
             done.put("message", "该请购单已入库");
             return done;
         }
@@ -732,23 +732,23 @@ public class ChemicalRequisitionServiceImpl implements ChemicalRequisitionServic
             throw new RuntimeException("请购明细为空");
         }
 
-        int totalReceived = 0;
-        int totalFulfilled = 0;
-        Map<Long, Integer> qtyMap = receiveQtyMap == null ? Collections.emptyMap() : receiveQtyMap;
+        double totalReceived = 0.0;
+        double totalFulfilled = 0.0;
+        Map<Long, Double> qtyMap = receiveQtyMap == null ? Collections.emptyMap() : receiveQtyMap;
         boolean hasExplicitQty = !qtyMap.isEmpty();
 
         for (ChemicalPurchaseRequestItem item : items) {
             if (item == null || item.getRawMaterialCode() == null || item.getRawMaterialCode().trim().isEmpty()) {
                 continue;
             }
-            int defaultReceive = item.getRequestedQty() == null ? 0 : item.getRequestedQty();
-            int alreadyReceived = item.getReceivedQty() == null ? 0 : item.getReceivedQty();
-            int remainingReceivable = Math.max(defaultReceive - alreadyReceived, 0);
-            int receiveQty = qtyMap.containsKey(item.getId()) ? Math.max(qtyMap.get(item.getId()), 0) : remainingReceivable;
-            if (receiveQty > remainingReceivable) {
-                throw new RuntimeException("物料 " + item.getRawMaterialCode() + " 本次实收数量不能大于剩余待收数量");
+            double defaultReceive = item.getRequestedQty() == null ? 0.0 : item.getRequestedQty();
+            double alreadyReceived = item.getReceivedQty() == null ? 0.0 : item.getReceivedQty();
+            double remainingReceivable = Math.max(defaultReceive - alreadyReceived, 0.0);
+            double receiveQty = qtyMap.containsKey(item.getId()) ? Math.max(qtyMap.get(item.getId()), 0.0) : remainingReceivable;
+            if (receiveQty > remainingReceivable + 0.0001) {
+                throw new RuntimeException("物料 " + item.getRawMaterialCode() + " 本次实收数量不能大于剩余待收数量: 需 " + remainingReceivable + ", 实 " + receiveQty);
             }
-            if (receiveQty <= 0) {
+            if (receiveQty <= 0.0) {
                 continue;
             }
 
@@ -760,22 +760,22 @@ public class ChemicalRequisitionServiceImpl implements ChemicalRequisitionServic
             totalReceived += receiveQty;
             chemicalPurchaseRequestItemMapper.updateReceivedQty(item.getId(), alreadyReceived + receiveQty);
 
-            int fulfilled = fulfillLocksForItem(stock.getId(), item, receiveQty);
+            double fulfilled = fulfillLocksForItem(stock.getId(), item, receiveQty);
             totalFulfilled += fulfilled;
             appendLog(requestNo, req.getId(), "RECEIVE_ITEM", "warehouse",
                     "明细到货 itemId=" + item.getId() + ", raw=" + item.getRawMaterialCode() + ", receiveQty=" + receiveQty + ", fulfilled=" + fulfilled);
         }
 
-        if (hasExplicitQty && totalReceived <= 0) {
+        if (hasExplicitQty && totalReceived <= 0.0001) {
             throw new RuntimeException("请填写本次实收数量");
         }
 
         boolean allReceived = true;
         List<ChemicalPurchaseRequestItem> latestItems = chemicalPurchaseRequestItemMapper.selectByRequestId(req.getId());
         for (ChemicalPurchaseRequestItem latest : latestItems) {
-            int reqQty = latest.getRequestedQty() == null ? 0 : latest.getRequestedQty();
-            int recQty = latest.getReceivedQty() == null ? 0 : latest.getReceivedQty();
-            if (recQty < reqQty) {
+            double reqQty = latest.getRequestedQty() == null ? 0.0 : latest.getRequestedQty();
+            double recQty = latest.getReceivedQty() == null ? 0.0 : latest.getReceivedQty();
+            if (recQty < reqQty - 0.0001) {
                 allReceived = false;
                 break;
             }
@@ -797,10 +797,10 @@ public class ChemicalRequisitionServiceImpl implements ChemicalRequisitionServic
         if (lockIds == null || lockIds.isEmpty()) {
             throw new RuntimeException("锁定记录不能为空");
         }
-        Map<Long, Integer> lockQtyMap = new LinkedHashMap<>();
+        Map<Long, Double> lockQtyMap = new LinkedHashMap<>();
         for (Long id : lockIds) {
             if (id != null && id > 0) {
-                lockQtyMap.put(id, Integer.MAX_VALUE);
+                lockQtyMap.put(id, Double.MAX_VALUE);
             }
         }
         return confirmIssueByLocks(lockQtyMap, operator);
@@ -808,18 +808,18 @@ public class ChemicalRequisitionServiceImpl implements ChemicalRequisitionServic
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public Map<String, Object> confirmIssueByLocks(Map<Long, Integer> lockQtyMap, String operator) {
+    public Map<String, Object> confirmIssueByLocks(Map<Long, Double> lockQtyMap, String operator) {
         if (lockQtyMap == null || lockQtyMap.isEmpty()) {
             throw new RuntimeException("锁定记录不能为空");
         }
 
         int issuedCount = 0;
         int skippedCount = 0;
-        int totalQty = 0;
+        double totalQty = 0;
         BigDecimal totalWeight = BigDecimal.ZERO;
 
         String user = trim(operator) == null ? "production" : trim(operator);
-        for (Map.Entry<Long, Integer> entry : lockQtyMap.entrySet()) {
+        for (Map.Entry<Long, Double> entry : lockQtyMap.entrySet()) {
             Long lockId = entry.getKey();
             if (lockId == null) {
                 continue;
@@ -840,17 +840,17 @@ public class ChemicalRequisitionServiceImpl implements ChemicalRequisitionServic
                 continue;
             }
 
-            int maxQty = lock.getLockedQty() == null ? 0 : lock.getLockedQty();
-            int requestedQty = entry.getValue() == null ? 0 : entry.getValue();
-            int outQty = Math.min(maxQty, requestedQty <= 0 ? maxQty : requestedQty);
-            if (outQty <= 0 || lock.getChemicalStockId() == null) {
+            double maxQty = lock.getLockedQty() == null ? 0.0 : lock.getLockedQty();
+            double requestedQty = entry.getValue() == null ? 0.0 : entry.getValue();
+            double outQty = Math.min(maxQty, requestedQty <= 0.0 ? maxQty : requestedQty);
+            if (outQty <= 0.0 || lock.getChemicalStockId() == null) {
                 skippedCount++;
                 continue;
             }
 
             BigDecimal outWeight = BigDecimal.ZERO;
             BigDecimal requiredKg = lock.getRequiredKg() == null ? BigDecimal.ZERO : lock.getRequiredKg();
-            int requiredQty = lock.getRequiredQty() == null ? 0 : lock.getRequiredQty();
+            int requiredQty = lock.getRequiredQty() == null ? 0 : lock.getRequiredQty().intValue();
             if (requiredQty > 0 && requiredKg.compareTo(BigDecimal.ZERO) > 0) {
                 outWeight = requiredKg.multiply(BigDecimal.valueOf(outQty))
                         .divide(BigDecimal.valueOf(requiredQty), 3, RoundingMode.HALF_UP);
@@ -870,7 +870,7 @@ public class ChemicalRequisitionServiceImpl implements ChemicalRequisitionServic
             // 化工出库（会扣减 locked_quantity，并写出库记录）
             chemicalStockService.outbound(out, null);
 
-            int remainLockedQty = Math.max(maxQty - outQty, 0);
+            double remainLockedQty = Math.max(maxQty - outQty, 0.0);
             lock.setLockedQty(remainLockedQty);
             lock.setLockStatus(remainLockedQty <= 0 ? "ALLOCATED" : "PARTIAL");
             lock.setUpdateTime(new Date());
@@ -1014,10 +1014,10 @@ public class ChemicalRequisitionServiceImpl implements ChemicalRequisitionServic
         created.setChemicalType("other");
         created.setUnit(unit == null || unit.trim().isEmpty() ? "桶" : unit.trim());
         created.setUnitWeight(BigDecimal.ONE);
-        created.setTotalQuantity(0);
-        created.setAvailableQuantity(0);
-        created.setLockedQuantity(0);
-        created.setSafetyStock(0);
+        created.setTotalQuantity(0.0);
+        created.setAvailableQuantity(0.0);
+        created.setLockedQuantity(0.0);
+        created.setSafetyStock(0.0);
         created.setStatus("active");
         created.setRemark("auto-create-by-chemical-receive");
         created.setCreateTime(new Date());
@@ -1028,11 +1028,11 @@ public class ChemicalRequisitionServiceImpl implements ChemicalRequisitionServic
         return created;
     }
 
-    private int fulfillLocksForItem(Long stockId, ChemicalPurchaseRequestItem item, int receiveQty) {
-        int remain = receiveQty;
-        int fulfilled = 0;
-        if (remain <= 0) {
-            return 0;
+    private double fulfillLocksForItem(Long stockId, ChemicalPurchaseRequestItem item, double receiveQty) {
+        double remain = receiveQty;
+        double fulfilled = 0.0;
+        if (remain <= 0.0) {
+            return 0.0;
         }
 
         QueryWrapper<ChemicalMaterialLock> qw = new QueryWrapper<>();
@@ -1044,19 +1044,19 @@ public class ChemicalRequisitionServiceImpl implements ChemicalRequisitionServic
 
         List<ChemicalMaterialLock> locks = chemicalMaterialLockMapper.selectList(qw);
         for (ChemicalMaterialLock lock : locks) {
-            if (remain <= 0) {
+            if (remain <= 0.0) {
                 break;
             }
-            int required = lock.getRequiredQty() == null ? 0 : lock.getRequiredQty();
-            int already = lock.getLockedQty() == null ? 0 : lock.getLockedQty();
-            int need = required - already;
-            if (need <= 0) {
+            double required = lock.getRequiredQty() == null ? 0.0 : lock.getRequiredQty();
+            double already = lock.getLockedQty() == null ? 0.0 : lock.getLockedQty();
+            double need = required - already;
+            if (need <= 0.0) {
                 lock.setLockStatus("LOCKED");
                 chemicalMaterialLockMapper.updateById(lock);
                 continue;
             }
-            int add = Math.min(remain, need);
-            if (add <= 0) {
+            double add = Math.min(remain, need);
+            if (add <= 0.0) {
                 continue;
             }
             int lockOk = chemicalStockMapper.lockStock(stockId, add);
@@ -1066,7 +1066,7 @@ public class ChemicalRequisitionServiceImpl implements ChemicalRequisitionServic
 
             lock.setChemicalStockId(stockId);
             lock.setLockedQty(already + add);
-            lock.setLockStatus(lock.getLockedQty() >= required ? "LOCKED" : "PARTIAL");
+            lock.setLockStatus(lock.getLockedQty() >= required - 0.0001 ? "LOCKED" : "PARTIAL");
             lock.setUpdateTime(new Date());
             chemicalMaterialLockMapper.updateById(lock);
             remain -= add;
@@ -1181,17 +1181,17 @@ public class ChemicalRequisitionServiceImpl implements ChemicalRequisitionServic
         }
 
         for (ChemicalStock stock : list) {
-            int available = resolveChemicalAvailableQty(stock, null);
-            if (available > 0) {
+            double available = resolveChemicalAvailableQty(stock, null);
+            if (available > 0.0001) {
                 return chemicalStockMapper.selectById(stock.getId());
             }
         }
         return null;
     }
 
-    private int resolveChemicalAvailableQty(ChemicalStock stock, Map<Long, Integer> cache) {
+    private double resolveChemicalAvailableQty(ChemicalStock stock, Map<Long, Double> cache) {
         if (stock == null || stock.getId() == null) {
-            return 0;
+            return 0.0;
         }
         Long stockId = stock.getId();
         if (cache != null && cache.containsKey(stockId)) {
@@ -1199,19 +1199,19 @@ public class ChemicalRequisitionServiceImpl implements ChemicalRequisitionServic
         }
 
         List<ChemicalStockDetail> details = chemicalStockDetailMapper.selectByChemicalStockId(stockId);
-        Integer packCount = stock.getAvailablePackCount() == null ? 0 : stock.getAvailablePackCount();
+        Double packCount = stock.getAvailablePackCount() == null ? 0.0 : stock.getAvailablePackCount();
         if (details == null || details.isEmpty()) {
             // 兼容历史数据：部分库存仅维护汇总数量，未维护明细批次
-            int fallback = Math.max(
-                    Math.max(0, stock.getAvailableQuantity() == null ? 0 : stock.getAvailableQuantity()),
-                    Math.max(0, packCount));
+            double fallback = Math.max(
+                    Math.max(0.0, stock.getAvailableQuantity() == null ? 0.0 : stock.getAvailableQuantity()),
+                    Math.max(0.0, packCount));
             if (cache != null) {
                 cache.put(stockId, fallback);
             }
             return fallback;
         }
-        int available = 0;
-        int locked = 0;
+        double available = 0.0;
+        double locked = 0.0;
         BigDecimal weightSum = BigDecimal.ZERO;
         int weightCount = 0;
         if (details != null) {
@@ -1237,16 +1237,20 @@ public class ChemicalRequisitionServiceImpl implements ChemicalRequisitionServic
             }
         }
 
-        int total = available + locked;
-        Integer oldAvailable = stock.getAvailableQuantity() == null ? 0 : stock.getAvailableQuantity();
-        Integer oldLocked = stock.getLockedQuantity() == null ? 0 : stock.getLockedQuantity();
-        Integer oldTotal = stock.getTotalQuantity() == null ? 0 : stock.getTotalQuantity();
-        Integer oldBucket = stock.getBucketCount() == null ? 0 : stock.getBucketCount();
+        double total = available + locked;
+        Double oldAvailable = stock.getAvailableQuantity() == null ? 0.0 : stock.getAvailableQuantity();
+        Double oldLocked = stock.getLockedQuantity() == null ? 0.0 : stock.getLockedQuantity();
+        Double oldTotal = stock.getTotalQuantity() == null ? 0.0 : stock.getTotalQuantity();
+        Double oldBucket = stock.getBucketCount() == null ? 0.0 : stock.getBucketCount();
 
         // 单一口径：主表仅由明细实时重算，不使用任何兜底值
-        int effectiveAvailable = available;
+        double effectiveAvailable = available;
 
-        boolean changed = oldAvailable != effectiveAvailable || oldLocked != locked || oldTotal != total || oldBucket != total;
+        boolean changed = (oldAvailable == null || Math.abs(oldAvailable - effectiveAvailable) > 0.0001)
+                || (oldLocked == null || Math.abs(oldLocked - locked) > 0.0001)
+                || (oldTotal == null || Math.abs(oldTotal - total) > 0.0001)
+                || (oldBucket == null || Math.abs(oldBucket - total) > 0.0001);
+
         if (changed) {
             stock.setAvailableQuantity(effectiveAvailable);
             stock.setLockedQuantity(locked);
@@ -1255,10 +1259,10 @@ public class ChemicalRequisitionServiceImpl implements ChemicalRequisitionServic
             if (weightCount > 0) {
                 stock.setUnitWeight(weightSum.divide(BigDecimal.valueOf(weightCount), 3, RoundingMode.HALF_UP));
             }
-            Integer safety = stock.getSafetyStock() == null ? 0 : stock.getSafetyStock();
-            if (effectiveAvailable <= 0) {
+            Double safety = stock.getSafetyStock() == null ? 0.0 : stock.getSafetyStock();
+            if (effectiveAvailable <= 0.0001) {
                 stock.setStatus("out_of_stock");
-            } else if (safety > 0 && effectiveAvailable < safety) {
+            } else if (safety > 0.0001 && effectiveAvailable < safety) {
                 stock.setStatus("low_stock");
             } else {
                 stock.setStatus("active");
@@ -1267,7 +1271,7 @@ public class ChemicalRequisitionServiceImpl implements ChemicalRequisitionServic
             chemicalStockMapper.updateById(stock);
         }
 
-        int finalAvailable = effectiveAvailable;
+        double finalAvailable = effectiveAvailable;
         if (cache != null) {
             cache.put(stockId, finalAvailable);
         }
@@ -1297,7 +1301,7 @@ public class ChemicalRequisitionServiceImpl implements ChemicalRequisitionServic
                     continue;
                 }
 
-                int lockedQty = old.getLockedQty() == null ? 0 : old.getLockedQty();
+                double lockedQty = old.getLockedQty() == null ? 0.0 : old.getLockedQty();
                 if (lockedQty > 0 && old.getChemicalStockId() != null) {
                     chemicalStockMapper.unlockStock(old.getChemicalStockId(), lockedQty);
                 }
@@ -1345,13 +1349,13 @@ public class ChemicalRequisitionServiceImpl implements ChemicalRequisitionServic
         return need.setScale(3, RoundingMode.HALF_UP);
     }
 
-    private int convertKgToQty(BigDecimal needKg, ChemicalStock stock) {
+    private double convertKgToQty(BigDecimal needKg, ChemicalStock stock) {
         if (needKg == null || needKg.compareTo(BigDecimal.ZERO) <= 0) {
-            return 0;
+            return 0.0;
         }
         BigDecimal unitWeight = (stock == null || stock.getUnitWeight() == null || stock.getUnitWeight().compareTo(BigDecimal.ZERO) <= 0)
                 ? BigDecimal.ONE : stock.getUnitWeight();
-        return needKg.divide(unitWeight, 0, RoundingMode.CEILING).intValue();
+        return needKg.divide(unitWeight, 4, RoundingMode.HALF_UP).doubleValue();
     }
 
     /**

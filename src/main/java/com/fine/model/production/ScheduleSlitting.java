@@ -92,10 +92,10 @@ public class ScheduleSlitting {
     private Integer cutsPerSlit;
     
     /** 计划卷数 */
-    private Integer planRolls;
+    private Double planRolls;
     
     /** 实际卷数 */
-    private Integer actualRolls;
+    private Double actualRolls;
     
     /** 边料损耗(mm) */
     private Integer edgeLoss;

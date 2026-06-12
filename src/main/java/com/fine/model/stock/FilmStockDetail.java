@@ -31,9 +31,9 @@ public class FilmStockDetail {
     @TableField("pack_uom")
     private String packUom;
 
-    /** 当前包装数量（整数） */
+    /** 当前包装数量（支持小数） */
     @TableField("pack_count")
-    private Integer packCount;
+    private Double packCount;
 
     /** 标准单位：m/㎡ */
     @TableField("std_uom")

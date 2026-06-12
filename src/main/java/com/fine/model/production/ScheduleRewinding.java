@@ -71,10 +71,10 @@ public class ScheduleRewinding {
     private Integer slitLength;
     
     /** 计划卷数 */
-    private Integer planRolls;
+    private Double planRolls;
     
     /** 实际卷数 */
-    private Integer actualRolls;
+    private Double actualRolls;
     
     // ========== 工艺参数 ==========
     

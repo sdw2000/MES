@@ -217,7 +217,7 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         }
     }
 
-    private void ensureOrderDetailScheduleQuota(Long orderDetailId, Integer requestQty) {
+    private void ensureOrderDetailScheduleQuota(Long orderDetailId, Double requestQty) {
         if (orderDetailId == null) {
             throw new RuntimeException("orderDetailId 不能为空");
         }
@@ -287,7 +287,7 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
             throw new RuntimeException("成品待出库区已有可用分切库存，净需求为0，禁止重复分切排程");
         }
 
-        int req = schedule.getScheduleQty() == null ? 0 : schedule.getScheduleQty();
+        int req = schedule.getScheduleQty() == null ? 0 : schedule.getScheduleQty().intValue();
         if (req <= 0) {
             throw new RuntimeException("分切排程数量必须大于0");
         }
@@ -366,7 +366,7 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
     }
     
     @Override
-    public Map<String, Object> matchStock(String materialCode, Integer width, Integer thickness, Integer requiredQty, Boolean includeReturnWarehouse) {
+    public Map<String, Object> matchStock(String materialCode, Integer width, Integer thickness, Double requiredQty, Boolean includeReturnWarehouse) {
         // 查询可用库存（先进先出排序）
         List<Map<String, Object>> stockList = scheduleMapper.selectAvailableStock(materialCode, width, thickness, includeReturnWarehouse);
         
@@ -374,8 +374,8 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         result.put("stockList", stockList);
         
         // 计算总可用卷数与面积
-        int totalAvailableRolls = stockList.stream()
-            .mapToInt(s -> ((Number) s.get("available_rolls")).intValue())
+        double totalAvailableRolls = stockList.stream()
+            .mapToDouble(s -> ((Number) s.get("available_rolls")).doubleValue())
             .sum();
         double totalAvailableArea = stockList.stream()
             .mapToDouble(s -> ((Number) s.get("available_area")).doubleValue())
@@ -385,8 +385,8 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         result.put("totalAvailableRolls", totalAvailableRolls);
         result.put("totalAvailableArea", totalAvailableArea);
         result.put("requiredQty", requiredQty);
-        result.put("isSufficient", totalAvailableRolls >= requiredQty);
-        result.put("shortage", Math.max(0, requiredQty - totalAvailableRolls));
+        result.put("isSufficient", totalAvailableRolls >= (requiredQty == null ? 0 : requiredQty));
+        result.put("shortage", Math.max(0, (requiredQty == null ? 0 : requiredQty) - totalAvailableRolls));
         return result;
     }
 
@@ -1052,7 +1052,7 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
                 ? reportLengthM
                 : (item != null && item.getLength() != null ? item.getLength().intValue() : null);
 
-        int rolls = 0;
+        Double rolls = 0.0;
         if ("COATING".equals(processType) || "REWINDING".equals(processType)) {
             List<Map<String, Object>> validRolls = producedRolls == null
                     ? Collections.emptyList()
@@ -1102,7 +1102,7 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
                     inboundRequest.setThickness(finalThickness);
                     inboundRequest.setWidth(finalWidth);
                     inboundRequest.setLength(finalLength);
-                    inboundRequest.setRolls(1);
+                    inboundRequest.setRolls(BigDecimal.ONE);
                     inboundRequest.setLocation("待上架");
                     inboundRequest.setApplicant((operatorName == null || operatorName.trim().isEmpty()) ? "system" : operatorName);
                     inboundRequest.setApplyDept("生产部");
@@ -1122,8 +1122,8 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
                 return;
             }
         } else {
-            int qty = producedQty == null ? 0 : producedQty.setScale(0, java.math.RoundingMode.HALF_UP).intValue();
-            rolls = Math.max(qty, 0);
+            Double qty = producedQty == null ? 0.0 : producedQty.doubleValue();
+            rolls = Math.max(qty, 0.0);
         }
 
         if (rolls <= 0) {
@@ -1162,7 +1162,7 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         inboundRequest.setThickness(thickness);
         inboundRequest.setWidth(width);
         inboundRequest.setLength(length);
-        inboundRequest.setRolls(rolls);
+        inboundRequest.setRolls(BigDecimal.valueOf(Math.max(0, rolls.intValue())));
         inboundRequest.setLocation("待上架");
         inboundRequest.setApplicant((operatorName == null || operatorName.trim().isEmpty()) ? "system" : operatorName);
         inboundRequest.setApplyDept("生产部");
@@ -1834,7 +1834,27 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
 
         SalesOrderItem item = salesOrderItemMapper.selectById(orderDetailId);
         if (item == null) {
-            throw new RuntimeException("订单明细不存在");
+            // 尝试从样板明细中查询
+            SampleItem sampleItem = sampleItemMapper.selectById(orderDetailId);
+            if (sampleItem != null) {
+                ManualSchedule adhoc = new ManualSchedule();
+                adhoc.setOrderDetailId(orderDetailId);
+                adhoc.setOrderNo(sampleItem.getSampleNo());
+                adhoc.setMaterialCode(sampleItem.getMaterialCode());
+                adhoc.setMaterialName(sampleItem.getMaterialName());
+                adhoc.setScheduleQty(sampleItem.getQuantity() != null ? sampleItem.getQuantity().doubleValue() : 0.0);
+                adhoc.setShortageQty(0.0);
+                adhoc.setScheduleType("COATING".equals(processType) ? "COATING" : "STOCK");
+                adhoc.setStatus("COATING".equals(processType) ? "COATING_SCHEDULED" : "REWINDING_SCHEDULED");
+                adhoc.setRemark(SAMPLE_TASK_MARKER + "sampleNo=" + sampleItem.getSampleNo() + ",sampleItemId=" + sampleItem.getId());
+                Long newId = createSchedule(adhoc);
+                ManualSchedule created = this.getById(newId);
+                if (created == null) {
+                    throw new RuntimeException("创建样板直报排程失败");
+                }
+                return created;
+            }
+            throw new RuntimeException("订单/样板明细不存在");
         }
         ensureOrderDetailSchedulable(orderDetailId);
 
@@ -1843,7 +1863,7 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         adhoc.setOrderDetailId(orderDetailId);
         adhoc.setOrderNo(order == null ? null : order.getOrderNo());
         adhoc.setScheduleQty(item.getRolls() == null ? 0 : item.getRolls());
-        adhoc.setShortageQty(0);
+        adhoc.setShortageQty(0.0);
         adhoc.setScheduleType("COATING".equals(processType) ? "COATING" : "STOCK");
         adhoc.setStatus("COATING".equals(processType) ? "COATING_SCHEDULED" : "REWINDING_SCHEDULED");
         Long newId = createSchedule(adhoc);
@@ -1871,10 +1891,10 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         boolean completedByRemark = hasManualCompletedMarker(orderDetailId);
         boolean completed = completedByRemark || (orderQty.compareTo(BigDecimal.ZERO) > 0 && completedQty.compareTo(orderQty) >= 0);
 
-        int rolls = item.getRolls() == null ? 0 : Math.max(item.getRolls(), 0);
-        int deliveredRolls = completedQty.setScale(0, RoundingMode.HALF_UP).intValue();
+        Double rolls = item.getRolls() == null ? 0.0 : Math.max(item.getRolls(), 0.0);
+        Double deliveredRolls = completedQty.doubleValue();
         if (deliveredRolls < 0) {
-            deliveredRolls = 0;
+            deliveredRolls = 0.0;
         }
         if (deliveredRolls > rolls) {
             deliveredRolls = rolls;
@@ -1882,7 +1902,7 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         if (completedByRemark && rolls > 0) {
             deliveredRolls = rolls;
         }
-        int remainingRolls = Math.max(rolls - deliveredRolls, 0);
+        Double remainingRolls = Math.max(rolls - deliveredRolls, 0.0);
 
         BigDecimal singleArea = BigDecimal.ZERO;
         if (item.getWidth() != null && item.getLength() != null) {
@@ -3084,19 +3104,19 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         }
 
         int total = available + locked;
-        stock.setAvailableQuantity(available);
-        stock.setLockedQuantity(locked);
-        stock.setTotalQuantity(total);
-        stock.setAvailablePackCount(available);
-        stock.setLockedPackCount(locked);
-        stock.setTotalPackCount(total);
-        stock.setBucketCount(total);
+        stock.setAvailableQuantity((double) available);
+        stock.setLockedQuantity((double) locked);
+        stock.setTotalQuantity((double) total);
+        stock.setAvailablePackCount((double) available);
+        stock.setLockedPackCount((double) locked);
+        stock.setTotalPackCount((double) total);
+        stock.setBucketCount((double) total);
 
         if (weightCount > 0) {
             stock.setUnitWeight(weightSum.divide(BigDecimal.valueOf(weightCount), 2, RoundingMode.HALF_UP));
         }
 
-        Integer safety = stock.getSafetyStock() == null ? 0 : stock.getSafetyStock();
+        Double safety = stock.getSafetyStock() == null ? 0.0 : stock.getSafetyStock();
         if (available <= 0) {
             stock.setStatus("out_of_stock");
         } else if (safety > 0 && available < safety) {
@@ -3286,7 +3306,7 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
             finalSpeed = BigDecimal.ZERO;
         }
 
-        Integer durationMinutes = calcDurationMinutesByRolls(schedule.getScheduleQty(), finalSpeed);
+        Integer durationMinutes = calcDurationMinutesByRolls(schedule.getScheduleQty() == null ? null : schedule.getScheduleQty().intValue(), finalSpeed);
         if (durationMinutes <= 0 && !looseMode) {
             throw new RuntimeException("分切卷数或分切速度无效，无法计算机台占用时长");
         }
@@ -3523,12 +3543,20 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
                 : schedule.getScheduleType().trim().toUpperCase(Locale.ROOT);
 
         if (schedule.getOrderDetailId() != null) {
-            ensureOrderDetailSchedulable(schedule.getOrderDetailId());
+            // 只有普通订单明细（非样板单）才需要校验排程资格
+            if (schedule.getRemark() == null || !schedule.getRemark().contains(SAMPLE_TASK_MARKER)) {
+                ensureOrderDetailSchedulable(schedule.getOrderDetailId());
+            }
         } else {
             if (!"COATING".equals(normalizedScheduleType)) {
-                throw new RuntimeException("缺少订单明细，仅支持创建涂布手工排程");
+                // 如果是样板任务的领料/复卷/分切，remark 会包含标记，允许跳过此检查
+                if (schedule.getRemark() == null || !schedule.getRemark().contains(SAMPLE_TASK_MARKER)) {
+                    throw new RuntimeException("缺少订单明细，仅支持创建涂布手工排程");
+                }
             }
-            schedule.setOrderNo(nextManualCoatingOrderNo());
+            if (schedule.getOrderNo() == null || schedule.getOrderNo().trim().isEmpty()) {
+                schedule.setOrderNo(nextManualCoatingOrderNo());
+            }
         }
 
         if (schedule.getMaterialCode() != null) {
@@ -4786,7 +4814,7 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
             finalSpeed = BigDecimal.ZERO;
         }
 
-        Integer durationMinutes = calcDurationMinutesByRolls(schedule.getScheduleQty(), finalSpeed);
+        Integer durationMinutes = calcDurationMinutesByRolls(schedule.getScheduleQty() == null ? null : schedule.getScheduleQty().intValue(), finalSpeed);
         if (durationMinutes == null || (durationMinutes <= 0 && !looseMode)) {
             throw new RuntimeException("分切卷数或分切速度无效，无法计算机台占用时长");
         }
@@ -5310,9 +5338,9 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
             ensureOrderDetailSchedulable(targetOrderDetailId);
         }
 
-        Integer effectiveScheduleQty = targetSchedule != null ? targetSchedule.getScheduleQty() : null;
+        Double effectiveScheduleQty = targetSchedule != null ? targetSchedule.getScheduleQty() : null;
         if (effectiveScheduleQty == null || effectiveScheduleQty <= 0) {
-            effectiveScheduleQty = scheduleQty;
+            effectiveScheduleQty = scheduleQty == null ? null : scheduleQty.doubleValue();
         }
         if (effectiveScheduleQty == null || effectiveScheduleQty <= 0) {
             throw new RuntimeException("排程数量无效，请先在排程记录中设置有效数量");
@@ -5394,7 +5422,7 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
             throw new RuntimeException("已完成排程不能终止");
         }
 
-        Integer totalQty = schedule.getScheduleQty() == null ? 0 : schedule.getScheduleQty();
+        int totalQty = schedule.getScheduleQty() == null ? 0 : schedule.getScheduleQty().intValue();
         if (totalQty <= 0) {
             schedule.setStatus("TERMINATED");
             schedule.setRemark(appendReason(schedule.getRemark(), "终止排程", reason, operator));
@@ -5409,7 +5437,7 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         }
 
         // 保留已开工部分，终止剩余部分
-        schedule.setScheduleQty(Math.max(producedQty, 0));
+        schedule.setScheduleQty((double) Math.max(producedQty, 0));
         if (schedule.getCoatingArea() != null && totalQty > 0) {
             BigDecimal newArea = schedule.getCoatingArea()
                     .multiply(BigDecimal.valueOf(schedule.getScheduleQty()))
@@ -5441,7 +5469,7 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
             throw new RuntimeException("已完成排程不能减量");
         }
 
-        int totalQty = schedule.getScheduleQty() == null ? 0 : schedule.getScheduleQty();
+        int totalQty = schedule.getScheduleQty() == null ? 0 : schedule.getScheduleQty().intValue();
         int producedQty = estimateProducedQty(schedule);
         int canReduceQty = Math.max(totalQty - producedQty, 0);
         if (reduceQty > canReduceQty) {
@@ -5456,7 +5484,7 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         }
 
         int newQty = totalQty - reduceQty;
-        schedule.setScheduleQty(Math.max(newQty, 0));
+        schedule.setScheduleQty((double) Math.max(newQty, 0));
         if (schedule.getCoatingArea() != null && totalQty > 0) {
             BigDecimal newArea = schedule.getCoatingArea()
                     .multiply(BigDecimal.valueOf(schedule.getScheduleQty()))
@@ -5471,7 +5499,7 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
     }
 
     private int estimateProducedQty(ManualSchedule schedule) {
-        int totalQty = schedule.getScheduleQty() == null ? 0 : schedule.getScheduleQty();
+        int totalQty = schedule.getScheduleQty() == null ? 0 : schedule.getScheduleQty().intValue();
         if (totalQty <= 0) {
             return 0;
         }
@@ -6258,7 +6286,7 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         }
 
         if (schedule.getOrderDetailId() != null) {
-            int rollbackQty = Math.max(schedule.getScheduleQty() == null ? 0 : schedule.getScheduleQty(), 0);
+            int rollbackQty = Math.max(schedule.getScheduleQty() == null ? 0 : schedule.getScheduleQty().intValue(), 0);
             if (rollbackQty > 0) {
                 scheduleMapper.rollbackScheduledQtyByDetailId(schedule.getOrderDetailId(), BigDecimal.valueOf(rollbackQty));
             }

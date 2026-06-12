@@ -28,6 +28,12 @@ public class SalesOrderItemController {
     private SalesOrderItemMapper salesOrderItemMapper;
 
     @Autowired
+    private com.fine.Dao.SampleOrderMapper sampleOrderMapper;
+
+    @Autowired
+    private com.fine.Dao.SampleItemMapper sampleItemMapper;
+
+    @Autowired
     private SalesOrderService salesOrderService;
 
     /**
@@ -64,9 +70,32 @@ public class SalesOrderItemController {
         if (detailId == null || detailId <= 0) {
             return ResponseResult.error(400, "detailId无效");
         }
+        
         Map<String, Object> raw = salesOrderItemMapper.selectFullItemById(detailId);
         if (raw == null || raw.isEmpty()) {
-            return ResponseResult.error(404, "未找到对应订单明细");
+            // 尝试在样板明细中寻找
+            com.fine.modle.SampleItem sample = sampleItemMapper.selectById(detailId);
+            if (sample != null) {
+                Map<String, Object> result = new HashMap<>();
+                result.put("orderDetailId", detailId);
+                result.put("orderNo", sample.getSampleNo());
+                result.put("materialCode", sample.getMaterialCode());
+                result.put("materialName", sample.getMaterialName());
+                result.put("thickness", sample.getThickness());
+                result.put("width", sample.getWidth());
+                result.put("length", sample.getLength());
+                result.put("rolls", sample.getQuantity());
+                // 平方数自动计算
+                if (sample.getWidth() != null && sample.getLength() != null && sample.getQuantity() != null) {
+                    java.math.BigDecimal sqm = sample.getWidth().multiply(sample.getLength()).multiply(new java.math.BigDecimal(sample.getQuantity()))
+                            .divide(new java.math.BigDecimal(1000000), 2, java.math.BigDecimal.ROUND_HALF_UP);
+                    result.put("sqm", sqm);
+                } else {
+                    result.put("sqm", 0);
+                }
+                return ResponseResult.success(result);
+            }
+            return ResponseResult.error(404, "未找到对应订单或样板明细");
         }
 
         Map<String, Object> result = new HashMap<>();

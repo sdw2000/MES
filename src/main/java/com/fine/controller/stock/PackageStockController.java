@@ -356,12 +356,12 @@ public class PackageStockController {
         BigDecimal total = BigDecimal.ZERO;
         BigDecimal available = BigDecimal.ZERO;
         BigDecimal locked = BigDecimal.ZERO;
-        int totalPack = 0;
-        int availablePack = 0;
-        int lockedPack = 0;
+        double totalPack = 0;
+        double availablePack = 0;
+        double lockedPack = 0;
         for (PackageStockDetail detail : details) {
             BigDecimal qty = detail.getQuantity() == null ? BigDecimal.ZERO : detail.getQuantity();
-            int packCount = detail.getPackCount() == null ? 0 : detail.getPackCount();
+            double packCount = detail.getPackCount() == null ? 0.0 : detail.getPackCount();
             if (!"used".equalsIgnoreCase(detail.getStatus())) {
                 total = total.add(qty);
                 totalPack += packCount;
@@ -374,9 +374,9 @@ public class PackageStockController {
                 availablePack += packCount;
             }
         }
-        stock.setTotalQuantity(total.setScale(0, BigDecimal.ROUND_HALF_UP).intValue());
-        stock.setAvailableQuantity(available.setScale(0, BigDecimal.ROUND_HALF_UP).intValue());
-        stock.setLockedQuantity(locked.setScale(0, BigDecimal.ROUND_HALF_UP).intValue());
+        stock.setTotalQuantity(total.doubleValue());
+        stock.setAvailableQuantity(available.doubleValue());
+        stock.setLockedQuantity(locked.doubleValue());
         stock.setTotalPackCount(totalPack);
         stock.setAvailablePackCount(availablePack);
         stock.setLockedPackCount(lockedPack);

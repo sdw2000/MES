@@ -105,9 +105,38 @@ public interface PurchaseOrderMapper extends BaseMapper<PurchaseOrder> {
     int logicDeleteByOrderNo(@Param("orderNo") String orderNo,
                              @Param("updatedBy") String updatedBy);
 
-        @Select("SELECT order_no FROM purchase_orders WHERE order_no LIKE CONCAT(#{prefix}, '%') ORDER BY order_no DESC LIMIT 1")
-        String selectLastOrderNoByPrefix(@Param("prefix") String prefix);
+    @Select("SELECT order_no FROM purchase_orders WHERE order_no LIKE CONCAT(#{prefix}, '%') ORDER BY order_no DESC LIMIT 1")
+    String selectLastOrderNoByPrefix(@Param("prefix") String prefix);
 
-        @Select("SELECT COUNT(1) FROM purchase_orders WHERE order_no = #{orderNo}")
-        int countByOrderNo(@Param("orderNo") String orderNo);
+    @Select("SELECT COUNT(1) FROM purchase_orders WHERE order_no = #{orderNo}")
+    int countByOrderNo(@Param("orderNo") String orderNo);
+
+    /**
+     * 获取对账数据汇总记录（改进点7：性能优化）
+     * 通过 SQL 聚合减少 Java 循环和多次单表查询
+     */
+    @Select("SELECT " +
+            "  -1 AS id, " +
+            "  poi.material_code AS materialCode, " +
+            "  MAX(poi.material_name) AS materialName, " +
+            "  MAX(poi.purchase_uom_code) AS purchaseUomCode, " +
+            "  MAX(poi.price_uom_code) AS priceUomCode, " +
+            "  SUM(COALESCE(poi.price_qty, poi.stock_qty, 0)) AS orderQty, " +
+            "  SUM(COALESCE(poi.amount, 0)) AS orderAmount, " +
+            "  IFNULL(SUM(ri.receiptQty), 0) AS receiptQty, " +
+            "  IFNULL(SUM(ri.receiptAmount), 0) AS receiptAmount " +
+            "FROM purchase_order_items poi " +
+            "JOIN purchase_orders po ON poi.order_id = po.id " +
+            "LEFT JOIN (" +
+            "  SELECT pri.material_code, " +
+            "         SUM(COALESCE(pri.price_qty, pri.stock_qty, 0)) AS receiptQty, " +
+            "         SUM(COALESCE(pri.amount, 0)) AS receiptAmount " +
+            "  FROM purchase_receipt_items pri " +
+            "  JOIN purchase_receipts pr ON pri.receipt_id = pr.id " +
+            "  WHERE pr.purchase_order_no = #{orderNo} AND pr.is_deleted = 0 AND pri.is_deleted = 0 " +
+            "  GROUP BY pri.material_code " +
+            ") ri ON poi.material_code = ri.material_code " +
+            "WHERE po.order_no = #{orderNo} AND po.is_deleted = 0 AND poi.is_deleted = 0 " +
+            "GROUP BY poi.material_code")
+    List<java.util.Map<String, Object>> selectReconciliationAggregate(@Param("orderNo") String orderNo);
 }

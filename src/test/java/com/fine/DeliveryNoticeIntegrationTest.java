@@ -74,7 +74,7 @@ public class DeliveryNoticeIntegrationTest {
         item1.setId(2001L);
         item1.setOrderId(orderId);
         item1.setMaterialCode("MAT001");
-        item1.setRolls(100); // 100 rolls total
+        item1.setRolls(100.0); // 100 rolls total
         
         List<SalesOrderItem> orderItems = new ArrayList<>();
         orderItems.add(item1);
@@ -90,7 +90,7 @@ public class DeliveryNoticeIntegrationTest {
         when(salesOrderItemMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(orderItems);
         when(deliveryNoticeItemMapper.getShippedQuantityByOrderItemId(item1.getId())).thenReturn(0);
 
-        ResponseResult<?> orderResultAfterShip = salesOrderService.getAllOrders(1, 10, null, null, null, null, null, null, null, null, null, null, null, null);
+        ResponseResult<?> orderResult = salesOrderService.getAllOrders(1, 10, null, null, null, null, null, null, null, null, null, null);
         IPage<SalesOrder> pageInfo = (IPage<SalesOrder>) orderResult.getData();
         List<SalesOrder> orders = pageInfo.getRecords();
         assertNotNull(orders);
@@ -103,7 +103,7 @@ public class DeliveryNoticeIntegrationTest {
         
         DeliveryNoticeItem noticeItem = new DeliveryNoticeItem();
         noticeItem.setOrderItemId(item1.getId());
-        noticeItem.setQuantity(40); // Shipping 40 rolls
+        noticeItem.setQuantity(40.0); // Shipping 40 rolls
         
         List<DeliveryNoticeItem> noticeItems = new ArrayList<>();
         noticeItems.add(noticeItem);
@@ -118,7 +118,7 @@ public class DeliveryNoticeIntegrationTest {
 
         when(deliveryNoticeItemMapper.getShippedQuantityByOrderItemId(item1.getId())).thenReturn(40);
         
-        ResponseResult<?> orderResultAfterShip = salesOrderService.getAllOrders(1, 10, null, null, null, null, null, null, null, null, null, null, null, null);
+        ResponseResult<?> orderResultAfterShip = salesOrderService.getAllOrders(1, 10, null, null, null, null, null, null, null, null, null, null);
         IPage<SalesOrder> pageInfoAfter = (IPage<SalesOrder>) orderResultAfterShip.getData();
         assertNotNull(pageInfoAfter);
         

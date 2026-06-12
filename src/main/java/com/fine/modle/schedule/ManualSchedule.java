@@ -30,10 +30,10 @@ public class ManualSchedule {
     private Long orderDetailId;
     
     /** 排程数量（卷） */
-    private Integer scheduleQty;
+    private Double scheduleQty;
     
     /** 缺口数量（卷） */
-    private Integer shortageQty;
+    private Double shortageQty;
     
     /** 涂布面积㎡ */
     private BigDecimal coatingArea;

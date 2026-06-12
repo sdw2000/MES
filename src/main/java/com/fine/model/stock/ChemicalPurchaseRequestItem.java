@@ -31,13 +31,13 @@ public class ChemicalPurchaseRequestItem {
     private BigDecimal requiredKg;
 
     /** 建议请购数量（单位桶/包） */
-    private Integer suggestedQty;
+    private Double suggestedQty;
 
     /** 仓库确认请购数量（可编辑） */
-    private Integer requestedQty;
+    private Double requestedQty;
 
     /** 累计实收数量 */
-    private Integer receivedQty;
+    private Double receivedQty;
 
     private String unit;
 

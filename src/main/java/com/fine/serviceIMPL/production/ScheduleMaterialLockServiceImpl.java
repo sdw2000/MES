@@ -162,7 +162,7 @@ public class ScheduleMaterialLockServiceImpl extends ServiceImpl<ScheduleMateria
                     soi.setLength(s.getLength());
                     soi.setWidth(s.getWidth());
                     soi.setThickness(s.getThickness());
-                    soi.setOrderQty(s.getRolls() != null ? s.getRolls() : 0);
+                    soi.setOrderQty(s.getRolls() != null ? s.getRolls().intValue() : 0);
                     orderItems.add(soi);
                 }
             }

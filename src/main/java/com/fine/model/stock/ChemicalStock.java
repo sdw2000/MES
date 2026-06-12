@@ -37,28 +37,28 @@ public class ChemicalStock {
     private BigDecimal unitWeight;
     
     /** 总数量 */
-    private Integer totalQuantity;
+    private Double totalQuantity;
     
     /** 可用数量 */
-    private Integer availableQuantity;
+    private Double availableQuantity;
 
     /** 可用包装数 */
     @TableField("available_pack_count")
-    private Integer availablePackCount;
+    private Double availablePackCount;
     
     /** 锁定数量 */
-    private Integer lockedQuantity;
+    private Double lockedQuantity;
 
     /** 锁定包装数 */
     @TableField("locked_pack_count")
-    private Integer lockedPackCount;
+    private Double lockedPackCount;
     
     /** 安全库存 */
-    private Integer safetyStock;
+    private Double safetyStock;
 
     /** 总包装数 */
     @TableField("total_pack_count")
-    private Integer totalPackCount;
+    private Double totalPackCount;
     
     /** 状态：active-正常，low_stock-库存不足，out_of_stock-缺货 */
     private String status;
@@ -82,5 +82,5 @@ public class ChemicalStock {
 
     /** 桶数（按导入原值持久化） */
     @TableField("bucket_count")
-    private Integer bucketCount;
+    private Double bucketCount;
 }

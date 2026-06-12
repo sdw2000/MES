@@ -520,9 +520,9 @@ public class PurchaseOrderServiceImpl extends ServiceImpl<PurchaseOrderMapper, P
         receiptItem.setStockQty(orderItem.getStockQty() != null ? orderItem.getStockQty() : orderItem.getSqm());
         receiptItem.setStockUomCode(orderItem.getStockUomCode());
         receiptItem.setConversionRate(orderItem.getConversionRate());
-        receiptItem.setExpectedQty(toIntValue(orderItem.getPurchaseQty()));
+        receiptItem.setExpectedQty(orderItem.getPurchaseQty());
         if (receipt != null && "planned".equalsIgnoreCase(receipt.getStatus())) {
-            receiptItem.setReceivedQty(toIntValue(orderItem.getPurchaseQty()));
+            receiptItem.setReceivedQty(orderItem.getPurchaseQty());
         }
         receiptItem.setUnit(resolveDisplayUnit(orderItem));
         receiptItem.setUnitPrice(orderItem.getUnitPrice());
@@ -720,71 +720,26 @@ public class PurchaseOrderServiceImpl extends ServiceImpl<PurchaseOrderMapper, P
             if (order == null) {
                 return new ResponseResult<>(404, "采购订单不存在");
             }
-            LambdaQueryWrapper<PurchaseOrderItem> orderItemQuery = new LambdaQueryWrapper<>();
-            orderItemQuery.eq(PurchaseOrderItem::getOrderId, order.getId())
-                    .eq(PurchaseOrderItem::getIsDeleted, 0);
-            List<PurchaseOrderItem> orderItems = purchaseOrderItemMapper.selectList(orderItemQuery);
-            normalizeItems(orderItems);
 
-            LambdaQueryWrapper<PurchaseReceipt> receiptQuery = new LambdaQueryWrapper<>();
-            receiptQuery.eq(PurchaseReceipt::getPurchaseOrderNo, orderNo)
-                    .eq(PurchaseReceipt::getIsDeleted, 0);
-            List<PurchaseReceipt> receipts = purchaseReceiptMapper.selectList(receiptQuery);
+            // 使用聚合查询优化性能 (改进点7)
+            List<Map<String, Object>> aggregateLines = purchaseOrderMapper.selectReconciliationAggregate(orderNo);
+            
+            BigDecimal totalOrderAmount = BigDecimal.ZERO;
+            BigDecimal totalReceiptAmount = BigDecimal.ZERO;
+            BigDecimal totalOrderQty = BigDecimal.ZERO;
+            BigDecimal totalReceiptQty = BigDecimal.ZERO;
 
-            BigDecimal orderAmount = BigDecimal.ZERO;
-            BigDecimal receiptAmount = BigDecimal.ZERO;
-            BigDecimal orderQty = BigDecimal.ZERO;
-            BigDecimal receiptQty = BigDecimal.ZERO;
+            for (Map<String, Object> line : aggregateLines) {
+                BigDecimal oq = convertToBigDecimal(line.get("orderQty"));
+                BigDecimal rq = convertToBigDecimal(line.get("receiptQty"));
+                BigDecimal oa = convertToBigDecimal(line.get("orderAmount"));
+                BigDecimal ra = convertToBigDecimal(line.get("receiptAmount"));
+                
+                totalOrderQty = totalOrderQty.add(oq);
+                totalReceiptQty = totalReceiptQty.add(rq);
+                totalOrderAmount = totalOrderAmount.add(oa);
+                totalReceiptAmount = totalReceiptAmount.add(ra);
 
-            Map<String, Map<String, Object>> lineMap = new HashMap<>();
-
-            if (orderItems != null) {
-                for (PurchaseOrderItem item : orderItems) {
-                    BigDecimal qty = item.getPriceQty() != null ? item.getPriceQty() : item.getStockQty();
-                    BigDecimal amount = item.getAmount() != null ? item.getAmount() : BigDecimal.ZERO;
-                    orderAmount = orderAmount.add(amount);
-                    if (qty != null) {
-                        orderQty = orderQty.add(qty);
-                    }
-                    String key = String.valueOf(item.getMaterialCode() == null ? item.getId() : item.getMaterialCode());
-                    Map<String, Object> line = lineMap.computeIfAbsent(key, k -> new HashMap<>());
-                    line.put("materialCode", item.getMaterialCode());
-                    line.put("materialName", item.getMaterialName());
-                    line.put("purchaseUomCode", item.getPurchaseUomCode());
-                    line.put("priceUomCode", item.getPriceUomCode());
-                    line.put("orderQty", ((BigDecimal) line.getOrDefault("orderQty", BigDecimal.ZERO)).add(qty == null ? BigDecimal.ZERO : qty));
-                    line.put("orderAmount", ((BigDecimal) line.getOrDefault("orderAmount", BigDecimal.ZERO)).add(amount));
-                }
-            }
-
-            if (receipts != null) {
-                for (PurchaseReceipt receipt : receipts) {
-                    List<PurchaseReceiptItem> receiptItems = purchaseReceiptItemMapper.selectByReceiptId(receipt.getId());
-                    for (PurchaseReceiptItem item : receiptItems) {
-                        BigDecimal qty = item.getPriceQty() != null ? item.getPriceQty() : item.getStockQty();
-                        BigDecimal amount = item.getAmount() != null ? item.getAmount() : BigDecimal.ZERO;
-                        receiptAmount = receiptAmount.add(amount);
-                        if (qty != null) {
-                            receiptQty = receiptQty.add(qty);
-                        }
-                        String key = String.valueOf(item.getMaterialCode() == null ? item.getId() : item.getMaterialCode());
-                        Map<String, Object> line = lineMap.computeIfAbsent(key, k -> new HashMap<>());
-                        line.put("materialCode", item.getMaterialCode());
-                        line.put("materialName", item.getMaterialName());
-                        line.put("purchaseUomCode", item.getPurchaseUomCode());
-                        line.put("priceUomCode", item.getPriceUomCode());
-                        line.put("receiptQty", ((BigDecimal) line.getOrDefault("receiptQty", BigDecimal.ZERO)).add(qty == null ? BigDecimal.ZERO : qty));
-                        line.put("receiptAmount", ((BigDecimal) line.getOrDefault("receiptAmount", BigDecimal.ZERO)).add(amount));
-                    }
-                }
-            }
-
-            List<Map<String, Object>> lines = new java.util.ArrayList<>(lineMap.values());
-            for (Map<String, Object> line : lines) {
-                BigDecimal oq = (BigDecimal) line.getOrDefault("orderQty", BigDecimal.ZERO);
-                BigDecimal rq = (BigDecimal) line.getOrDefault("receiptQty", BigDecimal.ZERO);
-                BigDecimal oa = (BigDecimal) line.getOrDefault("orderAmount", BigDecimal.ZERO);
-                BigDecimal ra = (BigDecimal) line.getOrDefault("receiptAmount", BigDecimal.ZERO);
                 line.put("qtyDiff", oq.subtract(rq));
                 line.put("amountDiff", oa.subtract(ra));
                 line.put("reconciliationStatus", oq.compareTo(rq) == 0 ? "MATCHED" : (rq.compareTo(BigDecimal.ZERO) > 0 ? "PARTIAL" : "UNRECONCILED"));
@@ -792,19 +747,27 @@ public class PurchaseOrderServiceImpl extends ServiceImpl<PurchaseOrderMapper, P
 
             Map<String, Object> result = new HashMap<>();
             result.put("orderNo", orderNo);
-            result.put("orderAmount", orderAmount.setScale(2, BigDecimal.ROUND_HALF_UP));
-            result.put("receiptAmount", receiptAmount.setScale(2, BigDecimal.ROUND_HALF_UP));
-            result.put("amountDiff", orderAmount.subtract(receiptAmount).setScale(2, BigDecimal.ROUND_HALF_UP));
-            result.put("orderQty", orderQty.setScale(4, BigDecimal.ROUND_HALF_UP));
-            result.put("receiptQty", receiptQty.setScale(4, BigDecimal.ROUND_HALF_UP));
-            result.put("qtyDiff", orderQty.subtract(receiptQty).setScale(4, BigDecimal.ROUND_HALF_UP));
-            result.put("lineItems", lines);
-            result.put("reconciliationStatus", orderQty.compareTo(receiptQty) == 0 && orderAmount.compareTo(receiptAmount) == 0 ? "MATCHED" : "PARTIAL");
+            result.put("orderAmount", totalOrderAmount.setScale(2, BigDecimal.ROUND_HALF_UP));
+            result.put("receiptAmount", totalReceiptAmount.setScale(2, BigDecimal.ROUND_HALF_UP));
+            result.put("amountDiff", totalOrderAmount.subtract(totalReceiptAmount).setScale(2, BigDecimal.ROUND_HALF_UP));
+            result.put("orderQty", totalOrderQty.setScale(4, BigDecimal.ROUND_HALF_UP));
+            result.put("receiptQty", totalReceiptQty.setScale(4, BigDecimal.ROUND_HALF_UP));
+            result.put("qtyDiff", totalOrderQty.subtract(totalReceiptQty).setScale(4, BigDecimal.ROUND_HALF_UP));
+            result.put("lineItems", aggregateLines);
+            result.put("reconciliationStatus", totalOrderQty.compareTo(totalReceiptQty) == 0 && totalOrderAmount.compareTo(totalReceiptAmount) == 0 ? "MATCHED" : "PARTIAL");
+            
             return ResponseResult.success(result);
         } catch (Exception e) {
             e.printStackTrace();
             return new ResponseResult<>(500, "获取对账汇总失败: " + e.getMessage());
         }
+    }
+
+    private BigDecimal convertToBigDecimal(Object val) {
+        if (val == null) return BigDecimal.ZERO;
+        if (val instanceof BigDecimal) return (BigDecimal) val;
+        if (val instanceof Number) return new BigDecimal(((Number) val).toString());
+        return new BigDecimal(val.toString());
     }
 
     @Override

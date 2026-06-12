@@ -44,7 +44,7 @@ public interface DeliveryNoticeItemMapper extends BaseMapper<DeliveryNoticeItem>
     List<DeliveryNoticeItem> selectByNoticeIds(@Param("noticeIds") List<Long> noticeIds);
 
     @Select("SELECT IFNULL(SUM(quantity), 0) FROM delivery_notice_items WHERE order_item_id = #{orderItemId} AND EXISTS (SELECT 1 FROM delivery_notices WHERE id = delivery_notice_items.notice_id AND is_deleted = 0)")
-    Integer getShippedQuantityByOrderItemId(@Param("orderItemId") Long orderItemId);
+    Double getShippedQuantityByOrderItemId(@Param("orderItemId") Long orderItemId);
 
     @Select("SELECT IFNULL(SUM(dni.quantity), 0) " +
             "FROM delivery_notice_items dni " +
@@ -52,8 +52,8 @@ public interface DeliveryNoticeItemMapper extends BaseMapper<DeliveryNoticeItem>
             "WHERE dni.order_item_id = #{orderItemId} " +
             "  AND dn.is_deleted = 0 " +
             "  AND dn.status IN ('已发货', 'shipped', '已收货', 'received')")
-    Integer getConfirmedShippedQuantityByOrderItemId(@Param("orderItemId") Long orderItemId);
+    Double getConfirmedShippedQuantityByOrderItemId(@Param("orderItemId") Long orderItemId);
 
     @Select("SELECT IFNULL(SUM(quantity), 0) FROM delivery_notice_items WHERE notice_id = #{noticeId} AND order_item_id = #{orderItemId}")
-    Integer getNoticeItemQuantity(@Param("noticeId") Long noticeId, @Param("orderItemId") Long orderItemId);
+    Double getNoticeItemQuantity(@Param("noticeId") Long noticeId, @Param("orderItemId") Long orderItemId);
 }

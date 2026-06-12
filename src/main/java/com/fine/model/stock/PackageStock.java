@@ -33,28 +33,28 @@ public class PackageStock {
     private String unit;
 
     /** 总数量 */
-    private Integer totalQuantity;
+    private Double totalQuantity;
 
     /** 可用数量 */
-    private Integer availableQuantity;
+    private Double availableQuantity;
 
     /** 锁定数量 */
-    private Integer lockedQuantity;
+    private Double lockedQuantity;
 
     /** 总包装数 */
     @TableField("total_pack_count")
-    private Integer totalPackCount;
+    private Double totalPackCount;
 
     /** 可用包装数 */
     @TableField("available_pack_count")
-    private Integer availablePackCount;
+    private Double availablePackCount;
 
     /** 锁定包装数 */
     @TableField("locked_pack_count")
-    private Integer lockedPackCount;
+    private Double lockedPackCount;
 
     /** 安全库存 */
-    private Integer safetyStock;
+    private Double safetyStock;
 
     /** 状态：active/low_stock/out_of_stock */
     private String status;

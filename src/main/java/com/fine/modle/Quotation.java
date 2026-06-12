@@ -25,7 +25,7 @@ public class Quotation {
       @TableId(type = IdType.AUTO)
     private Long id;
     
-    // 报价单号（系统生成，格式：QT-YYMMDD-001）
+    // 报价单号（系统生成，格式：QT260611001）
     private String quotationNo;
     
     // 客户名称

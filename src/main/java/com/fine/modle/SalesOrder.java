@@ -131,27 +131,27 @@ public class SalesOrder {
 
     // 未发货卷数（不映射到数据库）
     @TableField(exist = false)
-    private Integer remainingRolls;
+    private Double remainingRolls;
 
     // 总卷数（不映射到数据库）
     @TableField(exist = false)
-    private Integer totalRolls;
+    private Double totalRolls;
 
     // 已发货卷数（不映射到数据库）
     @TableField(exist = false)
-    private Integer shippedRolls;
+    private Double shippedRolls;
 
     // RP口径：已报工卷数（不映射到数据库）
     @TableField(exist = false)
-    private Integer rpProducedRolls;
+    private Double rpProducedRolls;
 
     // RP口径：已发货卷数（不映射到数据库）
     @TableField(exist = false)
-    private Integer rpShippedRolls;
+    private Double rpShippedRolls;
 
     // RP口径：可发汇总卷数（不映射到数据库）
     @TableField(exist = false)
-    private Integer rpShippable;
+    private Double rpShippable;
 
     // 未出货面积（㎡）（不映射到数据库）
     @TableField(exist = false)

@@ -326,14 +326,14 @@ public class ChemicalStockController {
     public ResponseResult<Boolean> lockStock(@RequestBody Map<String, Object> payload) {
         try {
             Long chemicalStockId = toLong(payload.get("chemicalStockId"));
-            Integer lockQuantity = toInteger(payload.get("lockQuantity"));
+            Double lockQuantity = toDouble(payload.get("lockQuantity"));
             BigDecimal requiredStdQty = toBigDecimal(payload.get("requiredStdQty"));
             BigDecimal stdQtyPerPack = toBigDecimal(payload.get("stdQtyPerPack"));
             List<Long> detailIds = toLongList(payload.get("detailIds"));
 
             if ((lockQuantity == null || lockQuantity <= 0) && requiredStdQty != null && stdQtyPerPack != null
                     && requiredStdQty.compareTo(BigDecimal.ZERO) > 0 && stdQtyPerPack.compareTo(BigDecimal.ZERO) > 0) {
-                lockQuantity = requiredStdQty.divide(stdQtyPerPack, 0, BigDecimal.ROUND_CEILING).intValue();
+                lockQuantity = requiredStdQty.divide(stdQtyPerPack, 0, BigDecimal.ROUND_CEILING).doubleValue();
             }
 
             if (chemicalStockId == null) {
@@ -356,7 +356,7 @@ public class ChemicalStockController {
     public ResponseResult<Boolean> unlockStock(@RequestBody Map<String, Object> payload) {
         try {
             Long chemicalStockId = toLong(payload.get("chemicalStockId"));
-            Integer unlockQuantity = toInteger(payload.get("unlockQuantity"));
+            Double unlockQuantity = toDouble(payload.get("unlockQuantity"));
             List<Long> detailIds = toLongList(payload.get("detailIds"));
 
             if (chemicalStockId == null) {
@@ -380,7 +380,7 @@ public class ChemicalStockController {
         try {
             ChemicalStockOut out = new ChemicalStockOut();
             out.setChemicalStockId(toLong(payload.get("chemicalStockId")));
-            out.setOutQuantity(toInteger(payload.get("outQuantity")));
+            out.setOutQuantity(toDouble(payload.get("outQuantity")));
             out.setOutWeight(toBigDecimal(payload.get("outWeight")));
             out.setScheduleId(toLong(payload.get("scheduleId")));
             out.setCoatingTaskId(toLong(payload.get("coatingTaskId")));
@@ -431,6 +431,21 @@ public class ChemicalStockController {
         try {
             String s = String.valueOf(value).trim();
             return s.isEmpty() ? null : Integer.parseInt(s);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private Double toDouble(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).doubleValue();
+        }
+        try {
+            String s = String.valueOf(value).trim();
+            return s.isEmpty() ? null : Double.parseDouble(s);
         } catch (Exception e) {
             return null;
         }

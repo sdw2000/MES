@@ -30,13 +30,13 @@ public class TapeStockLog {
     private String type;
     
     /** 变动卷数（入库正数，出库负数） */
-    private Integer changeRolls;
+    private Double changeRolls;
     
     /** 变动前卷数 */
-    private Integer beforeRolls;
+    private Double beforeRolls;
     
     /** 变动后卷数 */
-    private Integer afterRolls;
+    private Double afterRolls;
     
     /** 关联单号 */
     private String refNo;

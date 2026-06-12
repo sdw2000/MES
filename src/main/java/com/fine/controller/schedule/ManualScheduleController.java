@@ -310,7 +310,7 @@ public class ManualScheduleController {
         String materialCode = (String) params.get("materialCode");
         Integer width = ((Number) params.get("width")).intValue();
         Integer thickness = ((Number) params.get("thickness")).intValue();
-        Integer requiredQty = ((Number) params.get("requiredQty")).intValue();
+        Double requiredQty = ((Number) params.get("requiredQty")).doubleValue();
         Boolean includeReturnWarehouse = null;
         Object includeReturnWarehouseObj = params.get("includeReturnWarehouse");
         if (includeReturnWarehouseObj instanceof Boolean) {
@@ -1390,19 +1390,19 @@ public class ManualScheduleController {
             }
 
             Object reduceQtyObj = params.get("reduceQty");
-            Integer reduceQty = null;
+            Double reduceQty = null;
             if (reduceQtyObj instanceof Number) {
-                reduceQty = ((Number) reduceQtyObj).intValue();
+                reduceQty = ((Number) reduceQtyObj).doubleValue();
             } else if (reduceQtyObj instanceof String) {
-                reduceQty = Integer.parseInt((String) reduceQtyObj);
+                reduceQty = Double.parseDouble((String) reduceQtyObj);
             }
-            if (reduceQty == null || reduceQty <= 0) {
+            if (reduceQty == null || reduceQty <= 0.0) {
                 return ResponseResult.error("reduceQty 必须大于0");
             }
 
             String reason = params.get("reason") == null ? null : String.valueOf(params.get("reason"));
             String operator = params.get("operator") == null ? null : String.valueOf(params.get("operator"));
-            boolean ok = manualScheduleService.reduceSchedule(scheduleId, reduceQty, reason, operator);
+            boolean ok = manualScheduleService.reduceSchedule(scheduleId, reduceQty.intValue(), reason, operator);
             return ResponseResult.success(ok);
         } catch (Exception e) {
             return ResponseResult.error("排程减量失败: " + e.getMessage());

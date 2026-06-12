@@ -33,8 +33,8 @@ public class PurchaseReceiptItem {
     private BigDecimal stockQty;
     private String stockUomCode;
     private BigDecimal conversionRate;
-    private Integer expectedQty;
-    private Integer receivedQty;
+    private BigDecimal expectedQty;
+    private BigDecimal receivedQty;
     private String unit;
     private BigDecimal unitPrice;
     private BigDecimal amount;

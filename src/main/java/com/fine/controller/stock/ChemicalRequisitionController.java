@@ -47,7 +47,7 @@ public class ChemicalRequisitionController {
     @PostMapping("/issue-confirm")
     public ResponseResult<Map<String, Object>> issueConfirm(@RequestBody Map<String, Object> payload) {
         java.util.List<Long> lockIds = new java.util.ArrayList<>();
-        java.util.Map<Long, Integer> lockQtyMap = new java.util.LinkedHashMap<>();
+        java.util.Map<Long, Double> lockQtyMap = new java.util.LinkedHashMap<>();
 
         Object issueItemsRaw = payload == null ? null : payload.get("issueItems");
         if (issueItemsRaw instanceof java.util.List) {
@@ -60,7 +60,7 @@ public class ChemicalRequisitionController {
                 Object issueQtyObj = row.get("issueQty");
                 try {
                     Long lockId = Long.parseLong(String.valueOf(lockIdObj));
-                    int issueQty = (int) Math.round(Double.parseDouble(String.valueOf(issueQtyObj)));
+                    double issueQty = Double.parseDouble(String.valueOf(issueQtyObj));
                     if (lockId > 0 && issueQty > 0) {
                         lockQtyMap.put(lockId, issueQty);
                     }
@@ -75,7 +75,7 @@ public class ChemicalRequisitionController {
                 try {
                     Long id = Long.parseLong(String.valueOf(obj));
                     lockIds.add(id);
-                    lockQtyMap.putIfAbsent(id, Integer.MAX_VALUE);
+                    lockQtyMap.putIfAbsent(id, (double) Integer.MAX_VALUE);
                 } catch (Exception ignore) {
                 }
             }
@@ -107,7 +107,7 @@ public class ChemicalRequisitionController {
     }
 
     @PutMapping("/item/{itemId}/requested-qty")
-    public ResponseResult<Void> updateQty(@PathVariable Long itemId, @RequestParam Integer requestedQty) {
+    public ResponseResult<Void> updateQty(@PathVariable Long itemId, @RequestParam Double requestedQty) {
         chemicalRequisitionService.updateRequestedQty(itemId, requestedQty);
         return ResponseResult.success("更新成功", null);
     }
@@ -135,7 +135,7 @@ public class ChemicalRequisitionController {
     @PostMapping("/{requestNo}/receive")
     public ResponseResult<Map<String, Object>> receive(@PathVariable String requestNo,
                                                        @RequestBody(required = false) Map<String, Object> payload) {
-        Map<Long, Integer> receiveQtyMap = new java.util.HashMap<>();
+        Map<Long, Double> receiveQtyMap = new java.util.HashMap<>();
         if (payload != null && payload.get("items") instanceof java.util.List) {
             java.util.List<?> items = (java.util.List<?>) payload.get("items");
             for (Object obj : items) {
@@ -150,7 +150,7 @@ public class ChemicalRequisitionController {
                 }
                 try {
                     Long itemId = Long.parseLong(String.valueOf(itemIdObj));
-                    Integer receiveQty = Integer.parseInt(String.valueOf(receiveQtyObj));
+                    Double receiveQty = Double.parseDouble(String.valueOf(receiveQtyObj));
                     receiveQtyMap.put(itemId, receiveQty);
                 } catch (Exception ignore) {
                 }

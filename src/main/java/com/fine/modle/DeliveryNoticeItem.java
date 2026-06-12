@@ -42,7 +42,7 @@ public class DeliveryNoticeItem {
     private String batchNo;
     
     // 发货数量(卷)
-    private Integer quantity;
+    private Double quantity;
     
     // 平方数 (m2)
     private java.math.BigDecimal areaSize;

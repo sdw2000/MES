@@ -35,7 +35,7 @@ public interface ChemicalStockMapper extends BaseMapper<ChemicalStock> {
      * @param lockQuantity 锁定数量
      * @return 影响行数
      */
-    int lockStock(@Param("id") Long id, @Param("lockQuantity") Integer lockQuantity);
+    int lockStock(@Param("id") Long id, @Param("lockQuantity") Double lockQuantity);
     
     /**
      * 解锁化工库存
@@ -43,7 +43,7 @@ public interface ChemicalStockMapper extends BaseMapper<ChemicalStock> {
      * @param unlockQuantity 解锁数量
      * @return 影响行数
      */
-    int unlockStock(@Param("id") Long id, @Param("unlockQuantity") Integer unlockQuantity);
+    int unlockStock(@Param("id") Long id, @Param("unlockQuantity") Double unlockQuantity);
     
     /**
      * 扣减库存（出库）
@@ -51,10 +51,10 @@ public interface ChemicalStockMapper extends BaseMapper<ChemicalStock> {
      * @param outQuantity 出库数量
      * @return 影响行数
      */
-    int deductStock(@Param("id") Long id, @Param("outQuantity") Integer outQuantity);
+    int deductStock(@Param("id") Long id, @Param("outQuantity") Double outQuantity);
 
     /**
      * 到货入库：增加总量和可用量
      */
-    int addStock(@Param("id") Long id, @Param("inQuantity") Integer inQuantity);
+    int addStock(@Param("id") Long id, @Param("inQuantity") Double inQuantity);
 }

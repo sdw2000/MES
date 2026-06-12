@@ -66,7 +66,7 @@ public interface ManualScheduleService extends IService<ManualSchedule> {
      * @param requiredQty 需求数量（卷）
      * @return 匹配结果：库存列表、总可用数量、是否充足
      */
-   Map<String, Object> matchStock(String materialCode, Integer width, Integer thickness, Integer requiredQty, Boolean includeReturnWarehouse);
+   Map<String, Object> matchStock(String materialCode, Integer width, Integer thickness, Double requiredQty, Boolean includeReturnWarehouse);
     
     /**
      * 计算涂布需求

@@ -41,7 +41,7 @@ public class PackageStockDetail {
 
     /** 当前包装数量 */
     @TableField("pack_count")
-    private Integer packCount;
+    private Double packCount;
 
     /** 标准单位 */
     @TableField("std_uom")

@@ -122,7 +122,7 @@ public interface ChemicalStockService {
      * @param detailIds 明细ID列表
      * @return 是否成功
      */
-    boolean lockStock(Long chemicalStockId, Integer lockQuantity, List<Long> detailIds);
+    boolean lockStock(Long chemicalStockId, Double lockQuantity, List<Long> detailIds);
     
     /**
      * 解锁化工库存
@@ -131,7 +131,7 @@ public interface ChemicalStockService {
      * @param detailIds 明细ID列表
      * @return 是否成功
      */
-    boolean unlockStock(Long chemicalStockId, Integer unlockQuantity, List<Long> detailIds);
+    boolean unlockStock(Long chemicalStockId, Double unlockQuantity, List<Long> detailIds);
     
     /**
      * 化工出库

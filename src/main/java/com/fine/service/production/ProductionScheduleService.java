@@ -45,7 +45,7 @@ public interface ProductionScheduleService {
     int updateSlittingTask(ScheduleSlitting slitting);
     int deleteSlittingTask(Long id);
     int startSlittingTask(Long taskId, String operator);
-    int completeSlittingTask(Long taskId, Integer actualRolls, String operator);
+    int completeSlittingTask(Long taskId, Double actualRolls, String operator);
     
     // ========== 分条计划 ==========
     

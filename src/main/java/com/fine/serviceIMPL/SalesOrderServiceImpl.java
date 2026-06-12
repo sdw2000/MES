@@ -27,6 +27,8 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fine.Dao.SalesOrderItemMapper;
 import com.fine.Dao.SalesOrderSyncStateMapper;
+import com.fine.Dao.SampleOrderMapper;
+import com.fine.Dao.SampleItemMapper;
 import com.fine.Dao.production.SalesOrderMapper;
 import com.fine.Dao.schedule.ManualScheduleMapper;
 import com.fine.Dao.stock.TapeStockMapper;
@@ -38,6 +40,8 @@ import com.fine.modle.LoginUser;
 import com.fine.modle.SalesOrder;
 import com.fine.modle.SalesOrderItem;
 import com.fine.modle.SalesOrderSyncState;
+import com.fine.modle.SampleOrder;
+import com.fine.modle.SampleItem;
 import com.fine.modle.stock.TapeStock;
 import com.fine.Dao.CustomerMapper;
 import com.fine.modle.Customer;
@@ -99,6 +103,12 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
     @Autowired
     private TapeStockMapper tapeStockMapper;
 
+    @Autowired
+    private SampleOrderMapper sampleOrderMapper;
+
+    @Autowired
+    private SampleItemMapper sampleItemMapper;
+
     /**
      * 生命周期V2强制生效日期：该日期及之后的新订单强制使用V2状态。
      * 可通过配置覆盖：sales.order.lifecycle-v2-enforce-date=yyyy-MM-dd
@@ -152,14 +162,14 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
                     // 欠卷总数统一按明细remaining_qty汇总口径展示，避免与详情明细不一致
                     Map<String, Object> rollProgress = salesOrderItemMapper.selectOrderRollProgress(record.getId());
                     if (rollProgress != null) {
-                        record.setRemainingRolls(getIntFromObject(rollProgress.get("remaining_rolls")));
+                        record.setRemainingRolls((double) getIntFromObject(rollProgress.get("remaining_rolls")));
                         if (record.getShippedRolls() == null) {
-                            record.setShippedRolls(getIntFromObject(rollProgress.get("completed_rolls")));
+                            record.setShippedRolls((double) getIntFromObject(rollProgress.get("completed_rolls")));
                         }
                     } else if (record.getRemainingRolls() == null) {
-                        record.setRemainingRolls(0);
+                        record.setRemainingRolls(0.0);
                         if (record.getShippedRolls() == null) {
-                            record.setShippedRolls(0);
+                            record.setShippedRolls(0.0);
                         }
                     }
                     alignRemainingRollsForDisplay(record);
@@ -409,6 +419,12 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
         if (order == null) {
             return null;
         }
+        
+        // 1. 优先根据 customerId 解析
+        if (order.getCustomerId() != null) {
+            Customer c = customerMapper.selectById(order.getCustomerId());
+            if (c != null) return c;
+        }
 
         List<String> candidates = Arrays.asList(
                 order.getCustomerCode(),
@@ -566,13 +582,13 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
             return;
         }
 
-        Integer rpShippable = order.getRpShippable();
+        Double rpShippable = order.getRpShippable();
         if (rpShippable == null) {
-            int produced = order.getRpProducedRolls() == null ? 0 : Math.max(order.getRpProducedRolls(), 0);
-            int shipped = order.getRpShippedRolls() == null ? 0 : Math.max(order.getRpShippedRolls(), 0);
+            double produced = order.getRpProducedRolls() == null ? 0.0 : Math.max(order.getRpProducedRolls(), 0.0);
+            double shipped = order.getRpShippedRolls() == null ? 0.0 : Math.max(order.getRpShippedRolls(), 0.0);
             rpShippable = Math.max(produced - shipped, 0);
         }
-        order.setRemainingRolls(Math.max(rpShippable, 0));
+        order.setRemainingRolls(Math.max(rpShippable, 0.0));
     }
 
     @Override
@@ -1239,6 +1255,7 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ResponseResult<?> deleteOrder(String orderNo) {
+        log.info("尝试删除订单: orderNo={}", orderNo);
         try {
             LoginUser loginUser = getLoginUser();
             // 查询订单
@@ -1341,6 +1358,7 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ResponseResult<?> cancelOrder(String orderNo, String cancelReason) {
+        log.info("尝试取消订单: orderNo={}, reason={}", orderNo, cancelReason);
         try {
             String normalizedOrderNo = trimToNull(orderNo);
             String normalizedReason = trimToNull(cancelReason);
@@ -1403,13 +1421,71 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
 
     @Override
     public ResponseResult<?> getOrderByOrderNo(String orderNo) {
+        log.info("查询订单详情: orderNo={}", orderNo);
+        if (orderNo == null || orderNo.trim().isEmpty()) {
+            return new ResponseResult<>(400, "订单号不能为空");
+        }
+        
         LambdaQueryWrapper<SalesOrder> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(SalesOrder::getOrderNo, orderNo)
-                .eq(SalesOrder::getIsDeleted, 0);
-        SalesOrder order = salesOrderMapper.selectOne(queryWrapper);
+        queryWrapper.eq(SalesOrder::getIsDeleted, 0)
+                .and(w -> w.eq(SalesOrder::getOrderNo, orderNo.trim())
+                        .or()
+                        .eq(SalesOrder::getCustomerOrderNo, orderNo.trim()));
+        
+        List<SalesOrder> list = salesOrderMapper.selectList(queryWrapper);
+        SalesOrder order = (list != null && !list.isEmpty()) ? list.get(0) : null;
 
         if (order == null) {
-            return new ResponseResult<>(404, "订单不存在或已被删除");
+            // 如果在销售订单中未找到，尝试在送样单中寻找
+            LambdaQueryWrapper<SampleOrder> sampleWrapper = new LambdaQueryWrapper<>();
+            sampleWrapper.eq(SampleOrder::getSampleNo, orderNo.trim())
+                        .eq(SampleOrder::getIsDeleted, false);
+            SampleOrder sampleOrder = sampleOrderMapper.selectOne(sampleWrapper);
+            
+            if (sampleOrder != null) {
+                // 转换为 SalesOrder 兼容格式
+                order = new SalesOrder();
+                order.setId(sampleOrder.getId());
+                order.setCustomerId(sampleOrder.getCustomerId());
+                order.setOrderNo(sampleOrder.getSampleNo());
+                order.setCustomerOrderNo(sampleOrder.getSampleNo());
+                order.setCustomerName(sampleOrder.getCustomerName());
+                order.setOrderDate(sampleOrder.getSendDate());
+                order.setDeliveryDate(sampleOrder.getDeliveryDate());
+                order.setRemark(sampleOrder.getRemark());
+                order.setStatus("processing"); // 试样订单统一视作处理中
+                
+                // 尝试关联客户信息以获取客户代码（传递 null 作为 customer 字段，让 enrich 自动填充 code）
+                enrichOrderCustomerFields(order);
+                
+                // 加载试样明细并转换
+                List<SampleItem> sampleItems = sampleItemMapper.selectBySampleNo(sampleOrder.getSampleNo());
+                List<SalesOrderItem> salesItems = new ArrayList<>();
+                if (sampleItems != null) {
+                    for (SampleItem si : sampleItems) {
+                        SalesOrderItem soi = new SalesOrderItem();
+                        soi.setId(si.getId());
+                        soi.setOrderNo(si.getSampleNo());
+                        soi.setMaterialCode(si.getMaterialCode());
+                        soi.setMaterialName(si.getMaterialName());
+                        soi.setThickness(si.getThickness());
+                        soi.setWidth(si.getWidth());
+                        soi.setLength(si.getLength());
+                        soi.setRolls(si.getQuantity() != null ? si.getQuantity().doubleValue() : 0.0);
+                        soi.setSqm(BigDecimal.ZERO);
+                        if (soi.getWidth() != null && soi.getLength() != null && soi.getRolls() != null && soi.getRolls() > 0) {
+                            BigDecimal calc = soi.getWidth().multiply(soi.getLength()).multiply(new BigDecimal(soi.getRolls()))
+                                    .divide(new BigDecimal(1000000), 2, BigDecimal.ROUND_HALF_UP);
+                            soi.setSqm(calc);
+                        }
+                        salesItems.add(soi);
+                    }
+                }
+                order.setItems(salesItems);
+                return ResponseResult.success(order);
+            }
+            
+            return new ResponseResult<>(404, "订单/试样单不存在或已被删除: " + orderNo);
         }
 
         if (!canAccessOrder(getLoginUser(), order)) {
@@ -1430,8 +1506,8 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
             
             // 填充已发货数量
             for (SalesOrderItem item : items) {
-                Integer shipped = deliveryNoticeItemMapper.getConfirmedShippedQuantityByOrderItemId(item.getId());
-                item.setShippedRolls(shipped == null ? 0 : Math.max(shipped, 0));
+                Double shipped = deliveryNoticeItemMapper.getConfirmedShippedQuantityByOrderItemId(item.getId());
+                item.setShippedRolls(shipped == null ? 0.0 : Math.max(shipped, 0.0));
             }
 
             order.setItems(items);
@@ -1566,16 +1642,16 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
                         .eq(SalesOrderItem::getOrderId, order.getId())
                         .eq(SalesOrderItem::getIsDeleted, 0)
                 );
-                int total = 0;
-                int shipped = 0;
+                double total = 0.0;
+                double shipped = 0.0;
                 if (items != null) {
                     for (SalesOrderItem item : items) {
-                        total += item.getRolls() != null ? item.getRolls() : 0;
-                        Integer shippedQty = deliveryNoticeItemMapper.getConfirmedShippedQuantityByOrderItemId(item.getId());
-                        shipped += shippedQty != null ? Math.max(shippedQty, 0) : 0;
+                        total += item.getRolls() != null ? item.getRolls() : 0.0;
+                        Double shippedQty = deliveryNoticeItemMapper.getConfirmedShippedQuantityByOrderItemId(item.getId());
+                        shipped += shippedQty != null ? Math.max(shippedQty, 0.0) : 0.0;
                     }
                 }
-                int remaining = Math.max(0, total - shipped);
+                double remaining = Math.max(0.0, total - shipped);
                 order.setTotalRolls(total);
                 order.setShippedRolls(shipped);
                 order.setRemainingRolls(remaining);
@@ -1648,7 +1724,7 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
                     setDecimalCell(row, 11, item.getThickness());
                     setDecimalCell(row, 12, item.getWidth());
                     setDecimalCell(row, 13, item.getLength());
-                    setIntCell(row, 14, item.getRolls());
+                    setDecimalCell(row, 14, item.getRolls());
                     setDecimalCell(row, 15, item.getUnitPrice());
                     setDecimalCell(row, 16, item.getAmount());
                     row.createCell(17).setCellValue(safeString(item.getRemark()));
@@ -1722,7 +1798,7 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
                         BigDecimal thickness = getCellDecimal(getCellByHeaderOrIndex(row, headerIndexMap, 11, "厚度", "厚度/μ", "厚度(μm)", "thickness"));
                         BigDecimal width = getCellDecimal(getCellByHeaderOrIndex(row, headerIndexMap, 12, "宽度", "宽度/mm", "width"));
                         BigDecimal length = getCellDecimal(getCellByHeaderOrIndex(row, headerIndexMap, 13, "长度", "长度/m", "length"));
-                        Integer rolls = getCellInteger(getCellByHeaderOrIndex(row, headerIndexMap, 14,
+                        Double rolls = getCellDouble(getCellByHeaderOrIndex(row, headerIndexMap, 14,
                                 "卷数", "生产数量", "生产数量(卷)", "生产数量（卷）", "生产数量卷", "数量", "rolls"));
                         BigDecimal unitPrice = getCellDecimal(getCellByHeaderOrIndex(row, headerIndexMap, 15, "单价", "unitPrice"));
                         BigDecimal excelSqm = getCellDecimal(getCellByHeaderOrIndex(row, headerIndexMap, 16,
@@ -1802,7 +1878,7 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
                         item.setCreatedAt(new Date());
                         item.setUpdatedAt(new Date());
                         item.setIsDeleted(0);
-                        item.setScheduledQty(0);
+                        item.setScheduledQty(0.0);
                         item.setScheduledArea(BigDecimal.ZERO);
                         item.setProducedArea(BigDecimal.ZERO);
                         item.setDeliveredArea(BigDecimal.ZERO);
@@ -1819,10 +1895,10 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
                         if (item.getAmount() == null) item.setAmount(BigDecimal.ZERO);
 
                         // 历史完成信息：归一完成卷数，并同步写入卷数口径与面积口径
-                        int normalizedCompletedRolls = normalizeCompletedRolls(completedRolls, completionStatus, rolls);
-                        int normalizedRemainingRolls = Math.max((rolls == null ? 0 : rolls) - normalizedCompletedRolls, 0);
-                        item.setDeliveredQty(normalizedCompletedRolls);
-                        item.setRemainingQty(normalizedRemainingRolls);
+                        int normalizedCompletedRolls = normalizeCompletedRolls(completedRolls, completionStatus, rolls == null ? null : rolls.intValue());
+                        int normalizedRemainingRolls = Math.max((rolls == null ? 0 : rolls.intValue()) - normalizedCompletedRolls, 0);
+                        item.setDeliveredQty((double) normalizedCompletedRolls);
+                        item.setRemainingQty((double) normalizedRemainingRolls);
                         if (normalizedRemainingRolls <= 0) {
                             item.setProductionStatus("completed");
                         } else if (normalizedCompletedRolls <= 0) {
@@ -2311,52 +2387,52 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
     }
 
     private void normalizeItemCompletionFields(SalesOrderItem item) {
-        int rolls = item.getRolls() == null ? 0 : Math.max(item.getRolls(), 0);
+        Double rolls = item.getRolls() == null ? 0.0 : Math.max(item.getRolls(), 0.0);
         String rawStatus = trimToNull(item.getProductionStatus());
         String normalizedStatus = rawStatus == null ? null : rawStatus.toLowerCase(Locale.ROOT);
 
-        int completed = item.getDeliveredQty() == null ? 0 : Math.max(item.getDeliveredQty(), 0);
+        Double completed = item.getDeliveredQty() == null ? 0.0 : Math.max(item.getDeliveredQty(), 0.0);
         if (completed > rolls) {
             completed = rolls;
         }
 
-        int remaining;
+        Double remaining;
         if (item.getRemainingQty() != null) {
-            remaining = Math.max(item.getRemainingQty(), 0);
-            int maxRemaining = Math.max(rolls - completed, 0);
+            remaining = Math.max(item.getRemainingQty(), 0.0);
+            double maxRemaining = Math.max(rolls - completed, 0.0);
             if (remaining > maxRemaining) {
                 remaining = maxRemaining;
             }
         } else {
-            remaining = Math.max(rolls - completed, 0);
+            remaining = Math.max(rolls - completed, 0.0);
         }
 
         // 状态/数量双向兜底：任何入口都保证 completed/remaining/status 三者一致
         if (rolls > 0) {
             if ("completed".equals(normalizedStatus)) {
                 completed = rolls;
-                remaining = 0;
+                remaining = 0.0;
             } else if ("not_started".equals(normalizedStatus) || "pending".equals(normalizedStatus)) {
-                completed = 0;
+                completed = 0.0;
                 remaining = rolls;
             } else if ("partial".equals(normalizedStatus) || "processing".equals(normalizedStatus)) {
                 if (completed <= 0) {
-                    completed = Math.min(Math.max(rolls - remaining, 0), rolls - 1);
+                    completed = Math.min(Math.max(rolls - remaining, 0.0), rolls - 1.0);
                 }
                 if (completed <= 0) {
-                    completed = 1;
+                    completed = 1.0;
                 }
                 if (completed >= rolls && rolls > 1) {
-                    completed = rolls - 1;
+                    completed = rolls - 1.0;
                 }
-                remaining = Math.max(rolls - completed, 0);
+                remaining = Math.max(rolls - completed, 0.0);
             } else {
                 if (remaining <= 0) {
                     completed = rolls;
-                    remaining = 0;
+                    remaining = 0.0;
                 } else if (completed <= 0 && item.getRemainingQty() != null) {
-                    completed = Math.max(rolls - remaining, 0);
-                    remaining = Math.max(rolls - completed, 0);
+                    completed = Math.max(rolls - remaining, 0.0);
+                    remaining = Math.max(rolls - completed, 0.0);
                 }
             }
         }
@@ -2493,6 +2569,15 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
         }
     }
 
+    private void setDecimalCell(Row row, int index, Double value) {
+        Cell cell = row.createCell(index);
+        if (value != null) {
+            cell.setCellValue(value);
+        } else {
+            cell.setCellValue("");
+        }
+    }
+
     private void setIntCell(Row row, int index, Integer value) {
         Cell cell = row.createCell(index);
         if (value != null) {
@@ -2545,6 +2630,11 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
     private Integer getCellInteger(Cell cell) {
         BigDecimal decimal = getCellDecimal(cell);
         return decimal == null ? null : decimal.intValue();
+    }
+
+    private Double getCellDouble(Cell cell) {
+        BigDecimal decimal = getCellDecimal(cell);
+        return decimal == null ? null : decimal.doubleValue();
     }
 
     private void cancelManualSchedulesForOrderDetails(List<Long> orderDetailIds, String operator, String reason) {
@@ -2879,7 +2969,7 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
             return 0;
         }
         int completed = item.getDeliveredArea().divide(perRoll, 0, BigDecimal.ROUND_HALF_UP).intValue();
-        return Math.min(Math.max(completed, 0), item.getRolls());
+        return Math.min(Math.max(completed, 0), item.getRolls().intValue());
     }
 
     private void normalizeOrderStatusByItems(SalesOrder order) {
@@ -2928,9 +3018,9 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
 
             normalizeItemCompletionFields(item);
 
-            int rolls = item.getRolls() == null ? 0 : Math.max(item.getRolls(), 0);
-            int completedRolls = item.getDeliveredQty() == null ? 0 : Math.max(item.getDeliveredQty(), 0);
-            int remainingRolls = item.getRemainingQty() == null ? Math.max(rolls - completedRolls, 0) : Math.max(item.getRemainingQty(), 0);
+            Double rolls = item.getRolls() == null ? 0.0 : Math.max(item.getRolls(), 0.0);
+            Double completedRolls = item.getDeliveredQty() == null ? 0.0 : Math.max(item.getDeliveredQty(), 0.0);
+            Double remainingRolls = item.getRemainingQty() == null ? Math.max(rolls - completedRolls, 0.0) : Math.max(item.getRemainingQty(), 0.0);
 
             if (rolls <= 0 && completedRolls <= 0 && remainingRolls <= 0) {
                 continue;
@@ -2974,10 +3064,10 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
             return;
         }
 
-        int totalRolls = 0;
-        int producedRolls = 0;
-        int scheduledRolls = 0;
-        int shippedRolls = 0;
+        Double totalRolls = 0.0;
+        Double producedRolls = 0.0;
+        Double scheduledRolls = 0.0;
+        Double shippedRolls = 0.0;
 
         for (SalesOrderItem item : order.getItems()) {
             if (item == null) {
@@ -2986,17 +3076,18 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
 
             normalizeItemCompletionFields(item);
 
-            int rolls = item.getRolls() == null ? 0 : Math.max(item.getRolls(), 0);
-            int completedRolls = item.getDeliveredQty() == null ? 0 : Math.max(item.getDeliveredQty(), 0);
-            int oneScheduled = item.getScheduledQty() == null ? 0 : Math.max(item.getScheduledQty(), 0);
+            Double rolls = item.getRolls() == null ? 0.0 : Math.max(item.getRolls(), 0.0);
+            Double completedRolls = item.getDeliveredQty() == null ? 0.0 : Math.max(item.getDeliveredQty(), 0.0);
+            Double oneScheduled = item.getScheduledQty() == null ? 0.0 : Math.max(item.getScheduledQty(), 0.0);
 
             totalRolls += rolls;
             producedRolls += Math.min(completedRolls, rolls);
             scheduledRolls += Math.min(oneScheduled, rolls);
 
             if (item.getId() != null) {
-                Integer oneShipped = deliveryNoticeItemMapper.getConfirmedShippedQuantityByOrderItemId(item.getId());
-                shippedRolls += oneShipped == null ? 0 : Math.max(oneShipped, 0);
+                Double oneShippedRaw = deliveryNoticeItemMapper.getConfirmedShippedQuantityByOrderItemId(item.getId());
+                Double oneShipped = oneShippedRaw == null ? 0.0 : oneShippedRaw;
+                shippedRolls += Math.max(oneShipped, 0.0);
             }
         }
 
@@ -3005,9 +3096,9 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
             return;
         }
 
-        int normalizedShipped = Math.min(shippedRolls, totalRolls);
-        int normalizedProduced = Math.min(producedRolls, totalRolls);
-        int normalizedScheduled = Math.min(scheduledRolls, totalRolls);
+        double normalizedShipped = Math.min(shippedRolls, totalRolls);
+        double normalizedProduced = Math.min(producedRolls, totalRolls);
+        double normalizedScheduled = Math.min(scheduledRolls, totalRolls);
 
         if (normalizedShipped >= totalRolls) {
             order.setStatus("SHIPPED_FULL");

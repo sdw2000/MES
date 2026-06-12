@@ -2,6 +2,7 @@ package com.fine.modle.stock;
 
 import com.baomidou.mybatisplus.annotation.*;
 import lombok.Data;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
@@ -27,7 +28,7 @@ public class TapeInboundRequest {
     /** 生产批次号 */
     private String batchNo;
 
-    /** 客户批次号（用于来料追踪） */
+    /** 供商批次号（用于来料追踪） */
     @TableField("customer_batch_no")
     private String customerBatchNo;
 
@@ -44,7 +45,7 @@ public class TapeInboundRequest {
     private Integer length;
     
     /** 入库数量（数值） */
-    private Integer rolls;
+    private BigDecimal rolls;
 
     /** 入库数量单位（卷/㎡/箱/个/kg） */
     @TableField("qty_unit")

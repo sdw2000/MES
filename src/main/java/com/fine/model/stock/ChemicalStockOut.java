@@ -46,7 +46,7 @@ public class ChemicalStockOut {
     
     /** 出库数量 */
     @TableField(exist = false)
-    private Integer outQuantity;
+    private Double outQuantity;
     
     /** 出库重量(kg) */
     private BigDecimal outWeight;

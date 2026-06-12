@@ -31,9 +31,9 @@ public class ChemicalMaterialLock {
 
     private BigDecimal requiredKg;
 
-    private Integer requiredQty;
+    private Double requiredQty;
 
-    private Integer lockedQty;
+    private Double lockedQty;
 
     /** LOCKED/PARTIAL/PENDING */
     private String lockStatus;

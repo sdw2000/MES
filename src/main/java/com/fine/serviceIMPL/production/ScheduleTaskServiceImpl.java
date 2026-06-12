@@ -106,12 +106,12 @@ public class ScheduleTaskServiceImpl extends ServiceImpl<ScheduleTaskMapper, Sch
             BigDecimal lengthM = orderItem.getLength() != null ? orderItem.getLength() : BigDecimal.ZERO;
             BigDecimal perRollArea = computePerRollArea(widthMm, lengthM);
 
-            int rolls = orderItem.getRolls() != null ? orderItem.getRolls() : 0;
-            int scheduledQty = orderItem.getScheduledQty() != null ? orderItem.getScheduledQty() : 0;
-            int pendingRolls = Math.max(rolls - scheduledQty, 0);
+            Double rolls = orderItem.getRolls() != null ? orderItem.getRolls() : 0.0;
+            Double scheduledQty = orderItem.getScheduledQty() != null ? orderItem.getScheduledQty() : 0.0;
+            Double pendingRolls = Math.max(rolls - scheduledQty, 0.0);
 
-            int selectedRolls = item.getQuantity() != null ? Math.min(item.getQuantity(), pendingRolls) : pendingRolls;
-            BigDecimal selectedArea = item.getArea() != null ? item.getArea() : perRollArea.multiply(new BigDecimal(selectedRolls));
+            Double selectedRolls = item.getQuantity() != null ? Math.min(item.getQuantity().doubleValue(), pendingRolls) : pendingRolls;
+            BigDecimal selectedArea = item.getArea() != null ? item.getArea() : perRollArea.multiply(BigDecimal.valueOf(selectedRolls));
             if (selectedArea.compareTo(BigDecimal.ZERO) <= 0) {
                 continue;
             }

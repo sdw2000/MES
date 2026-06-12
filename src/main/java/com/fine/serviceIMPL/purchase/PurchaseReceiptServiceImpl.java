@@ -25,6 +25,7 @@ import com.fine.modle.stock.TapeStock;
 import com.fine.service.purchase.PurchaseReceiptService;
 import com.fine.service.stock.TapeStockService;
 import com.fine.service.system.SystemMessageService;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -84,6 +85,9 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
 
     @Autowired
     private LabelPrintRecordMapper labelPrintRecordMapper;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     private static final String TEST_TAG = "[TEST_DATA_PURCHASE_RECEIPT]";
     private static final String INBOUND_SOURCE_TAG = "[PURCHASE_RECEIPT]";
@@ -353,8 +357,8 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
             item.setStockQty(new BigDecimal("10"));
             item.setStockUomCode("ROLL");
             item.setConversionRate(new BigDecimal("1"));
-            item.setExpectedQty(10);
-            item.setReceivedQty(i % 2 == 0 ? 10 : 0);
+            item.setExpectedQty(new BigDecimal("10"));
+            item.setReceivedQty(i % 2 == 0 ? new BigDecimal("10") : BigDecimal.ZERO);
             item.setUnit("卷");
             item.setUnitPrice(new BigDecimal("1"));
             item.setAmount(new BigDecimal("10"));
@@ -425,7 +429,9 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
                 }
 
                 String beforeStatus = defaultString(receipt.getStatus());
-                boolean alreadyReceived = "received".equalsIgnoreCase(beforeStatus) || "已收货".equals(beforeStatus);
+                boolean alreadyReceived = "received".equalsIgnoreCase(beforeStatus) 
+                        || "scanned_in".equalsIgnoreCase(beforeStatus) 
+                        || "已收货".equals(beforeStatus);
 
                 // 未收货计划补齐到入库申请（仓库端可见）
                 if (!alreadyReceived) {
@@ -473,7 +479,9 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
         LambdaQueryWrapper<PurchaseReceipt> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(PurchaseReceipt::getIsDeleted, 0)
                 .and(w -> w.isNull(PurchaseReceipt::getStatus)
-                        .or().ne(PurchaseReceipt::getStatus, "received"))
+                        .or(ow -> ow.ne(PurchaseReceipt::getStatus, "received")
+                                    .ne(PurchaseReceipt::getStatus, "scanned_in")
+                                    .ne(PurchaseReceipt::getStatus, "SCANNED_IN")))
                 .orderByDesc(PurchaseReceipt::getCreatedAt)
                 .orderByDesc(PurchaseReceipt::getId);
         if (StringUtils.hasText(kw)) {
@@ -502,7 +510,7 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
                 m.put("supplierName", defaultString(supplierName, "-"));
                 m.put("supplierCode", defaultString(supplierCode, "-"));
                 m.put("expectedDate", row.getExpectedDate() == null ? null : row.getExpectedDate().toString());
-                m.put("status", defaultString(row.getStatus(), "planned"));
+                m.put("status", translateStatus(row.getStatus()));
                 rows.add(m);
             }
         }
@@ -528,7 +536,7 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
             return buildScanInboundDocumentByRequests(receiptNo);
         }
         if (receipt == null) {
-            return ResponseResult.error("未找到收货单");
+            return ResponseResult.error("未找到收货单(No/ID: " + receiptNo + "/" + receiptId + ")");
         }
 
         List<PurchaseReceiptItem> items = itemMapper.selectByReceiptId(receipt.getId());
@@ -615,7 +623,7 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
         data.put("supplier", defaultString(supplierName, "-"));
         data.put("supplierName", defaultString(supplierName, "-"));
         data.put("supplierCode", defaultString(supplierCode, "-"));
-        data.put("status", defaultString(receipt.getStatus(), "planned"));
+        data.put("status", translateStatus(receipt.getStatus()));
         data.put("summary", summary);
         data.put("items", itemRows);
         data.put("validBatchNos", validBatchNos);
@@ -634,11 +642,11 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
         }
 
         List<String> normalizedCodes = new ArrayList<>();
-        if (scanCodes != null) {
-            for (String code : scanCodes) {
-                if (StringUtils.hasText(code)) {
-                    normalizedCodes.add(code.trim());
-                }
+        // 增强校验：如果是手动输入的 code，在这里再次清理空格
+        for (String code : scanCodes) {
+            String trimmed = (code == null) ? "" : code.trim();
+            if (StringUtils.hasText(trimmed)) {
+                normalizedCodes.add(trimmed);
             }
         }
         if (normalizedCodes.isEmpty()) {
@@ -742,15 +750,15 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
                 if (item == null || Integer.valueOf(1).equals(item.getIsDeleted())) {
                     continue;
                 }
-                int current = item.getReceivedQty() == null ? 0 : Math.max(0, item.getReceivedQty());
-                item.setReceivedQty(current + add);
+                BigDecimal current = item.getReceivedQty() == null ? BigDecimal.ZERO : item.getReceivedQty();
+                item.setReceivedQty(current.add(BigDecimal.valueOf(add)));
                 item.setUpdatedAt(LocalDateTime.now());
                 itemMapper.updateById(item);
             }
         }
 
         if (receipt != null && approvedRequestCount > 0) {
-            receipt.setStatus("SCANNED_IN");
+            receipt.setStatus("received");
             receipt.setReceivedDate(LocalDate.now());
             receipt.setUpdatedAt(LocalDateTime.now());
             receipt.setUpdatedBy(auditor);
@@ -760,7 +768,8 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
         Map<String, Object> summary = new HashMap<>();
         summary.put("receiptId", receipt == null ? null : receipt.getId());
         summary.put("receiptNo", receipt == null ? defaultString(receiptNo, "-") : receipt.getReceiptNo());
-        summary.put("status", approvedRequestCount > 0 ? "SCANNED_IN" : (receipt == null ? "planned" : defaultString(receipt.getStatus(), "planned")));
+        String finalStatus = approvedRequestCount > 0 ? "received" : (receipt == null ? "planned" : defaultString(receipt.getStatus(), "planned"));
+        summary.put("status", translateStatus(finalStatus));
         summary.put("successCount", successCount);
         summary.put("failureCount", failures.size());
         summary.put("approvedRequestCount", approvedRequestCount);
@@ -771,7 +780,7 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
     private ResponseResult<?> buildScanInboundDocumentByRequests(String scanCode) {
         List<TapeInboundRequest> requests = collectInboundRequestsByScanCodes(Collections.singletonList(scanCode));
         if (CollectionUtils.isEmpty(requests)) {
-            return ResponseResult.error("未找到收货单");
+            return ResponseResult.error("未找到对应单据或入库申请：" + scanCode);
         }
 
         List<Map<String, Object>> itemRows = new ArrayList<>();
@@ -795,7 +804,8 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
             if (req == null || req.getId() == null) {
                 continue;
             }
-            int planQty = req.getRolls() == null ? 0 : Math.max(0, req.getRolls());
+            BigDecimal rolls = req.getRolls() == null ? BigDecimal.ZERO : req.getRolls();
+            int planQty = rolls.intValue();
             int printedQty = resolvePrintedQty(req, printedQtyCache);
             int scannedQty = req.getStatus() != null && req.getStatus().intValue() == TapeInboundRequest.STATUS_APPROVED ? planQty : 0;
             totalPlanQty += planQty;
@@ -850,7 +860,7 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
         data.put("supplier", defaultString(supplierName, "-"));
         data.put("supplierName", defaultString(supplierName, "-"));
         data.put("supplierCode", defaultString(supplierCode, "-"));
-        data.put("status", "planned");
+        data.put("status", translateStatus("planned"));
         data.put("summary", summary);
         data.put("items", itemRows);
         data.put("validBatchNos", validBatchNos);
@@ -879,8 +889,9 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
             return null;
         }
         String batch = extractBatchFromLabelCode(raw);
-        String batchToken = "%customerBatchNo=" + batch + "%";
-        String rawToken = "%customerBatchNo=" + raw + "%";
+        String batchToken = "%customerBatchNo=" + batch + "|%";
+        String rawToken = "%customerBatchNo=" + raw + "|%";
+        String batchPriceToken = "%priceUnit=" + batch + "|%";
 
         List<TapeInboundRequest> matched = tapeInboundRequestMapper.selectList(
                 new LambdaQueryWrapper<TapeInboundRequest>()
@@ -890,7 +901,8 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
                                 .or().eq(TapeInboundRequest::getBatchNo, batch)
                                 .or().eq(TapeInboundRequest::getCustomerBatchNo, batch)
                                 .or().like(TapeInboundRequest::getRemark, batchToken)
-                                .or().like(TapeInboundRequest::getRemark, rawToken))
+                                .or().like(TapeInboundRequest::getRemark, rawToken)
+                                .or().like(TapeInboundRequest::getRemark, batchPriceToken))
                         .orderByDesc(TapeInboundRequest::getId)
                         .last("LIMIT 50")
         );
@@ -929,8 +941,8 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
         if (!StringUtils.hasText(customerBatchNo) && !StringUtils.hasText(batchNo)) {
             return 0;
         }
-        Integer rolls = req.getRolls();
-        return rolls == null ? 0 : Math.max(0, rolls);
+        BigDecimal rolls = req.getRolls();
+        return rolls == null ? 0 : Math.max(0, rolls.intValue());
     }
 
     private String buildPrintedQtyCacheKey(TapeInboundRequest req) {
@@ -1001,6 +1013,33 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
         }
 
         String receiptToken = INBOUND_SOURCE_TAG + "|receiptId=" + receipt.getId() + "|";
+        
+        // 1. 同步所有明细行的实到数量
+        List<PurchaseReceiptItem> items = itemMapper.selectList(
+                new LambdaQueryWrapper<PurchaseReceiptItem>().eq(PurchaseReceiptItem::getReceiptId, receipt.getId())
+        );
+        boolean itemsChanged = false;
+        for (PurchaseReceiptItem item : items) {
+            String itemToken = receiptToken + "itemId=" + item.getId() + "|";
+            List<TapeInboundRequest> approvedReqs = tapeInboundRequestMapper.selectList(
+                    new LambdaQueryWrapper<TapeInboundRequest>()
+                            .like(TapeInboundRequest::getRemark, itemToken)
+                            .eq(TapeInboundRequest::getStatus, TapeInboundRequest.STATUS_APPROVED)
+            );
+            BigDecimal totalReceived = approvedReqs.stream()
+                    .map(r -> r.getRolls() != null ? r.getRolls() : BigDecimal.ZERO)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            
+            BigDecimal currentReceived = item.getReceivedQty() == null ? BigDecimal.ZERO : item.getReceivedQty();
+            if (totalReceived.compareTo(currentReceived) != 0) {
+                item.setReceivedQty(totalReceived);
+                item.setUpdatedAt(LocalDateTime.now());
+                itemMapper.updateById(item);
+                itemsChanged = true;
+            }
+        }
+
+        // 2. 同步主单状态
         Long pendingCount = tapeInboundRequestMapper.selectCount(
                 new LambdaQueryWrapper<TapeInboundRequest>()
                         .like(TapeInboundRequest::getRemark, receiptToken)
@@ -1025,15 +1064,18 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
         }
 
         String currentStatus = defaultString(receipt.getStatus());
-        boolean changed = !targetStatus.equalsIgnoreCase(currentStatus)
-                || (("received".equalsIgnoreCase(targetStatus)) != (receipt.getReceivedDate() != null));
+        LocalDate newDate = ("receiving".equalsIgnoreCase(targetStatus) || "received".equalsIgnoreCase(targetStatus)) 
+                ? LocalDate.now() : null;
+        
+        boolean statusChanged = !targetStatus.equalsIgnoreCase(currentStatus)
+                || !java.util.Objects.equals(newDate, receipt.getReceivedDate());
 
-        if (!changed) {
+        if (!statusChanged && !itemsChanged) {
             return false;
         }
 
         receipt.setStatus(targetStatus);
-        receipt.setReceivedDate("received".equalsIgnoreCase(targetStatus) ? LocalDate.now() : null);
+        receipt.setReceivedDate(newDate);
         receipt.setUpdatedAt(LocalDateTime.now());
         receipt.setUpdatedBy(StringUtils.hasText(updater) ? updater : "warehouse");
         receiptMapper.updateById(receipt);
@@ -1127,11 +1169,11 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
     }
 
     private int resolvePlanQty(PurchaseReceiptItem item, TapeInboundRequest req) {
-        if (req != null && req.getRolls() != null && req.getRolls() > 0) {
-            return req.getRolls();
+        if (req != null && req.getRolls() != null && req.getRolls().compareTo(BigDecimal.ZERO) > 0) {
+            return req.getRolls().intValue();
         }
-        if (item != null && item.getExpectedQty() != null && item.getExpectedQty() > 0) {
-            return item.getExpectedQty();
+        if (item != null && item.getExpectedQty() != null && item.getExpectedQty().compareTo(BigDecimal.ZERO) > 0) {
+            return item.getExpectedQty().intValue();
         }
         if (item != null && item.getPurchaseQty() != null && item.getPurchaseQty().compareTo(BigDecimal.ZERO) > 0) {
             return item.getPurchaseQty().setScale(0, BigDecimal.ROUND_HALF_UP).intValue();
@@ -1160,18 +1202,11 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
         if (!StringUtils.hasText(raw)) {
             return null;
         }
-        String batchCode = extractBatchFromLabelCode(raw);
 
-        List<TapeInboundRequest> matched = tapeInboundRequestMapper.selectList(
-                new LambdaQueryWrapper<TapeInboundRequest>()
-                        .and(w -> w.eq(TapeInboundRequest::getRequestNo, raw)
-                                .or().eq(TapeInboundRequest::getBatchNo, raw)
-                                .or().eq(TapeInboundRequest::getCustomerBatchNo, raw)
-                                .or().eq(TapeInboundRequest::getBatchNo, batchCode)
-                                .or().eq(TapeInboundRequest::getCustomerBatchNo, batchCode))
-                        .orderByDesc(TapeInboundRequest::getId)
-        );
-        TapeInboundRequest req = pickBestInbound(matched);
+        TapeInboundRequest req = findInboundByScanCodeGlobal(raw);
+        if (req == null) {
+            req = findInboundByPrintedLabelCode(raw, null);
+        }
         if (req == null) {
             return null;
         }
@@ -1417,6 +1452,8 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
             return "";
         }
         String code = scanCode.trim();
+        
+        // 1. 标准序列号剥离 (e.g. B20240101-001 -> B20240101)
         int idx = code.lastIndexOf('-');
         if (idx > 0 && idx < code.length() - 1) {
             String suffix = code.substring(idx + 1);
@@ -1424,6 +1461,27 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
                 return code.substring(0, idx);
             }
         }
+
+        // 2. 子批次剥离 (e.g. B20240101-A -> B20240101, B20240101.1 -> B20240101)
+        if (code.contains("-")) {
+            int lastDash = code.lastIndexOf('-');
+            if (lastDash > 0) {
+                String suffix = code.substring(lastDash + 1);
+                if (suffix.length() == 1 && Character.isLetter(suffix.charAt(0))) {
+                    return code.substring(0, lastDash);
+                }
+            }
+        }
+        if (code.contains(".")) {
+            int lastDot = code.lastIndexOf('.');
+            if (lastDot > 0) {
+                String suffix = code.substring(lastDot + 1);
+                if (suffix.matches("\\d+")) {
+                    return code.substring(0, lastDot);
+                }
+            }
+        }
+        
         return code;
     }
 
@@ -1446,9 +1504,20 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
     }
 
     private String generateReceiptNo() {
-        return "PR"
-                + DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS").format(LocalDateTime.now())
-                + ThreadLocalRandom.current().nextInt(10, 100);
+        String today = DateTimeFormatter.ofPattern("yyMMdd").format(LocalDate.now());
+        String prefix = "PRB" + today;
+        
+        // 查询当天已有的最大序列号
+        Integer maxSeq = jdbcTemplate.queryForObject(
+                "SELECT COALESCE(MAX(CAST(RIGHT(receipt_no, 3) AS UNSIGNED)), 0) " +
+                        "FROM purchase_receipts WHERE receipt_no LIKE ? AND receipt_no REGEXP ?",
+                Integer.class,
+                prefix + "%",
+                "^PRB[0-9]{6}[0-9]{3}$"
+        );
+        
+        int sequence = (maxSeq == null ? 0 : maxSeq) + 1;
+        return prefix + String.format("%03d", sequence);
     }
 
     private void syncInboundRequestsFromReceipt(Long receiptId) {
@@ -1489,7 +1558,7 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
     private String buildInboundDedupKey(PurchaseReceiptItem item) {
         String materialCode = defaultString(item == null ? null : item.getMaterialCode(), "-");
         String spec = normalizeSingleSpecText(item == null ? null : item.getSpecification());
-        Integer receivedQty = item == null ? null : item.getReceivedQty();
+        BigDecimal receivedQty = item == null ? null : item.getReceivedQty();
         String unit = normalizeQtyUnit(item == null ? null : item.getUnit());
         String stockUom = normalizeQtyUnit(item == null ? null : item.getStockUomCode());
         String purchaseUom = normalizeQtyUnit(item == null ? null : item.getPurchaseUomCode());
@@ -1553,9 +1622,9 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
 
         PurchaseOrderItem poItem = findBestPurchaseOrderItem(item);
 
-        Integer targetRolls = resolveInboundRolls(item, poItem);
-        if (targetRolls == null || targetRolls <= 0) {
-            targetRolls = 1;
+        BigDecimal targetRolls = resolveInboundRolls(item, poItem);
+        if (targetRolls == null || targetRolls.compareTo(BigDecimal.ZERO) <= 0) {
+            targetRolls = BigDecimal.ONE;
         }
 
         String materialDisplayName = resolveMaterialDisplayName(item, new HashMap<>());
@@ -1568,7 +1637,8 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
             inbound.setMaterialCode(defaultString(item.getMaterialCode()));
             inbound.setProductName(defaultString(materialDisplayName));
             inbound.setBatchNo(generatedBatchNo);
-            inbound.setCustomerBatchNo(generatedBatchNo);
+            // 不再自动生成供商批次号，需人工录入
+            inbound.setCustomerBatchNo("");
             inbound.setRolls(targetRolls);
             inbound.setQtyUnit(resolveInboundQtyUnit(item, poItem));
             inbound.setLocation(defaultString(receipt.getReceiveAddress(), "待上架"));
@@ -1591,7 +1661,8 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
         request.setMaterialCode(defaultString(item.getMaterialCode()));
         request.setProductName(defaultString(materialDisplayName));
         request.setBatchNo(generatedBatchNo);
-        request.setCustomerBatchNo(generatedBatchNo);
+        // 不再自动生成供商批次号，需人工录入
+        request.setCustomerBatchNo("");
         request.setRolls(targetRolls);
         request.setQtyUnit(resolveInboundQtyUnit(item, poItem));
         request.setLocation(defaultString(receipt.getReceiveAddress(), "待上架"));
@@ -1844,15 +1915,21 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
         return result;
     }
 
-    private Integer resolveInboundRolls(PurchaseReceiptItem item, PurchaseOrderItem poItem) {
+    private BigDecimal resolveInboundRolls(PurchaseReceiptItem item, PurchaseOrderItem poItem) {
         if (item == null) {
-            return 0;
+            return BigDecimal.ZERO;
         }
 
-        // 仅当原始单位就是“卷”时，才直接采用收货数量。
+        // [MOD] 始终优先采用收货明细中的本次实到数量(receivedQty)
+        // 无论是否为计数单位(卷/支)，只要有填实到数量，就以此为准。
+        if (item.getReceivedQty() != null && item.getReceivedQty().compareTo(BigDecimal.ZERO) > 0) {
+            return item.getReceivedQty();
+        }
+
+        // 兼容处理：如果没有实到数量，则看是否为计数单位
         String[] unitCandidates = new String[] {
-                item.getStockUomCode(),
                 item.getUnit(),
+                item.getStockUomCode(),
                 item.getPurchaseUomCode(),
                 item.getPriceUomCode()
         };
@@ -1865,20 +1942,25 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
         }
 
         if (countUnit) {
-            if (item.getReceivedQty() != null && item.getReceivedQty() > 0) {
-                return item.getReceivedQty();
-            }
-            if (item.getExpectedQty() != null && item.getExpectedQty() > 0) {
+            if (item.getExpectedQty() != null && item.getExpectedQty().compareTo(BigDecimal.ZERO) > 0) {
                 return item.getExpectedQty();
             }
             if (item.getPurchaseQty() != null && item.getPurchaseQty().compareTo(BigDecimal.ZERO) > 0) {
-                return item.getPurchaseQty().setScale(0, BigDecimal.ROUND_HALF_UP).intValue();
+                return item.getPurchaseQty();
+            }
+        } else {
+            // 非计数单位（如 kg/m 等），也优先尝试使用采购数量/库存数量作为入库数值
+            if (item.getPurchaseQty() != null && item.getPurchaseQty().compareTo(BigDecimal.ZERO) > 0) {
+                return item.getPurchaseQty();
+            }
+            if (item.getStockQty() != null && item.getStockQty().compareTo(BigDecimal.ZERO) > 0) {
+                return item.getStockQty();
             }
         }
 
-        // 非卷单位（kg/㎡等）严禁直接当卷数；优先采用采购明细 rolls。
+        // 兜底：采用采购明细 rolls。
         if (poItem != null && poItem.getRolls() != null && poItem.getRolls() > 0) {
-            return poItem.getRolls();
+            return new BigDecimal(poItem.getRolls());
         }
 
         // 规格包含多个卷段（逗号/分号/换行）时，按段数估算卷数。
@@ -1890,11 +1972,11 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
             specRollCount = countSpecSegments(poItem == null ? null : poItem.getRawSpec());
         }
         if (specRollCount > 0) {
-            return specRollCount;
+            return BigDecimal.valueOf(specRollCount);
         }
 
         // 无法可靠推断时返回1卷，避免出现“12156卷”这类错误兜底。
-        return 1;
+        return BigDecimal.ONE;
     }
 
     private boolean isCountUnit(String raw) {
@@ -1958,28 +2040,14 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
         String spec = defaultString(item == null ? null : item.getSpecification());
         String merged = (code + " " + name + " " + spec).toLowerCase();
 
-        // 0) 采购下单时的原始意图判定（最准）
-        if (poItem != null) {
-            String rawSpec = poItem.getRawSpec();
-            if (StringUtils.hasText(rawSpec)) {
-                String rs = rawSpec.toLowerCase();
-                // 含有原材料规格描述（如：200KG/桶）的，直接判定为化工或包材
-                if (containsAny(rs, "kg", "公斤", "桶", "包", "升", " l", " drum", " bucket", "色浆", "胶水")) {
-                    return "CHEMICAL";
-                }
-                if (containsAny(rs, "支", "个", "箱", "件", "芯", "条")) {
-                    return "PACKAGING";
-                }
-            }
-            if (StringUtils.hasText(poItem.getFilmSpecRaw())) {
-                // 有薄膜专用规格描述（如：25μm*1250mm*3000m），直接判定为薄膜
-                return "FILM";
-            }
-        }
-
         // 统一口径：PEG/PE管类按包材仓入库，避免误入化工仓
         if (isPegTubeMaterial(item, poItem)) {
             return "PACKAGING";
+        }
+
+        // 0) 采购下单时的原始意图判定（最准）
+        if (poItem != null) {
+            // 这里可以增加对 poItem 仓库类型的判断，目前暂无该字段，保留占位
         }
 
         if (isPcsMaterial(item, poItem)) {
@@ -2110,17 +2178,14 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
     }
 
     private String resolveInboundQtyUnit(PurchaseReceiptItem item, PurchaseOrderItem poItem) {
-        // 业务显式规则：管/纸管/纸箱一律按件数单位。
-        if (isPcsMaterial(item, poItem)) {
-            return "个";
-        }
-
         String inboundCategory = resolveInboundCategory(item, poItem);
         boolean chemicalCategory = "CHEMICAL".equalsIgnoreCase(inboundCategory);
+        boolean packagingCategory = "PACKAGING".equalsIgnoreCase(inboundCategory);
 
-        // 化工类优先沿用采购单位（桶/包/kg），禁止被 rolls 信号误判为卷。
-        if (chemicalCategory) {
-            String[] chemicalCandidates = new String[] {
+        // [MOD] 化工及包材类优先沿用采购单位（桶/包/kg/支/箱），确保与采购到货数量单位一致。
+        // 同时防止被 rolls 信号误判为“卷”。
+        if (chemicalCategory || packagingCategory) {
+            String[] priorityCandidates = new String[] {
                     item == null ? null : item.getUnit(),
                     item == null ? null : item.getPurchaseUomCode(),
                     item == null ? null : item.getStockUomCode(),
@@ -2129,18 +2194,35 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
                     poItem == null ? null : poItem.getStockUomCode(),
                     poItem == null ? null : poItem.getPriceUomCode()
             };
-            for (String c : chemicalCandidates) {
+            for (String c : priorityCandidates) {
                 String unit = normalizeInboundDisplayUnit(c);
                 if (!StringUtils.hasText(unit)) {
                     continue;
                 }
+
+                // [FIX] PE管等包材物料，即使原始收货单写了“桶/包”（可能是系统回填错误），也应自动纠正为“支”。
+                if (isPegTubeMaterial(item, poItem) && ("桶".equals(unit) || "包".equals(unit))) {
+                    continue; 
+                }
+
+                // 桶/包/kg 对化工和包材都适用
                 if ("桶".equals(unit) || "包".equals(unit) || "kg".equalsIgnoreCase(unit)) {
                     return unit;
                 }
+                // 对于包材、管材，支/箱/个 也要优先，防止被下面的 isPcsMaterial 强行转为“支”
+                if (packagingCategory && ("支".equals(unit) || "箱".equals(unit) || "个".equals(unit))) {
+                    return unit;
+                }
             }
-            if (poItem != null && poItem.getRolls() != null && poItem.getRolls() > 0) {
+            // 化工类兜底：通常有 rolls 信号时指代桶数
+            if (chemicalCategory && poItem != null && poItem.getRolls() != null && poItem.getRolls() > 0) {
                 return "桶";
             }
+        }
+
+        // 业务显式规则：管/纸管/纸箱一律按件数单位（如果没有更明确的单位）。
+        if (isPcsMaterial(item, poItem)) {
+            return "支";
         }
 
         String[] rollSignals = new String[] {
@@ -2160,13 +2242,13 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
             }
         }
 
-        if (!chemicalCategory && poItem != null && poItem.getRolls() != null && poItem.getRolls() > 0) {
+        if (!chemicalCategory && !packagingCategory && poItem != null && poItem.getRolls() != null && poItem.getRolls() > 0) {
             return "卷";
         }
 
         String materialSpec = item == null ? null : item.getSpecification();
         // 仅在“多段规格”（逗号/分号/换行）时才按卷段判定 ROLL，避免单一规格误判。
-        if (!chemicalCategory && countSpecSegments(materialSpec) > 1) {
+        if (!chemicalCategory && !packagingCategory && countSpecSegments(materialSpec) > 1) {
             return "卷";
         }
 
@@ -2589,7 +2671,7 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
         }
         BigDecimal qty = null;
         if (item.getReceivedQty() != null) {
-            qty = BigDecimal.valueOf(item.getReceivedQty());
+            qty = item.getReceivedQty();
         } else if (item.getPriceQty() != null) {
             qty = item.getPriceQty();
         } else if (item.getStockQty() != null) {
@@ -2597,7 +2679,7 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
         } else if (item.getPurchaseQty() != null) {
             qty = item.getPurchaseQty();
         } else if (item.getExpectedQty() != null) {
-            qty = BigDecimal.valueOf(item.getExpectedQty());
+            qty = item.getExpectedQty();
         }
         String qtyText = qty == null ? "未知数量" : qty.stripTrailingZeros().toPlainString();
         String unit = StringUtils.hasText(item.getUnit()) ? item.getUnit() : "";
@@ -2718,5 +2800,24 @@ public class PurchaseReceiptServiceImpl extends ServiceImpl<PurchaseReceiptMappe
                 || "receiving".equalsIgnoreCase(status)
                 || "received".equalsIgnoreCase(status)
                 || "partial".equalsIgnoreCase(status);
+    }
+
+    private String translateStatus(String status) {
+        if (!StringUtils.hasText(status)) {
+            return "计划中";
+        }
+        String s = status.trim().toLowerCase(Locale.ROOT);
+        switch (s) {
+            case "planned": return "计划中";
+            case "receiving": return "收货中";
+            case "received":
+            case "scanned_in": return "已收货";
+            case "partial": return "部分收货";
+            case "cancelled": return "已取消";
+            case "pending": return "待审批";
+            case "processing": return "处理中";
+            case "completed": return "已完成";
+            default: return status;
+        }
     }
 }

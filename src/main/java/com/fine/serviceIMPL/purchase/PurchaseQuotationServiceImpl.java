@@ -30,7 +30,6 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ThreadLocalRandom;
 
 @Service
 public class PurchaseQuotationServiceImpl extends ServiceImpl<PurchaseQuotationMapper, PurchaseQuotation> implements PurchaseQuotationService {
@@ -282,13 +281,20 @@ public class PurchaseQuotationServiceImpl extends ServiceImpl<PurchaseQuotationM
     }
 
     private String generateQuotationNo(int attempt) {
-        String datePart = new SimpleDateFormat("yyyyMMdd").format(new Date());
-        String timePart = new SimpleDateFormat("HHmmssSSS").format(new Date());
-        int randomPart = ThreadLocalRandom.current().nextInt(1000, 10000);
-        if (attempt > 0) {
-            return String.format("PQ-%s-%s-%d-%d", datePart, timePart, attempt, randomPart);
-        }
-        return String.format("PQ-%s-%s-%d", datePart, timePart, randomPart);
+        String today = new SimpleDateFormat("yyMMdd").format(new Date());
+        String prefix = "QBT" + today;
+        
+        // 查询当天已有的最大序列号
+        Integer maxSeq = jdbcTemplate.queryForObject(
+                "SELECT COALESCE(MAX(CAST(RIGHT(quotation_no, 3) AS UNSIGNED)), 0) " +
+                        "FROM purchase_quotations WHERE quotation_no LIKE ? AND quotation_no REGEXP ?",
+                Integer.class,
+                prefix + "%",
+                "^QBT[0-9]{6}[0-9]{3}$"
+        );
+        
+        int sequence = (maxSeq == null ? 0 : maxSeq) + 1 + attempt;
+        return prefix + String.format("%03d", sequence);
     }
 
     @SuppressWarnings("unused")
@@ -335,6 +341,14 @@ public class PurchaseQuotationServiceImpl extends ServiceImpl<PurchaseQuotationM
             return;
         }
 
+        if ("支".equals(pricingUnit)) {
+            if (item.getQuantity() != null && item.getUnitPrice() != null) {
+                item.setAmount(new BigDecimal(item.getQuantity()).multiply(item.getUnitPrice()).setScale(2, BigDecimal.ROUND_HALF_UP));
+            }
+            return;
+        }
+
+        // 如果有宽度+长度+数量，仍然按面积计算金额（兜底逻辑，兼容各种单位的面积报价）
         if (item.getWidth() != null && item.getLength() != null && item.getQuantity() != null) {
             BigDecimal sqm = item.getWidth().divide(new BigDecimal(1000), 6, BigDecimal.ROUND_HALF_UP)
                     .multiply(item.getLength()).multiply(new BigDecimal(item.getQuantity()));
@@ -342,6 +356,12 @@ public class PurchaseQuotationServiceImpl extends ServiceImpl<PurchaseQuotationM
             if (item.getUnitPrice() != null) {
                 item.setAmount(sqm.multiply(item.getUnitPrice()).setScale(2, BigDecimal.ROUND_HALF_UP));
             }
+            return;
+        }
+
+        // 兜底逻辑：如果存在数量且没有复杂的宽长面积，则直接 数量 * 单价
+        if (item.getQuantity() != null && item.getUnitPrice() != null) {
+            item.setAmount(new BigDecimal(item.getQuantity()).multiply(item.getUnitPrice()).setScale(2, BigDecimal.ROUND_HALF_UP));
             return;
         }
 
@@ -376,10 +396,6 @@ public class PurchaseQuotationServiceImpl extends ServiceImpl<PurchaseQuotationM
                 boolean looksFilm = item.getWidth() != null && item.getLength() != null;
                 finalUnit = looksFilm ? "㎡" : "kg";
             }
-            if (!"㎡".equals(finalUnit) && !"kg".equals(finalUnit)) {
-                return new ResponseResult<>(400,
-                        "料号[" + item.getMaterialCode() + "]单位不合法，仅支持 kg 或 ㎡");
-            }
             item.setUnit(finalUnit);
         }
         return null;
@@ -396,6 +412,9 @@ public class PurchaseQuotationServiceImpl extends ServiceImpl<PurchaseQuotationM
         }
         if (raw.contains("公斤") || raw.contains("千克") || upper.contains("KG")) {
             return "kg";
+        }
+        if (raw.contains("支") || raw.contains("个") || upper.contains("PCS")) {
+            return "支";
         }
         return null;
     }

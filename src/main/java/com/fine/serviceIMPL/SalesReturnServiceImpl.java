@@ -586,7 +586,7 @@ public class SalesReturnServiceImpl extends ServiceImpl<SalesReturnMapper, Sales
                 request.setThickness(toIntegerSpec(item.getThickness()));
                 request.setWidth(toIntegerSpec(item.getWidth()));
                 request.setLength(toIntegerSpec(item.getLength()));
-                request.setRolls(rolls);
+                request.setRolls(BigDecimal.valueOf(rolls));
                 request.setLocation(RETURN_WAREHOUSE_LOCATION);
                 request.setSpecDesc(buildSpecDesc(request.getThickness(), request.getWidth(), request.getLength()));
                 request.setProdDate(found.getReturnDate());
@@ -827,7 +827,7 @@ public class SalesReturnServiceImpl extends ServiceImpl<SalesReturnMapper, Sales
             if (orderItem == null || orderItem.getIsDeleted() == 1) {
                 return new ResponseResult<>(400, "存在无效的来源订单明细，无法保存退货单", null);
             }
-            int totalRolls = orderItem.getRolls() == null ? 0 : orderItem.getRolls();
+            int totalRolls = orderItem.getRolls() == null ? 0 : orderItem.getRolls().intValue();
             int alreadyReturned = existingReturnedMap.getOrDefault(entry.getKey(), 0);
             int available = Math.max(0, totalRolls - alreadyReturned);
             if (entry.getValue() > available) {

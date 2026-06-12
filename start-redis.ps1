@@ -29,7 +29,7 @@ $conn = Get-NetTCPConnection -LocalPort 6379 -ErrorAction SilentlyContinue
 if ($conn) {
     Write-Host "✅ Redis 启动成功（6379）" -ForegroundColor Green
     exit 0
+} else {
+    Write-Host "❌ Redis 启动失败，请手动执行 redis-server 查看日志" -ForegroundColor Red
+    exit 1
 }
-
-Write-Host "❌ Redis 启动失败，请手动执行 redis-server 查看日志" -ForegroundColor Red
-exit 1

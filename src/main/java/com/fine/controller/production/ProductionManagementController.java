@@ -148,8 +148,12 @@ public class ProductionManagementController {
                 row.put("widthMm", toInteger(item.getWidth()));
                 row.put("length", toInteger(item.getLength()));
                 row.put("qty", item.getQuantity() == null ? 0 : item.getQuantity());
+                row.put("customerName", order.getCustomerName());
+                row.put("customerShortName", order.getCustomerName()); // 暂时平替
                 row.put("planStartTime", toDateTimeString(order.getSendDate()));
                 row.put("planEndTime", toDateTimeString(order.getSendDate()));
+                row.put("equipmentCode", "-");
+                row.put("planDuration", "1.0");
                 all.add(row);
             }
         }
@@ -161,7 +165,7 @@ public class ProductionManagementController {
         List<Map<String, Object>> pageList = from >= total ? new ArrayList<>() : all.subList(from, to);
 
         Map<String, Object> result = new HashMap<>();
-        result.put("list", pageList);
+        result.put("records", pageList);
         result.put("total", total);
         result.put("pageNum", pageNum);
         result.put("pageSize", pageSize);
@@ -191,9 +195,9 @@ public class ProductionManagementController {
         schedule.setOrderNo(req.getSampleNo().trim());
         schedule.setMaterialCode(trimToNull(req.getMaterialCode()));
         schedule.setMaterialName(trimToNull(req.getMaterialName()));
-        Integer qty = req.getQuantity() == null ? 0 : req.getQuantity();
-        schedule.setScheduleQty(Math.max(1, qty));
-        schedule.setShortageQty(0);
+        Double qty = req.getQuantity() == null ? 0.0 : req.getQuantity();
+        schedule.setScheduleQty(Math.max(1.0, qty));
+        schedule.setShortageQty(0.0);
         schedule.setScheduleType("STOCK");
         schedule.setStatus("REWINDING_SCHEDULED");
         schedule.setRemark(buildSampleMarker(req.getSampleItemId(), req.getSampleNo()));
@@ -532,7 +536,7 @@ public class ProductionManagementController {
         private Long sampleItemId;
         private String materialCode;
         private String materialName;
-        private Integer quantity;
+        private Double quantity;
 
         public String getSampleNo() { return sampleNo; }
         public void setSampleNo(String sampleNo) { this.sampleNo = sampleNo; }
@@ -542,8 +546,8 @@ public class ProductionManagementController {
         public void setMaterialCode(String materialCode) { this.materialCode = materialCode; }
         public String getMaterialName() { return materialName; }
         public void setMaterialName(String materialName) { this.materialName = materialName; }
-        public Integer getQuantity() { return quantity; }
-        public void setQuantity(Integer quantity) { this.quantity = quantity; }
+        public Double getQuantity() { return quantity; }
+        public void setQuantity(Double quantity) { this.quantity = quantity; }
     }
 
     private Long findSampleScheduleId(Long sampleItemId, String sampleNo) {
@@ -560,7 +564,7 @@ public class ProductionManagementController {
     }
 
     private String buildSampleMarker(Long sampleItemId, String sampleNo) {
-        return SAMPLE_TASK_MARKER + " sampleNo=" + (sampleNo == null ? "" : sampleNo.trim()) + ",sampleItemId=" + sampleItemId;
+        return SAMPLE_TASK_MARKER + "sampleNo=" + (sampleNo == null ? "" : sampleNo.trim()) + ",sampleItemId=" + sampleItemId;
     }
 
     private static String trimToNull(String text) {

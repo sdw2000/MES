@@ -475,10 +475,10 @@ public class FilmStockServiceImpl implements FilmStockService {
                     .filter(Objects::nonNull)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
             
-            int totalAvailableRolls = list.stream()
+            double totalAvailableRolls = list.stream()
                     .map(FilmStock::getAvailableRolls)
                     .filter(Objects::nonNull)
-                    .mapToInt(Integer::intValue)
+                    .mapToDouble(Double::doubleValue)
                     .sum();
             
             // 获取该宽度下的不同厚度
@@ -537,10 +537,10 @@ public class FilmStockServiceImpl implements FilmStockService {
                 .filter(Objects::nonNull)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         
-        int totalAvailableRolls = stocks.stream()
+        double totalAvailableRolls = stocks.stream()
                 .map(FilmStock::getAvailableRolls)
                 .filter(Objects::nonNull)
-                .mapToInt(Integer::intValue)
+                .mapToDouble(Double::doubleValue)
                 .sum();
         
         Map<String, Object> detail = new HashMap<>();
@@ -654,11 +654,11 @@ public class FilmStockServiceImpl implements FilmStockService {
                             BigDecimal lockedArea = getDecimalCellValue(getCellByHeader(row, headerIndex,
                                     new String[]{"锁定面积", "锁定面积(㎡)", "locked_area"}, 7));
 
-                            Integer totalRolls = defaultInt(getIntCellValue(getCellByHeader(row, headerIndex,
+                            Double totalRolls = defaultDouble(getDoubleCellValue(getCellByHeader(row, headerIndex,
                                     new String[]{"总卷数", "total_rolls"}, 8)));
-                            Integer availableRolls = getIntCellValue(getCellByHeader(row, headerIndex,
+                            Double availableRolls = getDoubleCellValue(getCellByHeader(row, headerIndex,
                                     new String[]{"可用卷数", "available_rolls"}, 9));
-                            Integer lockedRolls = getIntCellValue(getCellByHeader(row, headerIndex,
+                            Double lockedRolls = getDoubleCellValue(getCellByHeader(row, headerIndex,
                                     new String[]{"锁定卷数", "locked_rolls"}, 10));
 
                             BigDecimal safetyStock = getDecimalCellValue(getCellByHeader(row, headerIndex,
@@ -678,7 +678,7 @@ public class FilmStockServiceImpl implements FilmStockService {
                                 availableRolls = totalRolls;
                             }
                             if (lockedRolls == null) {
-                                lockedRolls = 0;
+                                lockedRolls = 0.0;
                             }
                             if (!StringUtils.hasText(status)) {
                                 status = "active";
@@ -748,9 +748,9 @@ public class FilmStockServiceImpl implements FilmStockService {
                                 stock.setTotalArea(nz(exist.getTotalArea()).add(nz(totalArea)));
                                 stock.setAvailableArea(nz(exist.getAvailableArea()).add(nz(availableArea)));
                                 stock.setLockedArea(nz(exist.getLockedArea()).add(nz(lockedArea)));
-                                stock.setTotalRolls(nzi(exist.getTotalRolls()) + nzi(totalRolls));
-                                stock.setAvailableRolls(nzi(exist.getAvailableRolls()) + nzi(availableRolls));
-                                stock.setLockedRolls(nzi(exist.getLockedRolls()) + nzi(lockedRolls));
+                                stock.setTotalRolls(nzd(exist.getTotalRolls()) + nzd(totalRolls));
+                                stock.setAvailableRolls(nzd(exist.getAvailableRolls()) + nzd(availableRolls));
+                                stock.setLockedRolls(nzd(exist.getLockedRolls()) + nzd(lockedRolls));
                             }
                             stock.setSafetyStock(safetyStock);
                             stock.setStatus(status);
@@ -782,7 +782,7 @@ public class FilmStockServiceImpl implements FilmStockService {
                             }
 
                             // 导入时按卷数拆分生成明细，保留规格与卷信息
-                            appendImportDetailsByRoll(stock, totalArea, totalRolls, width, thickness, "import-rolls");
+                            appendImportDetailsByRoll(stock, totalArea, totalRolls == null ? null : totalRolls.intValue(), width, thickness, "import-rolls");
                             successCount++;
                         } catch (Exception ex) {
                             skipCount++;
@@ -1059,7 +1059,8 @@ public class FilmStockServiceImpl implements FilmStockService {
                         detail.setLength((Integer) parsed.get("length"));
                         detail.setArea((BigDecimal) parsed.get("area"));
                         detail.setPackUom((String) parsed.get("packUom"));
-                        detail.setPackCount((Integer) parsed.get("packCount"));
+                        Object packCountObj = parsed.get("packCount");
+                        detail.setPackCount(packCountObj instanceof Number ? ((Number) packCountObj).doubleValue() : null);
                         detail.setStdUom((String) parsed.get("stdUom"));
                         detail.setStdQtyPerPack((BigDecimal) parsed.get("stdQtyPerPack"));
                         detail.setQcStatus((String) parsed.get("qcStatus"));
@@ -1363,7 +1364,7 @@ public class FilmStockServiceImpl implements FilmStockService {
                     }
                     detail.setArea(area);
                     detail.setPackUom("卷");
-                    detail.setPackCount(1);
+                    detail.setPackCount(1.0);
                     detail.setStdUom("㎡");
                     detail.setStdQtyPerPack(area);
                     detail.setStatus("available");
@@ -1391,16 +1392,16 @@ public class FilmStockServiceImpl implements FilmStockService {
                 BigDecimal totalArea = BigDecimal.ZERO;
                 BigDecimal availableArea = BigDecimal.ZERO;
                 BigDecimal lockedArea = BigDecimal.ZERO;
-                int totalRolls = 0;
-                int availableRolls = 0;
-                int lockedRolls = 0;
+                double totalRolls = 0.0;
+                double availableRolls = 0.0;
+                double lockedRolls = 0.0;
 
                 for (FilmStockDetail item : details) {
                     if (item == null) {
                         continue;
                     }
                     BigDecimal area = item.getArea() == null ? BigDecimal.ZERO : item.getArea();
-                    int packCount = item.getPackCount() != null && item.getPackCount() > 0 ? item.getPackCount() : 1;
+                    double packCount = item.getPackCount() != null && item.getPackCount() > 0 ? item.getPackCount() : 1.0;
                     totalArea = totalArea.add(area);
                     totalRolls += packCount;
 
@@ -1516,6 +1517,15 @@ public class FilmStockServiceImpl implements FilmStockService {
                 return Integer.parseInt(normalized.split("\\.")[0]);
             }
 
+            private Double getDoubleCellValue(Cell cell) {
+                String value = getCellValue(cell);
+                if (!StringUtils.hasText(value)) {
+                    return null;
+                }
+                String normalized = value.replace(",", "").replace("，", "").trim();
+                return Double.parseDouble(normalized);
+            }
+
             private BigDecimal getDecimalCellValue(Cell cell) {
                 String value = getCellValue(cell);
                 if (!StringUtils.hasText(value)) {
@@ -1533,8 +1543,16 @@ public class FilmStockServiceImpl implements FilmStockService {
                 return value == null ? 0 : value;
             }
 
+            private Double defaultDouble(Double value) {
+                return value == null ? 0.0 : value;
+            }
+
             private BigDecimal nz(BigDecimal value) {
                 return value == null ? BigDecimal.ZERO : value;
+            }
+
+            private double nzd(Double value) {
+                return value == null ? 0.0 : value;
             }
 
             private int nzi(Integer value) {

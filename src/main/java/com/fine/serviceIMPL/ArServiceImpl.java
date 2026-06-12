@@ -57,11 +57,15 @@ public class ArServiceImpl implements ArService {
 
     @Override
     public ResponseResult<?> listInvoices(Map<String, Object> params) {
-        LambdaQueryWrapper<ArInvoice> qw = new LambdaQueryWrapper<ArInvoice>()
-                .eq(ArInvoice::getIsDeleted, 0)
-                .orderByDesc(ArInvoice::getInvoiceDate)
-                .last("LIMIT 200");
-        List<ArInvoice> rows = arInvoiceMapper.selectList(qw);
+        String sql = "SELECT a.id, a.invoice_no AS invoiceNo, a.customer_code AS customerCode, " +
+                "c.customer_name AS customerName, " +
+                "DATE_FORMAT(a.invoice_date, '%Y-%m-%d') AS invoiceDate, " +
+                "a.total_amount AS totalAmount, a.status " +
+                "FROM ar_invoice a " +
+                "LEFT JOIN customers c ON c.customer_code COLLATE utf8mb4_unicode_ci = a.customer_code COLLATE utf8mb4_unicode_ci AND c.is_deleted = 0 " +
+                "WHERE a.is_deleted = 0 " +
+                "ORDER BY a.invoice_date DESC LIMIT 200";
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql);
         return new ResponseResult<>(200, "OK", rows);
     }
 
@@ -270,7 +274,7 @@ public class ArServiceImpl implements ArService {
         );
 
         String dataSql = "SELECT r.id, r.customer_code AS customerCode, " +
-                "IFNULL(r.customer_name, '') AS customerName, " +
+                "IFNULL(NULLIF(c.customer_name,''), IFNULL(r.customer_name, '')) AS customerName, " +
                 "r.amount AS receiptAmount, " +
             "r.bank_account_id AS bankAccountId, " +
             "IFNULL(r.bank_name, '') AS bankName, " +
@@ -284,6 +288,7 @@ public class ArServiceImpl implements ArService {
                 "IFNULL(r.reconciled_by, '') AS reconciledBy, " +
             "IFNULL(NULLIF(r.created_by, ''), IFNULL(r.registrar, '')) AS registrar " +
                 "FROM finance_ar_receipt r " +
+                "LEFT JOIN customers c ON c.customer_code COLLATE utf8mb4_unicode_ci = r.customer_code COLLATE utf8mb4_unicode_ci AND c.is_deleted = 0 " +
                 where +
                 " ORDER BY r.pay_date DESC, r.id DESC LIMIT ? OFFSET ?";
 
@@ -428,6 +433,7 @@ public class ArServiceImpl implements ArService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ResponseResult<?> reconcileReceipt(Long id) {
+        System.err.println("AR_DEBUG: reconcileReceipt START for id=" + id);
         ensureReceiptTable();
         ensureOrderPaymentTables();
         if (id == null || id <= 0) {
@@ -441,12 +447,14 @@ public class ArServiceImpl implements ArService {
             id
         );
         if (rows.isEmpty()) {
+            System.err.println("AR_DEBUG: Receipt not found or deleted for id=" + id);
             return new ResponseResult<>(404, "收款记录不存在", null);
         }
 
         String operator = getCurrentUsername();
         Map<String, Object> summary = reconcileOneReceipt(rows.get(0), operator);
         BigDecimal allocatedNow = normalizeMoney(toDecimal(summary.get("allocatedNow")));
+        System.err.println("AR_DEBUG: reconcileOneReceipt returned allocatedNow=" + allocatedNow);
         if (allocatedNow.compareTo(BigDecimal.ZERO) <= 0) {
             return new ResponseResult<>(200, "无需扣账（暂无可分配未收金额）", summary);
         }
@@ -894,8 +902,10 @@ public class ArServiceImpl implements ArService {
         Long receiptId = parseLong(receipt.get("id"));
         String customerCode = stringValue(receipt.get("customerCode"));
         BigDecimal amount = normalizeMoney(toDecimal(receipt.get("amount")));
+        System.err.println("AR_DEBUG: reconcileOneReceipt for ID=" + receiptId + " customer=" + customerCode + " amount=" + amount);
         Date payDate = receipt.get("payDate") instanceof Date ? (Date) receipt.get("payDate") : Date.valueOf(LocalDate.now());
         if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+            System.err.println("AR_DEBUG: amount <= 0, SKIPPING");
             Map<String, Object> empty = new HashMap<>();
             empty.put("receiptId", receiptId);
             empty.put("allocatedNow", BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP));
@@ -908,46 +918,53 @@ public class ArServiceImpl implements ArService {
 
         BigDecimal allocatedExisting = normalizeMoney(toDecimal(receipt.get("allocatedAmount")));
         BigDecimal remaining = normalizeMoney(toDecimal(receipt.get("unallocatedAmount")));
+        System.err.println("AR_DEBUG: allocatedExisting=" + allocatedExisting + " remaining=" + remaining);
         if (remaining.compareTo(BigDecimal.ZERO) <= 0) {
             remaining = normalizeMoney(amount.subtract(allocatedExisting));
+            System.err.println("AR_DEBUG: adjusted remaining to amount-allocatedExisting=" + remaining);
         }
         if (remaining.compareTo(BigDecimal.ZERO) < 0) {
             remaining = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
         }
 
-        Map<String, Object> allocation;
+        BigDecimal remainingForOrders = remaining;
+        int affectedHistoryRows = 0;
+        BigDecimal historyAllocatedTotal = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+
+        // 1. 优先冲销历史欠款 (History First)
         if (remaining.compareTo(BigDecimal.ZERO) > 0 && StringUtils.hasText(customerCode)) {
-            allocation = allocateReceiptToOrders(customerCode, receiptId, remaining, payDate, operator);
+            System.err.println("AR_DEBUG: Trying history allocation first for " + customerCode);
+            Map<String, Object> historyAlloc = allocateReceiptToHistoryWithResult(customerCode, receiptId, remaining, operator);
+            historyAllocatedTotal = normalizeMoney(toDecimal(historyAlloc.get("allocatedAmount")));
+            affectedHistoryRows = parseInt(historyAlloc.get("affectedRows"), 0);
+            remainingForOrders = normalizeMoney(remaining.subtract(historyAllocatedTotal));
+            System.err.println("AR_DEBUG: History allocated " + historyAllocatedTotal + ", remaining for orders: " + remainingForOrders);
+        }
+
+        // 2. 剩余金额冲销当前订单 (Current Orders)
+        Map<String, Object> allocation;
+        if (remainingForOrders.compareTo(BigDecimal.ZERO) > 0 && StringUtils.hasText(customerCode)) {
+            System.err.println("AR_DEBUG: Calling allocateReceiptToOrders for " + customerCode + " with remaining " + remainingForOrders);
+            allocation = allocateReceiptToOrders(customerCode, receiptId, remainingForOrders, payDate, operator);
         } else {
             allocation = new HashMap<>();
             allocation.put("allocatedAmount", BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP));
-            allocation.put("unallocatedAmount", remaining);
+            allocation.put("unallocatedAmount", remainingForOrders);
             allocation.put("affectedOrders", 0);
         }
 
-        BigDecimal allocatedNow = normalizeMoney(toDecimal(allocation.get("allocatedAmount")));
+        BigDecimal orderAllocatedNow = normalizeMoney(toDecimal(allocation.get("allocatedAmount")));
+        BigDecimal allocatedNow = normalizeMoney(historyAllocatedTotal.add(orderAllocatedNow));
+        
+        System.err.println("AR_DEBUG: Total allocated now (Hist+Order)=" + allocatedNow);
         BigDecimal allocatedTotal = normalizeMoney(allocatedExisting.add(allocatedNow));
         BigDecimal unallocatedTotal = normalizeMoney(remaining.subtract(allocatedNow));
         if (unallocatedTotal.compareTo(BigDecimal.ZERO) < 0) {
             unallocatedTotal = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
         }
 
-        int affectedHistoryRows = 0;
-        if (unallocatedTotal.compareTo(BigDecimal.ZERO) > 0 && StringUtils.hasText(customerCode)) {
-            Map<String, Object> historyAlloc = allocateReceiptToHistoryWithResult(customerCode, receiptId, unallocatedTotal, operator);
-            BigDecimal historyAllocated = normalizeMoney(toDecimal(historyAlloc.get("allocatedAmount")));
-            affectedHistoryRows = parseInt(historyAlloc.get("affectedRows"), 0);
-            if (historyAllocated.compareTo(BigDecimal.ZERO) > 0) {
-                allocatedTotal = normalizeMoney(allocatedTotal.add(historyAllocated));
-                unallocatedTotal = normalizeMoney(unallocatedTotal.subtract(historyAllocated));
-                if (unallocatedTotal.compareTo(BigDecimal.ZERO) < 0) {
-                    unallocatedTotal = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
-                }
-                allocatedNow = normalizeMoney(allocatedNow.add(historyAllocated));
-            }
-        }
-
         String reconcileStatus = determineReconcileStatus(amount, allocatedTotal, unallocatedTotal);
+        System.err.println("AR_DEBUG: Final allocatedTotal=" + allocatedTotal + " unallocatedTotal=" + unallocatedTotal + " status=" + reconcileStatus);
 
         jdbcTemplate.update(
             "UPDATE finance_ar_receipt SET allocated_amount = ?, unallocated_amount = ?, reconcile_status = ?, reconciled_at = NOW(), reconciled_by = ?, updated_at = NOW() WHERE id = ?",
@@ -2377,6 +2394,7 @@ public class ArServiceImpl implements ArService {
         BigDecimal remaining = normalizeMoney(receiptAmount);
         int affectedOrders = 0;
 
+        System.err.println("AR_DEBUG: allocateReceiptToOrders Querying for customer=" + customerCode + " amount=" + receiptAmount);
         List<Map<String, Object>> unpaidOrders = jdbcTemplate.queryForList(
                 "SELECT id, order_no, shipment_amount, paid_amount, order_date, import_shipment_date " +
                         "FROM finance_ar_order_payment_status " +
@@ -2385,9 +2403,11 @@ public class ArServiceImpl implements ArService {
                         "ORDER BY IFNULL(import_shipment_date, order_date) ASC, id ASC",
                 customerCode
         );
+        System.err.println("AR_DEBUG: found " + unpaidOrders.size() + " unpaid orders");
 
         for (Map<String, Object> row : unpaidOrders) {
             if (remaining.compareTo(BigDecimal.ZERO) <= 0) {
+                System.err.println("AR_DEBUG: remaining is 0, BREAKING loop");
                 break;
             }
             Long id = parseLong(row.get("id"));
@@ -2402,7 +2422,10 @@ public class ArServiceImpl implements ArService {
                 unpaidAmount = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
             }
 
+            System.err.println("AR_DEBUG: Processing order=" + orderNo + " unpaidAmount=" + unpaidAmount);
+
             if (id == null || !StringUtils.hasText(orderNo) || unpaidAmount.compareTo(BigDecimal.ZERO) <= 0) {
+                System.err.println("AR_DEBUG: skipping order due to invalid ID/No or zero unpaid");
                 continue;
             }
 
@@ -2410,6 +2433,8 @@ public class ArServiceImpl implements ArService {
             BigDecimal newPaidAmount = normalizeMoney(paidAmount.add(alloc));
             BigDecimal newUnpaidAmount = normalizeMoney(unpaidAmount.subtract(alloc));
             int paidFlag = newUnpaidAmount.compareTo(BigDecimal.ZERO) <= 0 ? 1 : 0;
+
+            System.err.println("AR_DEBUG: Allocating " + alloc + " to " + orderNo + ". NewPaid=" + newPaidAmount + " NewUnpaid=" + newUnpaidAmount);
 
             jdbcTemplate.update(
                     "UPDATE finance_ar_order_payment_status " +

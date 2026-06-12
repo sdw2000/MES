@@ -106,9 +106,9 @@ public class OrderPreprocessingController {
                 String specDesc = buildSpecDesc(soi);
                 m.put("specDesc", specDesc.isEmpty() ? "-" : specDesc);
 
-                int rolls = soi.getRolls() != null ? soi.getRolls() : 0;
-                int scheduledQty = soi.getScheduledQty() != null ? soi.getScheduledQty() : 0;
-                int pendingQty = Math.max(rolls - scheduledQty, 0);
+                Double rolls = soi.getRolls() != null ? soi.getRolls() : 0.0;
+                Double scheduledQty = soi.getScheduledQty() != null ? soi.getScheduledQty() : 0.0;
+                Double pendingQty = Math.max(rolls - scheduledQty, 0.0);
                 m.put("rolls", rolls);
                 m.put("pending_qty", pendingQty);
                 java.math.BigDecimal required = soi.getPendingArea() != null ? soi.getPendingArea() : java.math.BigDecimal.ZERO;

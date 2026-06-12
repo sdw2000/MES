@@ -52,6 +52,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -453,47 +454,76 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
             }
         }
 
-        // 1) 按客户复用详情同口径计算（含拆分顺延/退货/计价规则），避免总览与详情不一致
+        // 1) 按客户复用详情同口径计算（含拆分顺延/退货/计价规则），优化为批量处理以提升性能
+        // 先建立标识符到客户代码的映射，用于将批量查询出的记录归类到正确客户
+        Map<String, String> idToCodeMap = new HashMap<>();
+        Set<String> allIdentifiers = new HashSet<>();
         for (Map.Entry<String, Customer> entry : customerByCode.entrySet()) {
-            String customerCode = entry.getKey();
+            String code = entry.getKey();
             Customer customer = entry.getValue();
-
-            Set<String> customerKeys = new LinkedHashSet<>();
-            customerKeys.add(customerCode);
+            addCustomerIdentifier(code, code, allIdentifiers, idToCodeMap);
             if (customer != null) {
-                if (hasText(customer.getCustomerName())) {
-                    customerKeys.add(customer.getCustomerName().trim());
-                }
-                if (hasText(customer.getShortName())) {
-                    customerKeys.add(customer.getShortName().trim());
+                addCustomerIdentifier(code, customer.getCustomerName(), allIdentifiers, idToCodeMap);
+                addCustomerIdentifier(code, customer.getShortName(), allIdentifiers, idToCodeMap);
+            }
+        }
+
+        // 将客户按配置分组批量拉取数据，避免N+1次查询
+        // 分组维度：reconciliationBasis(SHIPPED/RECEIVED), rpNaturalMonthLocked(true/false)
+        Map<String, List<String>> groupMap = new HashMap<>();
+        for (Map.Entry<String, Customer> entry : customerByCode.entrySet()) {
+            Customer c = entry.getValue();
+            String basis = normalizeReconciliationBasis(c == null ? null : c.getReconciliationBasis());
+            boolean locked = isRpCustomer(c, entry.getKey());
+            String groupKey = basis + "|" + locked;
+            groupMap.computeIfAbsent(groupKey, k -> new ArrayList<>()).add(entry.getKey());
+        }
+
+        for (Map.Entry<String, List<String>> groupEntry : groupMap.entrySet()) {
+            String[] settings = groupEntry.getKey().split("\\|");
+            String basis = settings[0];
+            boolean locked = Boolean.parseBoolean(settings[1]);
+            List<String> groupCodes = groupEntry.getValue();
+
+            // 找出该组内所有客户的最宽日期范围
+            LocalDate minStart = null;
+            LocalDate maxEnd = null;
+            List<String> groupIdentifiers = new ArrayList<>();
+            for (String code : groupCodes) {
+                Customer c = customerByCode.get(code);
+                int day = resolveEffectiveReconciliationDay(c, code);
+                LocalDate start = getStatementPeriodStart(month, day);
+                LocalDate end = getStatementPeriodEnd(month, day);
+                if (minStart == null || start.isBefore(minStart)) minStart = start;
+                if (maxEnd == null || end.isAfter(maxEnd)) maxEnd = end;
+
+                groupIdentifiers.add(code);
+                if (c != null) {
+                    if (hasText(c.getCustomerName())) groupIdentifiers.add(c.getCustomerName().trim());
+                    if (hasText(c.getShortName())) groupIdentifiers.add(c.getShortName().trim());
                 }
             }
 
-            int reconciliationDay = resolveEffectiveReconciliationDay(customer, customerCode);
-            String reconciliationBasis = normalizeReconciliationBasis(customer == null ? null : customer.getReconciliationBasis());
-            boolean rpNaturalMonthLocked = isRpCustomer(customer, customerCode);
-            boolean excludeLegacyYearDeliveries = shouldExcludeLegacyYearDeliveries(customerCode, month);
-            LocalDate periodStart = getStatementPeriodStart(month, reconciliationDay);
-            LocalDate periodEnd = getStatementPeriodEnd(month, reconciliationDay);
+            // 批量查询该组数据
+            List<Map<String, Object>> groupRows = new ArrayList<>();
+            groupRows.addAll(queryDeliveryRows(groupIdentifiers, month, minStart, maxEnd, 0, basis, locked, false));
+            groupRows.addAll(queryReturnRows(groupIdentifiers, month, locked));
 
-            List<Map<String, Object>> detailRows = new ArrayList<>();
-            detailRows.addAll(queryDeliveryRows(
-                    new ArrayList<>(customerKeys),
-                    month,
-                    periodStart,
-                    periodEnd,
-                    reconciliationDay,
-                    reconciliationBasis,
-                    rpNaturalMonthLocked,
-                    excludeLegacyYearDeliveries
-            ));
-            detailRows.addAll(queryReturnRows(new ArrayList<>(customerKeys), month, rpNaturalMonthLocked));
+            // 将数据分发到各个客户的聚合对象中
+            for (Map<String, Object> row : groupRows) {
+                String rowIdent = String.valueOf(row.get("customer"));
+                String targetCode = idToCodeMap.get(rowIdent);
+                if (!hasText(targetCode)) continue;
 
-            OverviewAggregate agg = aggregateMap.computeIfAbsent(customerCode, k -> new OverviewAggregate());
-            for (Map<String, Object> row : detailRows) {
-                if (!Boolean.TRUE.equals(row.get("includeInCurrentStatement"))) {
+                Customer c = customerByCode.get(targetCode);
+                int day = resolveEffectiveReconciliationDay(c, targetCode);
+                
+                // 复用详情逻辑判断该行是否应计入当前月对账单
+                if (!isWithinStatementPeriod(row, month, locked, day)) {
                     continue;
                 }
+
+                OverviewAggregate agg = aggregateMap.computeIfAbsent(targetCode, k -> new OverviewAggregate());
                 String bizType = String.valueOf(row.getOrDefault("bizType", "")).trim();
                 BigDecimal amount = toDecimal(row.get("amount"));
                 if ("delivery".equals(bizType)) {
@@ -1665,7 +1695,7 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
                 continue;
             }
 
-            int quantity = item.getDeliveredQty() == null || item.getDeliveredQty() <= 0
+            double quantity = item.getDeliveredQty() == null || item.getDeliveredQty() <= 0
                     ? (item.getRolls() == null ? 0 : item.getRolls())
                     : item.getDeliveredQty();
             if (quantity <= 0) {
@@ -2494,6 +2524,7 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
             ? "AND UPPER(IFNULL(dn.status, '')) IN ('已收货', 'RECEIVED', '部分收货', 'PARTIAL_RECEIVED') "
             : "";
         String sql = "SELECT DATE_FORMAT(dn.delivery_date, '%Y-%m-%d') AS bizDate, " +
+                "dn.customer AS customer, " +
                 "'delivery' AS bizType, " +
                 "dni.id AS noticeItemId, " +
                 "dn.notice_no AS documentNo, " +
@@ -2636,6 +2667,7 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
         }
         String placeholders = buildPlaceholders(customerKeys.size());
         String sql = "SELECT DATE_FORMAT(sro.return_date, '%Y-%m-%d') AS bizDate, " +
+                "sro.customer AS customer, " +
                 "'return' AS bizType, " +
                 "sri.id AS returnItemId, " +
                 "sro.return_no AS documentNo, " +
@@ -3962,5 +3994,22 @@ public class SalesReconciliationServiceImpl implements SalesReconciliationServic
     private String getCurrentUsername() {
         LoginUser loginUser = getLoginUser();
         return loginUser != null ? loginUser.getUsername() : "system";
+    }
+
+    private boolean isWithinStatementPeriod(Map<String, Object> row, String month, boolean rpNaturalMonthLocked, int reconciliationDay) {
+        // 优先级1：如果是手工确认/拆分的记录，其分配月份已固定，不再受结账日影响
+        if (Boolean.TRUE.equals(row.get("isConfirmed"))) {
+            return month.equals(row.get("reconcileTargetMonth"));
+        }
+
+        // 优先级2：如果是普通记录，根据客户的结账日重新计算所属月份
+        String bizDate = String.valueOf(row.getOrDefault("bizDate", ""));
+        if (!hasText(bizDate)) return false;
+        
+        String effectiveMonth = rpNaturalMonthLocked 
+            ? resolveNaturalStatementMonth(bizDate)
+            : resolveDefaultStatementMonth(bizDate, reconciliationDay);
+            
+        return month.equals(effectiveMonth);
     }
 }

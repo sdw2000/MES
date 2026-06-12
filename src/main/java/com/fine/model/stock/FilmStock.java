@@ -46,28 +46,28 @@ public class FilmStock {
     private BigDecimal lockedArea;
     
     /** 总卷数 */
-    private Integer totalRolls;
+    private Double totalRolls;
     
     /** 可用卷数 */
-    private Integer availableRolls;
+    private Double availableRolls;
 
     /** 可用包装数 */
     @TableField("available_pack_count")
-    private Integer availablePackCount;
+    private Double availablePackCount;
     
     /** 锁定卷数 */
-    private Integer lockedRolls;
+    private Double lockedRolls;
 
     /** 锁定包装数 */
     @TableField("locked_pack_count")
-    private Integer lockedPackCount;
+    private Double lockedPackCount;
     
     /** 安全库存(㎡) */
     private BigDecimal safetyStock;
 
     /** 总包装数 */
     @TableField("total_pack_count")
-    private Integer totalPackCount;
+    private Double totalPackCount;
     
     /** 状态：active-正常，low_stock-库存不足，out_of_stock-缺货 */
     private String status;

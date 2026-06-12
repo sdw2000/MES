@@ -236,7 +236,7 @@ public class SchedulePlanController {
                 item = null;
             }
             ManualSchedule latestSchedule = p.getOrderDetailId() == null ? null : latestScheduleMap.get(p.getOrderDetailId());
-            Integer scheduleQty = latestSchedule == null ? null : latestSchedule.getScheduleQty();
+            Double scheduleQty = latestSchedule == null ? null : latestSchedule.getScheduleQty();
             Integer durationMinutes = null;
             if (latestSchedule != null && latestSchedule.getId() != null) {
                 durationMinutes = equipmentOccupationMapper.selectDurationMinutesByScheduleAndProcess(latestSchedule.getId(), normalizedStage);
@@ -280,7 +280,7 @@ public class SchedulePlanController {
                     }
                 }
                 if (rewindingQty <= 0 && scheduleQty != null && scheduleQty > 0) {
-                    rewindingQty = scheduleQty;
+                    rewindingQty = scheduleQty.intValue();
                 }
                 row.put("rewindingQty", rewindingQty);
                 row.put("rewinding_roll_count", rewindingQty);

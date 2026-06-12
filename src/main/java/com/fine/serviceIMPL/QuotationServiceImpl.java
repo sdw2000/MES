@@ -1631,13 +1631,13 @@ public class QuotationServiceImpl extends ServiceImpl<QuotationMapper, Quotation
 
     private String generateQuotationNo() {
         String today = new SimpleDateFormat("yyMMdd").format(new Date());
-        String prefix = "QT-" + today + "-";
+        String prefix = "QT" + today;
         Integer maxSeq = jdbcTemplate.queryForObject(
-                "SELECT COALESCE(MAX(CAST(SUBSTRING_INDEX(quotation_no, '-', -1) AS UNSIGNED)), 0) " +
+                "SELECT COALESCE(MAX(CAST(RIGHT(quotation_no, 3) AS UNSIGNED)), 0) " +
                         "FROM quotations WHERE quotation_no LIKE ? AND quotation_no REGEXP ?",
                 Integer.class,
                 prefix + "%",
-                "^QT-[0-9]{6}-[0-9]+$"
+                "^QT[0-9]{6}[0-9]{3}$"
         );
         int sequence = (maxSeq == null ? 0 : maxSeq) + 1;
         return prefix + String.format("%03d", sequence);

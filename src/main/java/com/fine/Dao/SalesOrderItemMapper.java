@@ -19,7 +19,7 @@ public interface SalesOrderItemMapper extends BaseMapper<SalesOrderItem> {
      * @param quantity 减少的卷数
      */
     @Update("UPDATE sales_order_items SET rolls = GREATEST(0, rolls - #{quantity}) WHERE id = #{id}")
-    int decreaseRolls(@Param("id") Long id, @Param("quantity") Integer quantity);
+    int decreaseRolls(@Param("id") Long id, @Param("quantity") Double quantity);
     
     /**
      * 更新已排程数量
@@ -27,7 +27,7 @@ public interface SalesOrderItemMapper extends BaseMapper<SalesOrderItem> {
      * @param quantity 新增的已排程数量
      */
     @Update("UPDATE sales_order_items SET scheduled_qty = COALESCE(scheduled_qty, 0) + #{quantity} WHERE id = #{id}")
-    int updateScheduledQty(@Param("id") Long id, @Param("quantity") Integer quantity);
+    int updateScheduledQty(@Param("id") Long id, @Param("quantity") Double quantity);
 
     /**
      * 更新已排程面积与待排面积

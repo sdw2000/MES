@@ -121,10 +121,10 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
         Map<String, Object> first = (rows == null || rows.isEmpty()) ? new HashMap<>() : rows.get(0);
 
         Map<String, Object> result = new HashMap<>();
-        result.put("totalTypes", toIntValue(first.get("totalTypes")));
-        result.put("totalQuantity", toIntValue(first.get("totalQuantity")));
-        result.put("availableQuantity", toIntValue(first.get("availableQuantity")));
-        result.put("lockedQuantity", toIntValue(first.get("lockedQuantity")));
+        result.put("totalTypes", toDoubleValue(first.get("totalTypes")));
+        result.put("totalQuantity", toDoubleValue(first.get("totalQuantity")));
+        result.put("availableQuantity", toDoubleValue(first.get("availableQuantity")));
+        result.put("lockedQuantity", toDoubleValue(first.get("lockedQuantity")));
         return result;
     }
 
@@ -162,17 +162,17 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
         }
     }
 
-    private Integer toIntValue(Object value) {
+    private Double toDoubleValue(Object value) {
         if (value == null) {
-            return 0;
+            return 0.0;
         }
         if (value instanceof Number) {
-            return ((Number) value).intValue();
+            return ((Number) value).doubleValue();
         }
         try {
-            return Integer.parseInt(String.valueOf(value));
+            return Double.parseDouble(String.valueOf(value));
         } catch (Exception ignore) {
-            return 0;
+            return 0.0;
         }
     }
     
@@ -203,34 +203,34 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
             existed.setUnitWeight(stock.getUnitWeight().compareTo(BigDecimal.ZERO) < 0 ? BigDecimal.ZERO : stock.getUnitWeight());
         }
 
-        Integer available = stock.getAvailableQuantity();
-        Integer locked = stock.getLockedQuantity();
-        Integer total = stock.getTotalQuantity();
+        Double available = stock.getAvailableQuantity();
+        Double locked = stock.getLockedQuantity();
+        Double total = stock.getTotalQuantity();
 
         if (available != null) {
-            existed.setAvailableQuantity(Math.max(available, 0));
+            existed.setAvailableQuantity(Math.max(available, 0.0));
         }
         if (locked != null) {
-            existed.setLockedQuantity(Math.max(locked, 0));
+            existed.setLockedQuantity(Math.max(locked, 0.0));
         }
         if (total != null) {
-            existed.setTotalQuantity(Math.max(total, 0));
+            existed.setTotalQuantity(Math.max(total, 0.0));
         }
 
-        Integer finalAvailable = existed.getAvailableQuantity() == null ? 0 : existed.getAvailableQuantity();
-        Integer finalLocked = existed.getLockedQuantity() == null ? 0 : existed.getLockedQuantity();
+        Double finalAvailable = existed.getAvailableQuantity() == null ? 0.0 : existed.getAvailableQuantity();
+        Double finalLocked = existed.getLockedQuantity() == null ? 0.0 : existed.getLockedQuantity();
         if (total == null) {
             existed.setTotalQuantity(finalAvailable + finalLocked);
         }
 
         if (stock.getBucketCount() != null) {
-            existed.setBucketCount(Math.max(stock.getBucketCount(), 0));
+            existed.setBucketCount(Math.max(stock.getBucketCount(), 0.0));
         } else if (stock.getAvailableQuantity() != null || stock.getLockedQuantity() != null || stock.getTotalQuantity() != null) {
-            existed.setBucketCount(existed.getTotalQuantity() == null ? 0 : existed.getTotalQuantity());
+            existed.setBucketCount(existed.getTotalQuantity() == null ? 0.0 : existed.getTotalQuantity());
         }
 
         if (stock.getSafetyStock() != null) {
-            existed.setSafetyStock(Math.max(stock.getSafetyStock(), 0));
+            existed.setSafetyStock(Math.max(stock.getSafetyStock(), 0.0));
         }
         if (StringUtils.hasText(stock.getStatus())) {
             existed.setStatus(stock.getStatus().trim());
@@ -275,7 +275,7 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
             ? detail.getStdQtyPerPack()
             : (row.getWeight() != null && row.getWeight().compareTo(BigDecimal.ZERO) > 0 ? row.getWeight() : BigDecimal.ONE);
         row.setPackUom(resolvedPackUom);
-        row.setPackCount(detail.getPackCount() != null && detail.getPackCount() > 0 ? detail.getPackCount() : 1);
+        row.setPackCount(detail.getPackCount() != null && detail.getPackCount() > 0 ? detail.getPackCount() : 1.0);
         row.setStdUom(StringUtils.hasText(detail.getStdUom()) ? detail.getStdUom().trim() : "kg");
         row.setStdQtyPerPack(resolvedStdQtyPerPack);
         row.setLocation(detail.getLocation());
@@ -313,7 +313,7 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
         }
         existed.setWeight(detail.getWeight() != null ? detail.getWeight() : BigDecimal.ZERO);
         existed.setPackUom(StringUtils.hasText(detail.getPackUom()) ? detail.getPackUom().trim() : existed.getUnit());
-        existed.setPackCount(detail.getPackCount() != null && detail.getPackCount() > 0 ? detail.getPackCount() : 1);
+        existed.setPackCount(detail.getPackCount() != null && detail.getPackCount() > 0 ? detail.getPackCount() : 1.0);
         existed.setStdUom(StringUtils.hasText(detail.getStdUom()) ? detail.getStdUom().trim() : "kg");
         existed.setStdQtyPerPack(detail.getStdQtyPerPack() != null && detail.getStdQtyPerPack().compareTo(BigDecimal.ZERO) > 0
             ? detail.getStdQtyPerPack()
@@ -356,7 +356,7 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
     
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public boolean lockStock(Long chemicalStockId, Integer lockQuantity, List<Long> detailIds) {
+    public boolean lockStock(Long chemicalStockId, Double lockQuantity, List<Long> detailIds) {
         // 1. 锁定总量表
         int rows = chemicalStockMapper.lockStock(chemicalStockId, lockQuantity);
         if (rows == 0) {
@@ -378,7 +378,7 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
     
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public boolean unlockStock(Long chemicalStockId, Integer unlockQuantity, List<Long> detailIds) {
+    public boolean unlockStock(Long chemicalStockId, Double unlockQuantity, List<Long> detailIds) {
         // 1. 解锁总量表
         int rows = chemicalStockMapper.unlockStock(chemicalStockId, unlockQuantity);
         if (rows == 0) {
@@ -784,7 +784,7 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
                 detail.setUnit((String) parsed.get("unit"));
                 detail.setWeight((BigDecimal) parsed.get("weight"));
                 detail.setPackUom((String) parsed.get("packUom"));
-                detail.setPackCount((Integer) parsed.get("packCount"));
+                detail.setPackCount(parsed.get("packCount") == null ? null : ((Number) parsed.get("packCount")).doubleValue());
                 detail.setStdUom((String) parsed.get("stdUom"));
                 detail.setStdQtyPerPack((BigDecimal) parsed.get("stdQtyPerPack"));
                 detail.setLocation((String) parsed.get("location"));
@@ -1077,7 +1077,7 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
             if (stock == null || stock.getId() == null) {
                 continue;
             }
-            Integer persistedBucketCount = stock.getBucketCount();
+            Double persistedBucketCount = stock.getBucketCount();
             if (persistedBucketCount != null && persistedBucketCount > 0) {
                 stock.setBucketCount(persistedBucketCount);
                 continue;
@@ -1087,7 +1087,7 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
                 bootstrapDetailsFromSummary(stock);
                 details = chemicalStockDetailMapper.selectByChemicalStockId(stock.getId());
             }
-            int bucketCount = 0;
+            double bucketCount = 0D;
             if (details != null) {
                 for (ChemicalStockDetail d : details) {
                     if (d == null) {
@@ -1095,7 +1095,7 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
                     }
                     String status = d.getStatus() == null ? "" : d.getStatus().trim().toLowerCase();
                     if (!"used".equals(status)) {
-                        bucketCount++;
+                        bucketCount += 1D;
                     }
                 }
             }
@@ -1113,14 +1113,14 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
             return;
         }
         Integer targetBucketCount = (stock.getBucketCount() != null && stock.getBucketCount() > 0)
-            ? stock.getBucketCount()
+            ? stock.getBucketCount().intValue()
             : inferBucketCount(stock.getTotalQuantity(), stock.getUnitWeight());
         if (targetBucketCount == null || targetBucketCount <= 0) {
             return;
         }
 
-        int availableQty = stock.getAvailableQuantity() == null ? 0 : stock.getAvailableQuantity();
-        int lockedQty = stock.getLockedQuantity() == null ? 0 : stock.getLockedQuantity();
+        int availableQty = stock.getAvailableQuantity() == null ? 0 : stock.getAvailableQuantity().intValue();
+        int lockedQty = stock.getLockedQuantity() == null ? 0 : stock.getLockedQuantity().intValue();
         BigDecimal perBucketWeight = stock.getUnitWeight() == null ? BigDecimal.ZERO : stock.getUnitWeight();
         int lockedBuckets = Math.max(lockedQty, 0);
         if (lockedBuckets < 0) {
@@ -1145,7 +1145,7 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
             detail.setContainerNo(String.format("%s-%03d", code, i));
             detail.setUnit(StringUtils.hasText(stock.getUnit()) ? stock.getUnit().trim() : "桶");
             detail.setPackUom(detail.getUnit());
-            detail.setPackCount(1);
+            detail.setPackCount(1.0);
             detail.setStdUom("kg");
             detail.setStdQtyPerPack(perBucketWeight);
             detail.setWeight(perBucketWeight);
@@ -1160,20 +1160,20 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
         }
     }
 
-    private Integer inferBucketCount(Integer totalQuantity, BigDecimal unitWeight) {
+    private Integer inferBucketCount(Double totalQuantity, BigDecimal unitWeight) {
         if (totalQuantity == null || totalQuantity <= 0) {
             return 0;
         }
         // 2026-05: 化工库存汇总数量字段统一按“包装数量（桶/包）”语义维护
-        return totalQuantity;
+        return totalQuantity.intValue();
     }
 
     @SuppressWarnings("unused")
     private void rebuildImportDetails(ChemicalStock stock,
                                       Integer bucketCount,
-                                      Integer totalQuantity,
-                                      Integer availableQuantity,
-                                      Integer lockedQuantity,
+                                      Double totalQuantity,
+                                      Double availableQuantity,
+                                      Double lockedQuantity,
                                       BigDecimal unitWeight) {
         if (stock == null || stock.getId() == null) {
             return;
@@ -1190,12 +1190,12 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
 
         BigDecimal perBucketWeight = unitWeight;
         if (perBucketWeight == null || perBucketWeight.compareTo(BigDecimal.ZERO) <= 0) {
-            int tq = totalQuantity == null ? 0 : totalQuantity;
+            int tq = totalQuantity == null ? 0 : totalQuantity.intValue();
             perBucketWeight = count > 0 ? BigDecimal.valueOf(tq).divide(BigDecimal.valueOf(count), 2, BigDecimal.ROUND_HALF_UP) : BigDecimal.ZERO;
         }
 
-        int aq = availableQuantity == null ? 0 : availableQuantity;
-        int lq = lockedQuantity == null ? 0 : lockedQuantity;
+        int aq = availableQuantity == null ? 0 : availableQuantity.intValue();
+        int lq = lockedQuantity == null ? 0 : lockedQuantity.intValue();
         int lockedBuckets = Math.max(lq, 0);
         if (lockedBuckets < 0) {
             lockedBuckets = 0;
@@ -1219,7 +1219,7 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
             detail.setContainerNo(String.format("%s-%03d", code, i));
             detail.setUnit(StringUtils.hasText(stock.getUnit()) ? stock.getUnit().trim() : "桶");
             detail.setPackUom(detail.getUnit());
-            detail.setPackCount(1);
+            detail.setPackCount(1.0);
             detail.setStdUom("kg");
             detail.setStdQtyPerPack(perBucketWeight);
             detail.setWeight(perBucketWeight);
@@ -1241,11 +1241,11 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
         }
 
         List<ChemicalStockDetail> details = chemicalStockDetailMapper.selectByChemicalStockId(chemicalStockId);
-        int availableCount = 0;
-        int lockedCount = 0;
+        double availableCount = 0D;
+        double lockedCount = 0D;
         BigDecimal sampleWeightSum = BigDecimal.ZERO;
         int sampleWeightCount = 0;
-        int bucketCount = 0;
+        double bucketCount = 0D;
 
         if (details != null) {
             for (ChemicalStockDetail d : details) {
@@ -1258,9 +1258,9 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
                 }
 
                 if ("locked".equals(status)) {
-                    lockedCount++;
+                    lockedCount += 1D;
                 } else {
-                    availableCount++;
+                    availableCount += 1D;
                 }
 
                 BigDecimal weight = d.getWeight() == null ? BigDecimal.ZERO : d.getWeight();
@@ -1268,13 +1268,13 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
                     sampleWeightSum = sampleWeightSum.add(weight);
                     sampleWeightCount++;
                 }
-                bucketCount++;
+                bucketCount += 1D;
             }
         }
 
-        int availableQty = availableCount;
-        int lockedQty = lockedCount;
-        int totalQty = availableQty + lockedQty;
+        double availableQty = availableCount;
+        double lockedQty = lockedCount;
+        double totalQty = availableQty + lockedQty;
 
         BigDecimal resolvedUnitWeight = null;
         if (sampleWeightCount > 0) {
@@ -1293,7 +1293,7 @@ public class ChemicalStockServiceImpl implements ChemicalStockService {
             stock.setUnitWeight(resolvedUnitWeight);
         }
 
-        Integer safetyStock = stock.getSafetyStock();
+        Double safetyStock = stock.getSafetyStock();
         if (availableQty <= 0) {
             stock.setStatus("out_of_stock");
         } else if (safetyStock != null && safetyStock > 0 && availableQty < safetyStock) {

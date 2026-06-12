@@ -44,7 +44,7 @@ public class ProductionReport {
     // ========== 产出信息 ==========
     
     /** 产出数量(卷) */
-    private Integer outputQty;
+    private Double outputQty;
     
     /** 产出长度(米) */
     private BigDecimal outputLength;
@@ -53,7 +53,7 @@ public class ProductionReport {
     private BigDecimal outputSqm;
     
     /** 不良数量 */
-    private Integer defectQty;
+    private Double defectQty;
     
     /** 不良原因 */
     private String defectReason;

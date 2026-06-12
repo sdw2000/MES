@@ -424,7 +424,7 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
             }
             
             int planRolls = ((Number)item.get("pending_qty")).intValue();
-            rewinding.setPlanRolls(planRolls);
+            rewinding.setPlanRolls((double) planRolls);
             
             // 设置默认工艺参数
             rewinding.setRewindingSpeed(new BigDecimal(50)); // 50米/分钟
@@ -500,7 +500,7 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
             }
             
             int planRolls = ((Number)item.get("pending_qty")).intValue();
-            rewinding.setPlanRolls(planRolls);
+            rewinding.setPlanRolls((double) planRolls);
             
             // 设置默认工艺参数
             rewinding.setRewindingSpeed(new BigDecimal(50)); // 50米/分钟
@@ -584,7 +584,7 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
                             // sales_order_items.length 存储为 mm，转换为米
                             slitting.setSlitLength(soi.getLength().divide(new java.math.BigDecimal(1000)).intValue());
                         }
-                        if (soi.getRolls() != null) planRolls = soi.getRolls();
+                        if (soi.getRolls() != null) planRolls = soi.getRolls().intValue();
                     }
                 } catch (Exception ex) {
                     // 回退到 map 中的字段（若 conversion/查询出错）
@@ -605,7 +605,7 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
             if (planRolls == null) {
                 planRolls = item.get("pending_qty") != null ? ((Number)item.get("pending_qty")).intValue() : 0;
             }
-            slitting.setPlanRolls(planRolls);
+            slitting.setPlanRolls(planRolls == null ? null : planRolls.doubleValue());
             
             // 设置规格综合显示字段
             slitting.setSpec(String.format("%s-%dmm x %dm x %d卷", 
@@ -867,7 +867,7 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
             case "STRIPPING":
                 ScheduleStripping stripping = new ScheduleStripping();
                 stripping.setId(taskId);
-                stripping.setActualRolls(report.getOutputQty());
+                stripping.setActualRolls(report.getOutputQty() == null ? null : report.getOutputQty().intValue());
                 strippingMapper.update(stripping);
                 break;
         }
@@ -1070,9 +1070,9 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
         }
         if (rewinding.getPlanRolls() == null) {
             if (rewinding.getRequiredRolls() != null && rewinding.getRequiredRolls() > 0) {
-                rewinding.setPlanRolls(rewinding.getRequiredRolls());
+                rewinding.setPlanRolls(rewinding.getRequiredRolls().doubleValue());
             } else if (rewinding.getQuantity() != null) {
-                rewinding.setPlanRolls(rewinding.getQuantity());
+                rewinding.setPlanRolls(rewinding.getQuantity().doubleValue());
             }
         }
         if (rewinding.getJumboWidth() == null && rewinding.getWidth() != null) {
@@ -1083,10 +1083,10 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
         }
 
         // 估算时长，后续统一按机台时间线重新排（先占位，插入后再全链重算）
-        int rolls = rewinding.getPlanRolls() != null ? rewinding.getPlanRolls() : 0;
+        Double rolls = rewinding.getPlanRolls() != null ? rewinding.getPlanRolls() : 0.0;
         int len = rewinding.getSlitLength() != null ? rewinding.getSlitLength() : 0;
         int speed = rewinding.getRewindingSpeed() != null ? rewinding.getRewindingSpeed().intValue() : DEFAULT_REWIND_SPEED;
-        int duration = computeRewindingDurationMinutes(rolls, len, speed);
+        int duration = computeRewindingDurationMinutes(rolls.intValue(), len, speed);
 
         Date startAt = planDateAtEight(new SimpleDateFormat("yyyy-MM-dd").format(rewinding.getPlanDate()));
         Date endAt = new Date(startAt.getTime() + duration * 60L * 1000L);
@@ -1214,8 +1214,8 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
 
                     // rolls
                     if (item.get("rolls") != null) {
-                        try { task.setPlanRolls(((Number)item.get("rolls")).intValue()); } catch (Exception ex) {
-                            try { task.setPlanRolls(Integer.parseInt(item.get("rolls").toString())); } catch (Exception ignore) { }
+                        try { task.setPlanRolls(((Number)item.get("rolls")).doubleValue()); } catch (Exception ex) {
+                            try { task.setPlanRolls(Double.parseDouble(item.get("rolls").toString())); } catch (Exception ignore) { }
                         }
                     }
 
@@ -1229,8 +1229,8 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
                         String mat = task.getMaterialCode() != null ? task.getMaterialCode() : (item.get("material_code") != null ? item.get("material_code").toString() : "");
                         int w = task.getTargetWidth() != null ? task.getTargetWidth() : 0;
                         int l = task.getSlitLength() != null ? task.getSlitLength() : 0;
-                        int r = task.getPlanRolls() != null ? task.getPlanRolls() : 0;
-                        task.setSpec(String.format("%s-%dmm x %dm x %d卷", mat, w, l, r));
+                        Double r = task.getPlanRolls() != null ? task.getPlanRolls() : 0.0;
+                        task.setSpec(String.format("%s-%dmm x %dm x %.2f卷", mat, w, l, r));
                     } catch (Exception ignore) { }
 
                 } catch (Exception ex) {
@@ -1313,7 +1313,7 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
     }
 
     @Override
-    public int completeSlittingTask(Long taskId, Integer actualRolls, String operator) {
+    public int completeSlittingTask(Long taskId, Double actualRolls, String operator) {
         if (taskId == null) {
             throw new RuntimeException("分切任务ID不能为空");
         }
@@ -1722,7 +1722,7 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
         for (Long orderItemId : sortedOrderItemIds) {
             Integer scheduleQty = scheduleQtyMap.get(orderItemId);
             if (scheduleQty != null && scheduleQty > 0) {
-                salesOrderItemMapper.decreaseRolls(orderItemId, scheduleQty);
+                salesOrderItemMapper.decreaseRolls(orderItemId, scheduleQty.doubleValue());
             }
         }
         
@@ -2254,7 +2254,7 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
             System.out.println("创建涂布任务: " + coating.getTaskNo() + ", 订单: " + order.getOrderNo());
             
             // 更新订单项的已排程数量
-            salesOrderItemMapper.updateScheduledQty(order.getOrderItemId(), order.getPendingQty());
+            salesOrderItemMapper.updateScheduledQty(order.getOrderItemId(), order.getPendingQty() == null ? 0.0 : order.getPendingQty().doubleValue());
         }
         
         System.out.println("=== 自动涂布排程完成，共创建 " + coatingTasks.size() + " 个任务 ===");
@@ -2304,7 +2304,8 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
             }
             
             // 计算待排程数量（rolls - scheduledQty）
-            int pendingQty = orderItem.getRolls() - (orderItem.getScheduledQty() != null ? orderItem.getScheduledQty() : 0);
+                double pendingQty = (orderItem.getRolls() == null ? 0.0 : orderItem.getRolls())
+                    - (orderItem.getScheduledQty() != null ? orderItem.getScheduledQty() : 0.0);
             
             if (pendingQty <= 0) {
                 System.out.println("订单已全部排程: " + orderItemId);
@@ -3350,10 +3351,10 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
     }
 
     private int estimateRewindingDurationMinutes(ScheduleRewinding rewinding) {
-        int rolls = rewinding.getPlanRolls() != null ? rewinding.getPlanRolls() : 0;
+        Double rolls = rewinding.getPlanRolls() != null ? rewinding.getPlanRolls() : 0.0;
         int len = rewinding.getSlitLength() != null ? rewinding.getSlitLength() : 0;
         int speed = rewinding.getRewindingSpeed() != null ? rewinding.getRewindingSpeed().intValue() : DEFAULT_REWIND_SPEED;
-        return computeRewindingDurationMinutes(rolls, len, speed);
+        return computeRewindingDurationMinutes(rolls.intValue(), len, speed);
     }
 
     /**
@@ -3419,7 +3420,7 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
         // 设置前端兼容字段
         r.setWidth(r.getJumboWidth());
         r.setLength(r.getSlitLength());
-        r.setQuantity(r.getPlanRolls());
+            r.setQuantity(r.getPlanRolls().intValue());
 
         // 解析入库的 order_nos
         if ((r.getOrderNos() == null || r.getOrderNos().isEmpty()) && r.getOrderNosText() != null && !r.getOrderNosText().isEmpty()) {
@@ -3452,7 +3453,7 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
         }
         if (r.getPlanRolls() == null && r.getActualRolls() != null) {
             r.setPlanRolls(r.getActualRolls());
-            r.setQuantity(r.getActualRolls());
+            r.setQuantity(r.getActualRolls().intValue());
         }
     }
 
@@ -3761,12 +3762,12 @@ public class ProductionScheduleServiceImpl implements ProductionScheduleService 
 
             // rolls
             Object rollsObj = r.get("rolls");
-            int rolls = 0;
-            if (rollsObj instanceof Number) rolls = ((Number) rollsObj).intValue();
+            double rolls = 0.0;
+            if (rollsObj instanceof Number) rolls = ((Number) rollsObj).doubleValue();
             else if (rollsObj != null) {
-                try { rolls = Integer.parseInt(rollsObj.toString()); } catch (Exception ignore) {}
+                try { rolls = Double.parseDouble(rollsObj.toString()); } catch (Exception ignore) {}
             }
-            m.put("rolls", rolls == 0 ? null : rolls);
+            m.put("rolls", rolls == 0.0 ? null : rolls);
 
             // totalArea 可能为 BigDecimal/Number
             Object ta = r.get("totalArea");

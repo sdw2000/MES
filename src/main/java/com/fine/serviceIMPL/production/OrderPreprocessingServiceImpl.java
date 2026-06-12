@@ -145,8 +145,8 @@ public class OrderPreprocessingServiceImpl extends ServiceImpl<OrderPreprocessin
                     pendingArea = item.getSqm().subtract(scheduledArea).subtract(deliveredArea);
                 }
                 remainingArea = pendingArea != null ? pendingArea.max(java.math.BigDecimal.ZERO) : null;
-                int rolls = item.getRolls() != null ? item.getRolls() : 0;
-                int scheduledQty = item.getScheduledQty() != null ? item.getScheduledQty() : 0;
+                int rolls = item.getRolls() != null ? item.getRolls().intValue() : 0;
+                int scheduledQty = item.getScheduledQty() != null ? item.getScheduledQty().intValue() : 0;
                 remainingRolls = Math.max(rolls - scheduledQty, 0);
             }
         }

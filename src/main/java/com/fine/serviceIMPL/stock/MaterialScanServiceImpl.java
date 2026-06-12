@@ -220,7 +220,7 @@ public class MaterialScanServiceImpl implements MaterialScanService {
         BigDecimal stdQtyPerPack = detail.getStdQtyPerPack();
         String stdUom = trimToNull(detail.getStdUom()) == null ? "m" : trimToNull(detail.getStdUom());
         String packUom = trimToNull(detail.getPackUom()) == null ? "卷" : trimToNull(detail.getPackUom());
-        Integer detailPackCount = detail.getPackCount();
+        Double detailPackCount = detail.getPackCount();
         int packQtyVal = packQty == null ? 0 : packQty.intValue();
         boolean packMode = packQtyVal > 0;
         if (packMode && (stdQtyPerPack == null || stdQtyPerPack.compareTo(BigDecimal.ZERO) <= 0)) {
@@ -243,7 +243,7 @@ public class MaterialScanServiceImpl implements MaterialScanService {
         BigDecimal original = resolveFilmOriginalLengthM(detail, before);
 
         if (packMode && detailPackCount != null) {
-            detail.setPackCount(Math.max(detailPackCount - packQtyVal, 0));
+            detail.setPackCount(Math.max(detailPackCount - packQtyVal, 0.0));
         }
 
         applyFilmLengthChange(detail, original, after, stringVal(payload.get("operator")));
@@ -358,7 +358,7 @@ public class MaterialScanServiceImpl implements MaterialScanService {
         BigDecimal stdQtyPerPack = detail.getStdQtyPerPack();
         String stdUom = trimToNull(detail.getStdUom()) == null ? "kg" : trimToNull(detail.getStdUom());
         String packUom = trimToNull(detail.getPackUom()) == null ? "桶" : trimToNull(detail.getPackUom());
-        Integer detailPackCount = detail.getPackCount();
+        Double detailPackCount = detail.getPackCount();
         int packQtyVal = packQty == null ? 0 : packQty.intValue();
         boolean packMode = packQtyVal > 0;
         if (packMode && (stdQtyPerPack == null || stdQtyPerPack.compareTo(BigDecimal.ZERO) <= 0)) {
@@ -380,7 +380,7 @@ public class MaterialScanServiceImpl implements MaterialScanService {
         BigDecimal after = before.subtract(effectiveQty).setScale(3, RoundingMode.HALF_UP);
 
         if (packMode && detailPackCount != null) {
-            detail.setPackCount(Math.max(detailPackCount - packQtyVal, 0));
+            detail.setPackCount(Math.max(detailPackCount - packQtyVal, 0.0));
         }
 
         applyChemicalWeightChange(detail, after);
@@ -651,12 +651,12 @@ public class MaterialScanServiceImpl implements MaterialScanService {
         BigDecimal totalArea = BigDecimal.ZERO;
         BigDecimal availableArea = BigDecimal.ZERO;
         BigDecimal lockedArea = BigDecimal.ZERO;
-        int totalRolls = 0;
-        int availableRolls = 0;
-        int lockedRolls = 0;
-        int totalPackCount = 0;
-        int availablePackCount = 0;
-        int lockedPackCount = 0;
+        double totalRolls = 0D;
+        double availableRolls = 0D;
+        double lockedRolls = 0D;
+        double totalPackCount = 0D;
+        double availablePackCount = 0D;
+        double lockedPackCount = 0D;
 
         for (FilmStockDetail d : details) {
             BigDecimal area = nvl(d.getArea());
@@ -665,7 +665,7 @@ public class MaterialScanServiceImpl implements MaterialScanService {
                 totalRolls++;
             }
             String st = stringVal(d.getStatus());
-            int packCount = d.getPackCount() == null || d.getPackCount() < 0 ? 0 : d.getPackCount();
+            double packCount = d.getPackCount() == null || d.getPackCount() < 0 ? 0D : d.getPackCount();
             totalPackCount += packCount;
             if ("available".equalsIgnoreCase(st)) {
                 availableArea = availableArea.add(area);
@@ -717,27 +717,27 @@ public class MaterialScanServiceImpl implements MaterialScanService {
         qw.eq(ChemicalStockDetail::getChemicalStockId, stockId);
         List<ChemicalStockDetail> details = chemicalStockDetailMapper.selectList(qw);
 
-        int available = 0;
-        int locked = 0;
-        int availablePackCount = 0;
-        int lockedPackCount = 0;
+        double available = 0D;
+        double locked = 0D;
+        double availablePackCount = 0D;
+        double lockedPackCount = 0D;
         for (ChemicalStockDetail d : details) {
             BigDecimal w = nvl(d.getWeight());
             if (w.compareTo(new BigDecimal("0.0001")) <= 0) {
                 continue;
             }
             String st = stringVal(d.getStatus());
-            int packCount = d.getPackCount() == null || d.getPackCount() < 0 ? 0 : d.getPackCount();
+            double packCount = d.getPackCount() == null || d.getPackCount() < 0 ? 0D : d.getPackCount();
             if ("locked".equalsIgnoreCase(st)) {
-                locked++;
+                locked += 1D;
                 lockedPackCount += packCount > 0 ? packCount : 1;
             } else {
-                available++;
+                available += 1D;
                 availablePackCount += packCount > 0 ? packCount : 1;
             }
         }
-        int total = available + locked;
-        int totalPackCount = availablePackCount + lockedPackCount;
+        double total = available + locked;
+        double totalPackCount = availablePackCount + lockedPackCount;
 
         stock.setAvailableQuantity(available);
         stock.setLockedQuantity(locked);
@@ -746,7 +746,7 @@ public class MaterialScanServiceImpl implements MaterialScanService {
         stock.setLockedPackCount(lockedPackCount);
         stock.setTotalPackCount(totalPackCount);
         stock.setBucketCount(total);
-        Integer safety = stock.getSafetyStock() == null ? 0 : stock.getSafetyStock();
+        Double safety = stock.getSafetyStock() == null ? 0D : stock.getSafetyStock();
         if (available <= 0) {
             stock.setStatus("out_of_stock");
         } else if (safety > 0 && available < safety) {

@@ -25,6 +25,9 @@ public class ArInvoice {
 
     private String customerCode;
 
+    @com.baomidou.mybatisplus.annotation.TableField(exist = false)
+    private String customerName;
+
     @JsonFormat(pattern = "yyyy-MM-dd", timezone = "GMT+8")
     private Date invoiceDate;
 

@@ -16,11 +16,11 @@ public interface ChemicalPurchaseRequestItemMapper extends BaseMapper<ChemicalPu
     List<ChemicalPurchaseRequestItem> selectByRequestId(@Param("requestId") Long requestId);
 
     @Update("UPDATE chemical_purchase_request_item SET requested_qty = #{requestedQty}, update_time = NOW() WHERE id = #{id}")
-    int updateRequestedQty(@Param("id") Long id, @Param("requestedQty") Integer requestedQty);
+    int updateRequestedQty(@Param("id") Long id, @Param("requestedQty") Double requestedQty);
 
     @Update("UPDATE chemical_purchase_request_item SET purchase_order_item_id = #{purchaseOrderItemId}, update_time = NOW() WHERE id = #{id}")
     int updatePurchaseOrderItemId(@Param("id") Long id, @Param("purchaseOrderItemId") Long purchaseOrderItemId);
 
     @Update("UPDATE chemical_purchase_request_item SET received_qty = #{receivedQty}, update_time = NOW() WHERE id = #{id}")
-    int updateReceivedQty(@Param("id") Long id, @Param("receivedQty") Integer receivedQty);
+    int updateReceivedQty(@Param("id") Long id, @Param("receivedQty") Double receivedQty);
 }

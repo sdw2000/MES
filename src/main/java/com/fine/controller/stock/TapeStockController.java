@@ -774,16 +774,16 @@ public class TapeStockController {
     @PostMapping("/inbound/scan/submit")
     @PreAuthorize("hasAnyAuthority('warehouse','admin')")
     public ResponseResult<?> submitScanInbound(@RequestBody Map<String, Object> params) {
-        String receiptNo = params.get("receiptNo") == null ? null : String.valueOf(params.get("receiptNo"));
+        String receiptNo = params.get("receiptNo") == null ? null : String.valueOf(params.get("receiptNo")).trim();
         Long receiptId = null;
         try {
             if (params.get("receiptId") != null) {
-                receiptId = Long.valueOf(String.valueOf(params.get("receiptId")));
+                receiptId = Long.valueOf(String.valueOf(params.get("receiptId")).trim());
             }
         } catch (Exception ignored) {
         }
-        String scannedLocation = params.get("scannedLocation") == null ? null : String.valueOf(params.get("scannedLocation"));
-        String operator = params.get("operator") == null ? null : String.valueOf(params.get("operator"));
+        String scannedLocation = params.get("scannedLocation") == null ? null : String.valueOf(params.get("scannedLocation")).trim();
+        String operator = params.get("operator") == null ? null : String.valueOf(params.get("operator")).trim();
         List<String> scanCodes = new java.util.ArrayList<>();
         Object codesObj = params.get("scanCodes");
         if (codesObj instanceof List) {

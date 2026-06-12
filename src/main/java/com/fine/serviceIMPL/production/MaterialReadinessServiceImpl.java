@@ -108,7 +108,7 @@ public class MaterialReadinessServiceImpl implements MaterialReadinessService {
         for (Aggregation agg : aggMap.values()) {
             ChemicalStock stock = stockByCode.get(agg.rawMaterialCode);
             if (stock == null) continue;
-            int availableQty = stock.getAvailableQuantity() == null ? 0 : stock.getAvailableQuantity();
+            int availableQty = stock.getAvailableQuantity() == null ? 0 : stock.getAvailableQuantity().intValue();
             BigDecimal unitWeight = stock.getUnitWeight() == null || stock.getUnitWeight().compareTo(BigDecimal.ZERO) <= 0
                     ? BigDecimal.ONE : stock.getUnitWeight();
             agg.unit = stock.getUnit() == null ? "桶" : stock.getUnit();
@@ -130,8 +130,8 @@ public class MaterialReadinessServiceImpl implements MaterialReadinessService {
                 if (ri == null || ri.getRawMaterialCode() == null) continue;
                 Aggregation agg = aggMap.get(ri.getRawMaterialCode());
                 if (agg == null) continue;
-                int requested = ri.getRequestedQty() == null ? 0 : ri.getRequestedQty();
-                int received = ri.getReceivedQty() == null ? 0 : ri.getReceivedQty();
+                int requested = ri.getRequestedQty() == null ? 0 : ri.getRequestedQty().intValue();
+                int received = ri.getReceivedQty() == null ? 0 : ri.getReceivedQty().intValue();
                 int remainingInTransitQty = Math.max(requested - received, 0);
                 if (remainingInTransitQty <= 0) continue;
 

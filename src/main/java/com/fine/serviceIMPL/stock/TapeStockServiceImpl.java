@@ -956,7 +956,7 @@ public class TapeStockServiceImpl implements TapeStockService {
         String customerBatchNo = incomingBatchNo;
 
         // 来料标签打印时：将填写的来料批次号回写到 customer_batch_no，
-        // 入库列表“客户批次号”按该字段展示。
+        // 入库列表“供商批次号”按该字段展示。
         if (StringUtils.hasText(incomingBatchNo)) {
             String current = normalizeCustomerBatchNo(inbound.getCustomerBatchNo());
             if (!incomingBatchNo.equals(current)) {
@@ -1383,7 +1383,7 @@ public class TapeStockServiceImpl implements TapeStockService {
                     if (batchNo.equalsIgnoreCase(scannedCode) || customerBatchNo.equalsIgnoreCase(scannedCode)) {
                         matched = true;
                     } else if (scannedCode.contains("-") && customerBatchNo.equalsIgnoreCase(scannedCode.substring(0, scannedCode.lastIndexOf("-")))) {
-                        // 兼容带段号扫码匹配客户批次号
+                        // 兼容带段号扫码匹配供商批次号
                         matched = true;
                     } else if (isPurchaseReceiptInbound(request)) {
                         String remark = request.getRemark();
@@ -1401,8 +1401,8 @@ public class TapeStockServiceImpl implements TapeStockService {
 
             request.setStatus(TapeInboundRequest.STATUS_APPROVED);
 
-            int rolls = request.getRolls() != null ? request.getRolls() : 0;
-            if (rolls <= 0) {
+            BigDecimal rolls = request.getRolls() != null ? request.getRolls() : BigDecimal.ZERO;
+            if (rolls.compareTo(BigDecimal.ZERO) <= 0) {
                 throw new RuntimeException("入库卷数必须大于0");
             }
 
@@ -1450,7 +1450,7 @@ public class TapeStockServiceImpl implements TapeStockService {
                     stock.setLength(request.getLength());
                     stock.setOriginalLength(request.getLength());
                     stock.setCurrentLength(request.getLength());
-                    stock.setTotalRolls(rolls);
+                    stock.setTotalRolls(rolls.intValue());
                     stock.setLocation(request.getLocation());
                     stock.setSpecDesc(request.getSpecDesc());
                     stock.setProdYear(request.getProdYear());
@@ -1471,14 +1471,14 @@ public class TapeStockServiceImpl implements TapeStockService {
                     stockMapper.insert(stock);
 
                     saveStockLog(stock.getId(), stock.getBatchNo(), stock.getMaterialCode(),
-                            stock.getProductName(), TapeStockLog.TYPE_IN, rolls,
-                            0, rolls, request.getRequestNo(), auditor,
+                            stock.getProductName(), TapeStockLog.TYPE_IN, rolls.intValue(),
+                            0, rolls.intValue(), request.getRequestNo(), auditor,
                             "分切成品入库-聚合入库");
 
                     String _unit_in = "卷";
-                    BigDecimal _change_in = BigDecimal.valueOf(rolls);
+                    BigDecimal _change_in = rolls;
                     BigDecimal _before_in = BigDecimal.ZERO;
-                    BigDecimal _after_in = BigDecimal.valueOf(rolls);
+                    BigDecimal _after_in = rolls;
                     stockFlowLogService.logStockChange(
                             StockFlowLog.StockType.TAPE.name(),
                             stock.getId(),
@@ -1495,9 +1495,9 @@ public class TapeStockServiceImpl implements TapeStockService {
                             "分切成品入库-聚合入库"
                     );
                 } else {
-                    int beforeRolls = stock.getTotalRolls() == null ? 0 : stock.getTotalRolls();
-                    int afterRolls = beforeRolls + rolls;
-                    stock.setTotalRolls(afterRolls);
+                    BigDecimal beforeRollsQty = stock.getTotalRolls() == null ? BigDecimal.ZERO : BigDecimal.valueOf(stock.getTotalRolls());
+                    BigDecimal afterRollsQty = beforeRollsQty.add(rolls);
+                    stock.setTotalRolls(afterRollsQty.intValue());
                     stock.setRemark(inboundStockRemark);
                     stock.calculateTotalSqm();
                     BigDecimal totalSqm = stock.getTotalSqm() == null ? BigDecimal.ZERO : stock.getTotalSqm();
@@ -1507,14 +1507,14 @@ public class TapeStockServiceImpl implements TapeStockService {
                     stockMapper.updateById(stock);
 
                     saveStockLog(stock.getId(), stock.getBatchNo(), stock.getMaterialCode(),
-                            stock.getProductName(), TapeStockLog.TYPE_IN, rolls,
-                            beforeRolls, afterRolls, request.getRequestNo(), auditor,
+                            stock.getProductName(), TapeStockLog.TYPE_IN, rolls.intValue(),
+                            beforeRollsQty.intValue(), afterRollsQty.intValue(), request.getRequestNo(), auditor,
                             "分切成品入库-聚合追加");
 
                     String _unit_in = "卷";
-                    BigDecimal _change_in = BigDecimal.valueOf(rolls);
-                    BigDecimal _before_in = BigDecimal.valueOf(beforeRolls);
-                    BigDecimal _after_in = BigDecimal.valueOf(afterRolls);
+                    BigDecimal _change_in = rolls;
+                    BigDecimal _before_in = beforeRollsQty;
+                    BigDecimal _after_in = afterRollsQty;
                     stockFlowLogService.logStockChange(
                             StockFlowLog.StockType.TAPE.name(),
                             stock.getId(),
@@ -1562,7 +1562,7 @@ public class TapeStockServiceImpl implements TapeStockService {
                     stock.setLength(request.getLength());
                     stock.setOriginalLength(request.getLength());
                     stock.setCurrentLength(request.getLength());
-                    stock.setTotalRolls(rolls);
+                    stock.setTotalRolls(rolls.intValue());
                     stock.setLocation(request.getLocation());
                     stock.setSpecDesc(request.getSpecDesc());
                     stock.setProdYear(request.getProdYear());
@@ -1583,14 +1583,14 @@ public class TapeStockServiceImpl implements TapeStockService {
                     stockMapper.insert(stock);
 
                     saveStockLog(stock.getId(), stock.getBatchNo(), stock.getMaterialCode(),
-                        stock.getProductName(), TapeStockLog.TYPE_IN, rolls,
-                        0, rolls, request.getRequestNo(), auditor,
+                        stock.getProductName(), TapeStockLog.TYPE_IN, rolls.intValue(),
+                        0, rolls.intValue(), request.getRequestNo(), auditor,
                         "采购收货入库-按批次聚合入库");
 
                     String _unit_in = "卷";
-                    BigDecimal _change_in = BigDecimal.valueOf(rolls);
+                    BigDecimal _change_in = rolls;
                     BigDecimal _before_in = BigDecimal.ZERO;
-                    BigDecimal _after_in = BigDecimal.valueOf(rolls);
+                    BigDecimal _after_in = rolls;
                     stockFlowLogService.logStockChange(
                         StockFlowLog.StockType.TAPE.name(),
                         stock.getId(),
@@ -1607,9 +1607,9 @@ public class TapeStockServiceImpl implements TapeStockService {
                         "采购收货入库-按批次聚合入库"
                     );
                 } else {
-                    int beforeRolls = stock.getTotalRolls() == null ? 0 : stock.getTotalRolls();
-                    int afterRolls = beforeRolls + rolls;
-                    stock.setTotalRolls(afterRolls);
+                    BigDecimal beforeRollsQty = stock.getTotalRolls() == null ? BigDecimal.ZERO : BigDecimal.valueOf(stock.getTotalRolls());
+                    BigDecimal afterRollsQty = beforeRollsQty.add(rolls);
+                    stock.setTotalRolls(afterRollsQty.intValue());
                     stock.setRemark(inboundStockRemark);
                     stock.calculateTotalSqm();
                     BigDecimal totalSqm = stock.getTotalSqm() == null ? BigDecimal.ZERO : stock.getTotalSqm();
@@ -1619,14 +1619,14 @@ public class TapeStockServiceImpl implements TapeStockService {
                     stockMapper.updateById(stock);
 
                     saveStockLog(stock.getId(), stock.getBatchNo(), stock.getMaterialCode(),
-                        stock.getProductName(), TapeStockLog.TYPE_IN, rolls,
-                        beforeRolls, afterRolls, request.getRequestNo(), auditor,
+                        stock.getProductName(), TapeStockLog.TYPE_IN, rolls.intValue(),
+                        beforeRollsQty.intValue(), afterRollsQty.intValue(), request.getRequestNo(), auditor,
                         "采购收货入库-按批次聚合追加");
 
                     String _unit_in = "卷";
-                    BigDecimal _change_in = BigDecimal.valueOf(rolls);
-                    BigDecimal _before_in = BigDecimal.valueOf(beforeRolls);
-                    BigDecimal _after_in = BigDecimal.valueOf(afterRolls);
+                    BigDecimal _change_in = rolls;
+                    BigDecimal _before_in = beforeRollsQty;
+                    BigDecimal _after_in = afterRollsQty;
                     stockFlowLogService.logStockChange(
                         StockFlowLog.StockType.TAPE.name(),
                         stock.getId(),
@@ -1648,7 +1648,7 @@ public class TapeStockServiceImpl implements TapeStockService {
                     needAutoFulfill = autoFulfillPendingLocks(stock, request.getRequestNo(), auditor);
                 }
                 } else {
-                for (int i = 0; i < rolls; i++) {
+                for (int i = 0; i < rolls.intValue(); i++) {
                 seq += 1;
                 String originalBatchNo = request.getBatchNo();
                 String inboundBatchNo = StringUtils.hasText(originalBatchNo) ? originalBatchNo.trim() : null;
@@ -1784,7 +1784,8 @@ public class TapeStockServiceImpl implements TapeStockService {
         if (!isPurchaseReceiptInbound(request)) {
             return;
         }
-        Long receiptId = parseLong(extractInboundTokenFromRemark(request == null ? null : request.getRemark(), "receiptId"));
+        String remark = request == null ? null : request.getRemark();
+        Long receiptId = parseLong(extractInboundTokenFromRemark(remark, "receiptId"));
         if (receiptId == null || receiptId <= 0) {
             return;
         }
@@ -1794,6 +1795,30 @@ public class TapeStockServiceImpl implements TapeStockService {
             return;
         }
 
+        // 1. 同步明细行实到数量 (PurchaseReceiptItem.receivedQty)
+        Long itemId = parseLong(extractInboundTokenFromRemark(remark, "itemId"));
+        if (itemId != null && itemId > 0) {
+            // 查询该明细项下所有已审批通过的入库申请的总卷数
+            String itemToken = PURCHASE_RECEIPT_TAG + "|receiptId=" + receiptId + "|itemId=" + itemId + "|";
+            List<TapeInboundRequest> approvedItems = inboundMapper.selectList(
+                    new LambdaQueryWrapper<TapeInboundRequest>()
+                            .like(TapeInboundRequest::getRemark, itemToken)
+                            .eq(TapeInboundRequest::getStatus, TapeInboundRequest.STATUS_APPROVED)
+            );
+            BigDecimal totalReceived = approvedItems.stream()
+                    .map(r -> r.getRolls() != null ? r.getRolls() : BigDecimal.ZERO)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            PurchaseReceiptItem item = purchaseReceiptItemMapper.selectById(itemId);
+            if (item != null) {
+                // 回填实际审批数量（处理多批次/溢短装场景）
+                item.setReceivedQty(totalReceived);
+                item.setUpdatedAt(LocalDateTime.now());
+                purchaseReceiptItemMapper.updateById(item);
+            }
+        }
+
+        // 2. 同步主单状态和实际到货日期
         String receiptToken = PURCHASE_RECEIPT_TAG + "|receiptId=" + receiptId + "|";
 
         Long pendingCount = inboundMapper.selectCount(
@@ -1820,12 +1845,16 @@ public class TapeStockServiceImpl implements TapeStockService {
         }
 
         receipt.setStatus(targetStatus);
-        receipt.setReceivedDate("received".equalsIgnoreCase(targetStatus) ? LocalDate.now() : null);
-        receipt.setUpdatedAt(LocalDateTime.now());
-        String updater = request == null ? "warehouse" : request.getAuditor();
-        if (!StringUtils.hasText(updater)) {
-            updater = "warehouse";
+        // 只要开始收货(receiving/received)，就设置或更新实际到货日期
+        if ("receiving".equalsIgnoreCase(targetStatus) || "received".equalsIgnoreCase(targetStatus)) {
+            receipt.setReceivedDate(LocalDate.now());
+        } else {
+            receipt.setReceivedDate(null);
         }
+        
+        receipt.setUpdatedAt(LocalDateTime.now());
+        String auditor = request == null ? null : request.getAuditor();
+        String updater = StringUtils.hasText(auditor) ? auditor : "warehouse";
         receipt.setUpdatedBy(updater);
         purchaseReceiptMapper.updateById(receipt);
     }
@@ -2093,16 +2122,23 @@ public class TapeStockServiceImpl implements TapeStockService {
     }
 
     private boolean isReleaseFilmOrPaperByText(String code, String name, String spec) {
-        String c = code == null ? "" : code;
+        String c = code == null ? "" : code.toUpperCase();
         String n = name == null ? "" : name;
         String s = spec == null ? "" : spec;
         if (containsAny(normalizeLower(n), "离型剂") || containsAny(normalizeLower(s), "离型剂")) {
             return false;
         }
+        // 含有极耳/胶带/PI等关键字的，通常是带离型膜的成品胶带，不应误入原材料薄膜仓
+        if (containsAny(normalizeLower(n), "胶带", "带离型", "极耳")) {
+            return false;
+        }
+        
         return c.startsWith("LX")
                 || c.contains("LXM")
+                || c.contains("LXZ")
                 || n.contains("离型膜")
                 || n.contains("离型纸")
+                || n.contains("离型")
                 || s.contains("离型膜")
                 || s.contains("离型纸");
     }
@@ -2162,7 +2198,7 @@ public class TapeStockServiceImpl implements TapeStockService {
     }
 
     private void routePurchaseInboundToRawWarehouse(TapeInboundRequest request,
-                                                    int rolls,
+                                                    BigDecimal rolls,
                                                     String auditor,
                                                     String inboundStockRemark,
                                                     String category) {
@@ -2179,7 +2215,7 @@ public class TapeStockServiceImpl implements TapeStockService {
     }
 
     private void inboundToPackageWarehouse(TapeInboundRequest request,
-                                           int rolls,
+                                           BigDecimal rolls,
                                            String auditor,
                                            String inboundStockRemark) {
         String materialCode = request.getMaterialCode() == null ? "" : request.getMaterialCode().trim();
@@ -2197,7 +2233,7 @@ public class TapeStockServiceImpl implements TapeStockService {
         }
         BigDecimal stdQtyPerPack = BigDecimal.ONE.setScale(3, BigDecimal.ROUND_HALF_UP);
         int inboundPackCount = resolveInboundPackCount(request, rolls, stdUom, stdQtyPerPack);
-        int beforeQty = stock.getAvailableQuantity() == null ? 0 : stock.getAvailableQuantity();
+        double beforeQty = stock.getAvailableQuantity() == null ? 0D : stock.getAvailableQuantity();
 
         Date now = new Date();
         int maxSeq = queryPackageDetailMaxSeq(stock.getId(), request.getBatchNo());
@@ -2209,7 +2245,7 @@ public class TapeStockServiceImpl implements TapeStockService {
         detail.setBatchNo(request.getBatchNo());
         detail.setContainerNo(buildPackageInboundContainerNo(request, seq));
         detail.setPackUom(packUom);
-        detail.setPackCount(Math.max(inboundPackCount, 1));
+        detail.setPackCount((double) Math.max(inboundPackCount, 1));
         detail.setStdUom(stdUom);
         detail.setStdQtyPerPack(stdQtyPerPack);
         detail.setQuantity(stdQtyPerPack.multiply(BigDecimal.valueOf(Math.max(inboundPackCount, 1))));
@@ -2228,7 +2264,7 @@ public class TapeStockServiceImpl implements TapeStockService {
 
         refreshPackageSummaryByDetails(stock.getId(), auditor);
         PackageStock latest = packageStockMapper.selectById(stock.getId());
-        int afterQty = latest != null && latest.getAvailableQuantity() != null ? latest.getAvailableQuantity() : beforeQty + inboundPackCount;
+        double afterQty = latest != null && latest.getAvailableQuantity() != null ? latest.getAvailableQuantity() : beforeQty + inboundPackCount;
 
         stockFlowLogService.logStockChange(
                 StockFlowLog.StockType.PACKAGE.name(),
@@ -2248,7 +2284,7 @@ public class TapeStockServiceImpl implements TapeStockService {
     }
 
     private void inboundToChemicalWarehouse(TapeInboundRequest request,
-                                            int rolls,
+                                            BigDecimal rolls,
                                             String auditor,
                                             String inboundStockRemark) {
         String materialCode = request.getMaterialCode() == null ? "" : request.getMaterialCode().trim();
@@ -2275,7 +2311,7 @@ public class TapeStockServiceImpl implements TapeStockService {
         int inboundPackCount = resolveInboundPackCount(request, rolls, stdUom, stdQtyPerPack);
         ChemicalStock stock = ensureChemicalStockForInbound(materialCode, materialName, unit, unitWeight, auditor);
 
-        int beforeQty = stock.getAvailableQuantity() == null ? 0 : stock.getAvailableQuantity();
+        double beforeQty = stock.getAvailableQuantity() == null ? 0D : stock.getAvailableQuantity();
         Date now = new Date();
         int maxSeq = queryChemicalDetailMaxSeq(stock.getId(), request.getBatchNo());
         for (int i = 0; i < inboundPackCount; i++) {
@@ -2289,7 +2325,7 @@ public class TapeStockServiceImpl implements TapeStockService {
             detail.setContainerNo(containerNo);
             detail.setUnit(unit);
             detail.setPackUom(packUom);
-            detail.setPackCount(1);
+            detail.setPackCount(1.0);
             detail.setStdUom(stdUom);
             detail.setStdQtyPerPack(stdQtyPerPack);
             detail.setWeight(stdQtyPerPack);
@@ -2307,7 +2343,7 @@ public class TapeStockServiceImpl implements TapeStockService {
 
         refreshChemicalSummaryByDetails(stock.getId(), auditor);
         ChemicalStock latest = chemicalStockMapper.selectById(stock.getId());
-        int afterQty = latest != null && latest.getAvailableQuantity() != null ? latest.getAvailableQuantity() : beforeQty + rolls;
+        double afterQty = latest != null && latest.getAvailableQuantity() != null ? latest.getAvailableQuantity() : beforeQty + rolls.doubleValue();
 
         stockFlowLogService.logStockChange(
                 StockFlowLog.StockType.CHEMICAL.name(),
@@ -2327,7 +2363,7 @@ public class TapeStockServiceImpl implements TapeStockService {
     }
 
     private void inboundToFilmWarehouse(TapeInboundRequest request,
-                                        int rolls,
+                                        BigDecimal rolls,
                                         String auditor,
                                         String inboundStockRemark) {
         String materialCode = request.getMaterialCode() == null ? "" : request.getMaterialCode().trim();
@@ -2370,7 +2406,7 @@ public class TapeStockServiceImpl implements TapeStockService {
             detail.setBatchNo(request.getBatchNo());
             detail.setRollNo(buildFilmInboundRollNo(request, seq));
             detail.setPackUom(packUom);
-            detail.setPackCount(Math.max(inboundPackCount, 1));
+            detail.setPackCount((double) Math.max(inboundPackCount, 1));
             detail.setStdUom(stdUom);
             detail.setStdQtyPerPack(stdQtyPerPack);
             detail.setThickness(request.getThickness() == null ? null : BigDecimal.valueOf(request.getThickness()));
@@ -2401,7 +2437,7 @@ public class TapeStockServiceImpl implements TapeStockService {
                 detail.setBatchNo(request.getBatchNo());
                 detail.setRollNo(buildFilmInboundRollNo(request, seq));
                 detail.setPackUom(packUom);
-                detail.setPackCount(1);
+                detail.setPackCount(1.0);
                 detail.setStdUom(stdUom);
                 detail.setStdQtyPerPack(stdQtyPerPack);
                 detail.setThickness(request.getThickness() == null ? null : BigDecimal.valueOf(request.getThickness()));
@@ -2526,10 +2562,10 @@ public class TapeStockServiceImpl implements TapeStockService {
         created.setChemicalType("adhesive");
         created.setUnit(unit);
         created.setUnitWeight(unitWeight);
-        created.setTotalQuantity(0);
-        created.setAvailableQuantity(0);
-        created.setLockedQuantity(0);
-        created.setSafetyStock(0);
+        created.setTotalQuantity(0D);
+        created.setAvailableQuantity(0D);
+        created.setLockedQuantity(0D);
+        created.setSafetyStock(0D);
         created.setStatus("active");
         created.setRemark("auto-create-by-purchase-inbound");
         created.setCreateBy(auditor);
@@ -2576,9 +2612,9 @@ public class TapeStockServiceImpl implements TapeStockService {
         created.setTotalArea(BigDecimal.ZERO);
         created.setAvailableArea(BigDecimal.ZERO);
         created.setLockedArea(BigDecimal.ZERO);
-        created.setTotalRolls(0);
-        created.setAvailableRolls(0);
-        created.setLockedRolls(0);
+        created.setTotalRolls(0D);
+        created.setAvailableRolls(0D);
+        created.setLockedRolls(0D);
         created.setSafetyStock(BigDecimal.ZERO);
         created.setStatus("active");
         created.setRemark("auto-create-by-purchase-inbound");
@@ -2621,13 +2657,13 @@ public class TapeStockServiceImpl implements TapeStockService {
         created.setMaterialName(StringUtils.hasText(request.getProductName()) ? request.getProductName().trim() : request.getMaterialCode());
         created.setSpecDesc(StringUtils.hasText(inboundSpec) ? inboundSpec : request.getSpecDesc());
         created.setUnit(normalizedUnit);
-        created.setTotalQuantity(0);
-        created.setAvailableQuantity(0);
-        created.setLockedQuantity(0);
-        created.setTotalPackCount(0);
-        created.setAvailablePackCount(0);
-        created.setLockedPackCount(0);
-        created.setSafetyStock(0);
+        created.setTotalQuantity(0D);
+        created.setAvailableQuantity(0D);
+        created.setLockedQuantity(0D);
+        created.setTotalPackCount(0D);
+        created.setAvailablePackCount(0D);
+        created.setLockedPackCount(0D);
+        created.setSafetyStock(0D);
         created.setStatus("active");
         created.setRemark("auto-create-by-purchase-inbound");
         created.setCreateBy(auditor);
@@ -2746,11 +2782,11 @@ public class TapeStockServiceImpl implements TapeStockService {
                 return null;
             }
 
-            Integer receivedQty = item.getReceivedQty();
-            if (receivedQty == null || receivedQty <= 0) {
+            BigDecimal receivedQty = item.getReceivedQty();
+            if (receivedQty == null || receivedQty.compareTo(BigDecimal.ZERO) <= 0) {
                 receivedQty = item.getExpectedQty();
             }
-            if (receivedQty == null || receivedQty <= 0) {
+            if (receivedQty == null || receivedQty.compareTo(BigDecimal.ZERO) <= 0) {
                 return null;
             }
 
@@ -2778,7 +2814,7 @@ public class TapeStockServiceImpl implements TapeStockService {
             if (totalKg == null || totalKg.compareTo(BigDecimal.ZERO) <= 0) {
                 return null;
             }
-            return totalKg.divide(BigDecimal.valueOf(receivedQty), 3, RoundingMode.HALF_UP);
+            return totalKg.divide(receivedQty, 3, RoundingMode.HALF_UP);
         } catch (Exception ignore) {
             return null;
         }
@@ -2811,16 +2847,16 @@ public class TapeStockServiceImpl implements TapeStockService {
     }
 
     private int resolveInboundPackCount(TapeInboundRequest request,
-                                        int rawQty,
+                                        BigDecimal rawQty,
                                         String stdUom,
                                         BigDecimal stdQtyPerPack) {
-        int qty = Math.max(rawQty, 0);
-        if (qty <= 0) {
+        BigDecimal qty = rawQty != null && rawQty.compareTo(BigDecimal.ZERO) > 0 ? rawQty : BigDecimal.ZERO;
+        if (qty.compareTo(BigDecimal.ZERO) <= 0) {
             return 0;
         }
         String unit = normalizeInboundQtyUnit(request == null ? null : request.getQtyUnit());
         if (!StringUtils.hasText(unit)) {
-            return qty;
+            return qty.intValue();
         }
         if ("kg".equalsIgnoreCase(unit)
                 || "KG".equalsIgnoreCase(unit)
@@ -2830,12 +2866,12 @@ public class TapeStockServiceImpl implements TapeStockService {
                 || "m2".equalsIgnoreCase(unit)
                 || "平方".equals(unit)) {
             if (stdQtyPerPack == null || stdQtyPerPack.compareTo(BigDecimal.ZERO) <= 0) {
-                return qty;
+                return qty.intValue();
             }
-            BigDecimal requiredStd = BigDecimal.valueOf(qty);
+            BigDecimal requiredStd = qty;
             return requiredStd.divide(stdQtyPerPack, 0, RoundingMode.CEILING).intValue();
         }
-        return qty;
+        return qty.intValue();
     }
 
     private BigDecimal extractSpecNumber(String specDesc, String unitToken) {
@@ -2959,8 +2995,8 @@ public class TapeStockServiceImpl implements TapeStockService {
         qw.eq("stock_id", stockId);
         List<ChemicalStockDetail> details = chemicalStockDetailMapper.selectList(qw);
 
-        int available = 0;
-        int locked = 0;
+        double available = 0D;
+        double locked = 0D;
         BigDecimal weightSum = BigDecimal.ZERO;
         int weightCount = 0;
         for (ChemicalStockDetail d : details) {
@@ -2972,9 +3008,9 @@ public class TapeStockServiceImpl implements TapeStockService {
                 continue;
             }
             if ("locked".equals(st)) {
-                locked++;
+                locked += 1D;
             } else {
-                available++;
+                available += 1D;
             }
             if (d.getWeight() != null && d.getWeight().compareTo(BigDecimal.ZERO) > 0) {
                 weightSum = weightSum.add(d.getWeight());
@@ -2992,7 +3028,7 @@ public class TapeStockServiceImpl implements TapeStockService {
         if (weightCount > 0) {
             stock.setUnitWeight(weightSum.divide(BigDecimal.valueOf(weightCount), 2, BigDecimal.ROUND_HALF_UP));
         }
-        Integer safety = stock.getSafetyStock() == null ? 0 : stock.getSafetyStock();
+        double safety = stock.getSafetyStock() == null ? 0D : stock.getSafetyStock();
         if (available <= 0) {
             stock.setStatus("out_of_stock");
         } else if (safety > 0 && available < safety) {
@@ -3017,16 +3053,16 @@ public class TapeStockServiceImpl implements TapeStockService {
         BigDecimal totalArea = BigDecimal.ZERO;
         BigDecimal availableArea = BigDecimal.ZERO;
         BigDecimal lockedArea = BigDecimal.ZERO;
-        int totalRolls = 0;
-        int availableRolls = 0;
-        int lockedRolls = 0;
+        double totalRolls = 0D;
+        double availableRolls = 0D;
+        double lockedRolls = 0D;
 
         for (FilmStockDetail d : details) {
             if (d == null) {
                 continue;
             }
             BigDecimal area = d.getArea() == null ? BigDecimal.ZERO : d.getArea();
-            int packCount = d.getPackCount() != null && d.getPackCount() > 0 ? d.getPackCount() : 1;
+            double packCount = d.getPackCount() != null && d.getPackCount() > 0 ? d.getPackCount() : 1.0;
             totalArea = totalArea.add(area);
             totalRolls += packCount;
             String st = d.getStatus() == null ? "" : d.getStatus().trim().toLowerCase(Locale.ROOT);
@@ -3071,14 +3107,14 @@ public class TapeStockServiceImpl implements TapeStockService {
         qw.eq("stock_id", stockId).eq("is_deleted", 0);
         List<PackageStockDetail> details = packageStockDetailMapper.selectList(qw);
 
-        int total = 0;
-        int available = 0;
-        int locked = 0;
+        double total = 0D;
+        double available = 0D;
+        double locked = 0D;
         for (PackageStockDetail d : details) {
             if (d == null) {
                 continue;
             }
-            int packCount = d.getPackCount() != null && d.getPackCount() > 0 ? d.getPackCount() : 1;
+            double packCount = d.getPackCount() != null && d.getPackCount() > 0 ? d.getPackCount() : 1.0;
             total += packCount;
             String st = d.getStatus() == null ? "" : d.getStatus().trim().toLowerCase(Locale.ROOT);
             if ("locked".equals(st)) {
@@ -3094,7 +3130,7 @@ public class TapeStockServiceImpl implements TapeStockService {
         stock.setTotalPackCount(total);
         stock.setAvailablePackCount(available);
         stock.setLockedPackCount(locked);
-        Integer safety = stock.getSafetyStock() == null ? 0 : stock.getSafetyStock();
+        double safety = stock.getSafetyStock() == null ? 0D : stock.getSafetyStock();
         if (available <= 0) {
             stock.setStatus("out_of_stock");
         } else if (safety > 0 && available < safety) {
@@ -3134,6 +3170,10 @@ public class TapeStockServiceImpl implements TapeStockService {
                 return text;
             }
         }
+        // 如果传入了 manualBatchNo 标记且为 true，则停止自动填充
+        if (payload != null && Boolean.TRUE.equals(payload.get("manualBatchNo"))) {
+            return "";
+        }
         String customerBatchNo = inbound == null ? "" : normalizeCustomerBatchNo(inbound.getCustomerBatchNo());
         if (StringUtils.hasText(customerBatchNo)) {
             return customerBatchNo;
@@ -3147,7 +3187,7 @@ public class TapeStockServiceImpl implements TapeStockService {
     }
 
     private int resolvePurchaseLabelQuantity(Map<String, Object> payload, TapeInboundRequest inbound) {
-        int fallback = (inbound != null && inbound.getRolls() != null && inbound.getRolls() > 0) ? inbound.getRolls() : 1;
+        int fallback = (inbound != null && inbound.getRolls() != null && inbound.getRolls().compareTo(BigDecimal.ZERO) > 0) ? inbound.getRolls().intValue() : 1;
         if (payload == null || payload.get("quantity") == null) {
             return fallback;
         }
@@ -3333,7 +3373,7 @@ public class TapeStockServiceImpl implements TapeStockService {
                 receiptItem = purchaseReceiptItemMapper.selectById(itemId);
                 if (receiptItem != null) {
                     // 非卷单位场景不直接用kg/㎡数量，优先按规格段数/PO卷数回填卷数。
-                    request.setRolls(resolvePurchaseInboundRolls(receiptItem, null));
+                    request.setRolls(BigDecimal.valueOf(resolvePurchaseInboundRolls(receiptItem, null)));
 
                     String spec = toSingleSpec(normalizeSpecDesc(receiptItem.getSpecification()));
                     if (StringUtils.hasText(spec)) {
@@ -3366,7 +3406,7 @@ public class TapeStockServiceImpl implements TapeStockService {
             Integer t = toPositiveInt(poItem.getThickness());
             Integer w = toPositiveInt(poItem.getWidth());
             Integer l = toPositiveInt(poItem.getLength());
-            request.setRolls(resolvePurchaseInboundRolls(receiptItem, poItem));
+            request.setRolls(BigDecimal.valueOf(resolvePurchaseInboundRolls(receiptItem, poItem)));
             if ((request.getThickness() == null || request.getThickness() <= 0) && t != null) {
                 request.setThickness(t);
             }
@@ -3544,8 +3584,8 @@ public class TapeStockServiceImpl implements TapeStockService {
     }
 
     private Integer resolvePurchaseInboundRolls(PurchaseReceiptItem item, PurchaseOrderItem poItem) {
-        Integer current = item == null ? null : item.getReceivedQty();
-        if (item != null && current != null && current > 0) {
+        BigDecimal current = item == null ? null : item.getReceivedQty();
+        if (item != null && current != null && current.compareTo(BigDecimal.ZERO) > 0) {
             String stockUom = item.getStockUomCode();
             String purchaseUom = item.getPurchaseUomCode();
             String priceUom = item.getPriceUomCode();
@@ -3555,7 +3595,7 @@ public class TapeStockServiceImpl implements TapeStockService {
                     || "卷".equals(normalizeInboundQtyUnit(priceUom))
                     || "卷".equals(normalizeInboundQtyUnit(unit));
             if (isRollUnit) {
-                return current;
+                return current.intValue();
             }
         }
 
@@ -3709,7 +3749,8 @@ public class TapeStockServiceImpl implements TapeStockService {
         if (StringUtils.hasText(fromToken)) {
             return fromToken;
         }
-        return normalizeCustomerBatchNo(request.getBatchNo());
+        // 不再自动回显生产批次号，必须明确指定供商批次
+        return "";
     }
 
     private String appendInboundRemarkToken(String remark, String key, String value) {
@@ -4658,9 +4699,9 @@ public class TapeStockServiceImpl implements TapeStockService {
             log.setProductName(stringObj(row.get("product_name")));
             log.setBatchNo(stringObj(row.get("batch_no")));
             log.setOrderNo(stringObj(row.get("order_no")));
-            log.setChangeRolls(parseIntObj(row.get("change_rolls")));
-            log.setBeforeRolls(parseIntObj(row.get("before_rolls")));
-            log.setAfterRolls(parseIntObj(row.get("after_rolls")));
+            log.setChangeRolls(parseDoubleObj(row.get("change_rolls")));
+            log.setBeforeRolls(parseDoubleObj(row.get("before_rolls")));
+            log.setAfterRolls(parseDoubleObj(row.get("after_rolls")));
             log.setRefNo(stringObj(row.get("ref_no")));
             log.setOperator(stringObj(row.get("operator")));
             log.setRemark(stringObj(row.get("remark")));
@@ -4686,6 +4727,20 @@ public class TapeStockServiceImpl implements TapeStockService {
             return Integer.parseInt(String.valueOf(value));
         } catch (Exception ignored) {
             return 0;
+        }
+    }
+
+    private Double parseDoubleObj(Object value) {
+        if (value == null) {
+            return 0.0;
+        }
+        try {
+            if (value instanceof Number) {
+                return ((Number) value).doubleValue();
+            }
+            return Double.parseDouble(String.valueOf(value));
+        } catch (Exception ignored) {
+            return 0.0;
         }
     }
 
@@ -4917,13 +4972,13 @@ public class TapeStockServiceImpl implements TapeStockService {
             }
 
             List<TapeStock> activeStocks = new ArrayList<>();
-            int migrateRolls = 0;
+            BigDecimal migrateRolls = BigDecimal.ZERO;
             for (TapeStock stock : tapeStocks) {
                 if (stock == null || !Objects.equals(stock.getStatus(), 1)) {
                     continue;
                 }
-                int stockRolls = stock.getTotalRolls() == null ? 0 : stock.getTotalRolls();
-                if (stockRolls <= 0) {
+                BigDecimal stockRolls = stock.getTotalRolls() == null ? BigDecimal.ZERO : BigDecimal.valueOf(stock.getTotalRolls());
+                if (stockRolls.compareTo(BigDecimal.ZERO) <= 0) {
                     continue;
                 }
                 if ((stock.getReservedArea() != null && stock.getReservedArea().compareTo(BigDecimal.ZERO) > 0)
@@ -4933,9 +4988,9 @@ public class TapeStockServiceImpl implements TapeStockService {
                     break;
                 }
                 activeStocks.add(stock);
-                migrateRolls += stockRolls;
+                migrateRolls = migrateRolls.add(stockRolls);
             }
-            if (activeStocks.isEmpty() || migrateRolls <= 0) {
+            if (activeStocks.isEmpty() || migrateRolls.compareTo(BigDecimal.ZERO) <= 0) {
                 continue;
             }
 
@@ -4959,7 +5014,7 @@ public class TapeStockServiceImpl implements TapeStockService {
 
             String migrationTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
             for (TapeStock stock : activeStocks) {
-                int beforeRolls = stock.getTotalRolls() == null ? 0 : stock.getTotalRolls();
+                BigDecimal beforeRollsQty = stock.getTotalRolls() == null ? BigDecimal.ZERO : BigDecimal.valueOf(stock.getTotalRolls());
                 stock.setTotalRolls(0);
                 stock.setTotalSqm(BigDecimal.ZERO);
                 stock.setAvailableArea(BigDecimal.ZERO);
@@ -4970,7 +5025,7 @@ public class TapeStockServiceImpl implements TapeStockService {
                 stockMapper.updateById(stock);
 
                 saveStockLog(stock.getId(), stock.getBatchNo(), stock.getMaterialCode(), stock.getProductName(),
-                        TapeStockLog.TYPE_ADJUST, -beforeRolls, beforeRolls, 0,
+                        TapeStockLog.TYPE_ADJUST, -beforeRollsQty.intValue(), beforeRollsQty.intValue(), 0,
                         request.getRequestNo(), operator, "历史纠偏：迁移到" + category + "原料仓");
 
                 stockFlowLogService.logStockChange(
@@ -4980,9 +5035,9 @@ public class TapeStockServiceImpl implements TapeStockService {
                         stock.getMaterialCode(),
                         stock.getProductName(),
                         StockFlowLog.OperationType.ADJUST.name(),
-                        BigDecimal.valueOf(-beforeRolls),
+                        BigDecimal.valueOf(-beforeRollsQty.intValue()),
                         "卷",
-                        BigDecimal.valueOf(beforeRolls),
+                        BigDecimal.valueOf(beforeRollsQty.intValue()),
                         BigDecimal.ZERO,
                         request.getRequestNo(),
                         operator,
@@ -5165,9 +5220,9 @@ public class TapeStockServiceImpl implements TapeStockService {
         log.setMaterialCode(materialCode);
         log.setProductName(productName);
         log.setType(type);
-        log.setChangeRolls(changeRolls);
-        log.setBeforeRolls(beforeRolls);
-        log.setAfterRolls(afterRolls);
+        log.setChangeRolls((double) changeRolls);
+        log.setBeforeRolls((double) beforeRolls);
+        log.setAfterRolls((double) afterRolls);
         log.setRefNo(refNo);
         log.setOperator(operator);
         log.setRemark(remark);

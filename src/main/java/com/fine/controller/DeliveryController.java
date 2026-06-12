@@ -381,7 +381,7 @@ public class DeliveryController {
             if (item == null) {
                 continue;
             }
-            int needRolls = item.getQuantity() == null ? 0 : Math.max(item.getQuantity(), 0);
+            int needRolls = item.getQuantity() == null ? 0 : Math.max(item.getQuantity().intValue(), 0);
             if (needRolls <= 0) {
                 continue;
             }
@@ -518,14 +518,14 @@ public class DeliveryController {
                 continue;
             }
 
-            int totalRolls = item.getRolls() == null ? 0 : item.getRolls();
-            Integer confirmedShipped = deliveryNoticeItemMapper.getConfirmedShippedQuantityByOrderItemId(item.getId());
-            int shippedRolls = confirmedShipped == null ? 0 : Math.max(confirmedShipped, 0);
+            int totalRolls = item.getRolls() == null ? 0 : item.getRolls().intValue();
+            Double confirmedShipped = deliveryNoticeItemMapper.getConfirmedShippedQuantityByOrderItemId(item.getId());
+            int shippedRolls = confirmedShipped == null ? 0 : Math.max(confirmedShipped.intValue(), 0);
             int deliveredRolls = Math.min(totalRolls, shippedRolls);
             int remainingRolls = Math.max(totalRolls - deliveredRolls, 0);
 
-            item.setDeliveredQty(deliveredRolls);
-            item.setRemainingQty(remainingRolls);
+            item.setDeliveredQty((double) deliveredRolls);
+            item.setRemainingQty((double) remainingRolls);
             if (deliveredRolls <= 0) {
                 item.setProductionStatus("not_started");
             } else if (remainingRolls <= 0) {
@@ -588,7 +588,7 @@ public class DeliveryController {
                         continue;
                     }
                     String material = normalizeMaterialCode(item.getMaterialCode());
-                    int qty = item.getQuantity() == null ? 0 : Math.max(item.getQuantity(), 0);
+                    int qty = item.getQuantity() == null ? 0 : Math.max(item.getQuantity().intValue(), 0);
                     if (!StringUtils.hasText(material) || qty <= 0) {
                         continue;
                     }
@@ -599,13 +599,13 @@ public class DeliveryController {
                     continue;
                 }
 
-                Map<String, Integer> approvedByMaterial = loadApprovedAutoOutboundByMaterial(notice.getNoticeNo());
+                Map<String, Double> approvedByMaterial = loadApprovedAutoOutboundByMaterial(notice.getNoticeNo());
 
                 boolean noticeAffected = false;
                 for (Map.Entry<String, Integer> entry : requiredByMaterial.entrySet()) {
                     String materialCode = entry.getKey();
                     int required = entry.getValue() == null ? 0 : Math.max(entry.getValue(), 0);
-                    int approved = approvedByMaterial.getOrDefault(materialCode, 0);
+                    int approved = approvedByMaterial.getOrDefault(materialCode, 0.0).intValue();
                     int deficit = required - approved;
                     if (deficit <= 0) {
                         continue;
@@ -688,8 +688,8 @@ public class DeliveryController {
         }
     }
 
-    private Map<String, Integer> loadApprovedAutoOutboundByMaterial(String noticeNo) {
-        Map<String, Integer> result = new LinkedHashMap<>();
+    private Map<String, Double> loadApprovedAutoOutboundByMaterial(String noticeNo) {
+        Map<String, Double> result = new LinkedHashMap<>();
         if (!StringUtils.hasText(noticeNo)) {
             return result;
         }
@@ -707,12 +707,12 @@ public class DeliveryController {
                 continue;
             }
             String material = normalizeMaterialCode(req.getMaterialCode());
-            int rolls = req.getRolls() == null ? 0 : Math.max(req.getRolls(), 0);
+            Double rolls = req.getRolls() == null ? 0.0 : Math.max(req.getRolls(), 0.0);
             if (!StringUtils.hasText(material) || rolls <= 0) {
                 continue;
             }
-            Integer oldApproved = result.get(material);
-            result.put(material, (oldApproved == null ? 0 : oldApproved) + rolls);
+            Double oldApproved = result.get(material);
+            result.put(material, (oldApproved == null ? 0.0 : oldApproved) + rolls);
         }
         return result;
     }

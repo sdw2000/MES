@@ -17,7 +17,7 @@ public interface ChemicalRequisitionService {
 
     ChemicalPurchaseRequest getRequestDetail(String requestNo);
 
-    void updateRequestedQty(Long itemId, Integer requestedQty);
+    void updateRequestedQty(Long itemId, Double requestedQty);
 
     void submitRequest(String requestNo);
 
@@ -25,9 +25,9 @@ public interface ChemicalRequisitionService {
 
     String createPurchaseOrder(String requestNo);
 
-    Map<String, Object> receiveAndFulfill(String requestNo, Map<Long, Integer> receiveQtyMap);
+    Map<String, Object> receiveAndFulfill(String requestNo, Map<Long, Double> receiveQtyMap);
 
     Map<String, Object> confirmIssueByLocks(java.util.List<Long> lockIds, String operator);
 
-    Map<String, Object> confirmIssueByLocks(java.util.Map<Long, Integer> lockQtyMap, String operator);
+    Map<String, Object> confirmIssueByLocks(java.util.Map<Long, Double> lockQtyMap, String operator);
 }
