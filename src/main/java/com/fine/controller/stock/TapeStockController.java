@@ -61,7 +61,10 @@ public class TapeStockController {
             @RequestParam(required = false) String qrCode,
             @RequestParam(required = false) String materialCode,
             @RequestParam(required = false) String rollType,
-            @RequestParam(required = false) String location) {        IPage<TapeStock> result = stockService.getStockPage(page, size, qrCode, materialCode, rollType, location);
+            @RequestParam(required = false) String location,
+            @RequestParam(required = false) String workshopSection,
+            @RequestParam(required = false) String workshopStatus) {
+        IPage<TapeStock> result = stockService.getStockPage(page, size, qrCode, materialCode, rollType, location, workshopSection, workshopStatus);
         Map<String, Object> data = new HashMap<>();
         data.put("records", result.getRecords());
         data.put("total", result.getTotal());
@@ -81,7 +84,7 @@ public class TapeStockController {
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) String materialCode,
             @RequestParam(required = false) String location) {
-        IPage<TapeStock> result = stockService.getStockPage(page, size, null, materialCode, "分切卷", location);
+        IPage<TapeStock> result = stockService.getStockPage(page, size, null, materialCode, "分切卷", location, null, null);
         Map<String, Object> data = new HashMap<>();
         data.put("records", result.getRecords());
         data.put("total", result.getTotal());

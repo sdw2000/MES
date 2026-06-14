@@ -37,8 +37,10 @@ public class ProductionDashboardController {
     }
 
     @GetMapping("/today-reports")
-    public ResponseResult<List<Map<String, Object>>> todayReports(
-            @RequestParam(value = "shiftCode", required = false) String shiftCode) {
-        return ResponseResult.success(productionDashboardService.getTodayReports(shiftCode));
+    public ResponseResult<?> todayReports(
+            @RequestParam(value = "shiftCode", required = false) String shiftCode,
+            @RequestParam(value = "pageNum", defaultValue = "1") Integer pageNum,
+            @RequestParam(value = "pageSize", defaultValue = "10") Integer pageSize) {
+        return ResponseResult.success(productionDashboardService.getTodayReports(shiftCode, pageNum, pageSize));
     }
 }

@@ -18,6 +18,7 @@ public interface DeliveryNoticeItemMapper extends BaseMapper<DeliveryNoticeItem>
             "TRIM(TRAILING '.' FROM TRIM(TRAILING '0' FROM CAST(COALESCE(soi.thickness, 0) AS CHAR))), 'μm*', " +
             "TRIM(TRAILING '.' FROM TRIM(TRAILING '0' FROM CAST(COALESCE(soi.width, 0) AS CHAR))), 'mm*', " +
             "TRIM(TRAILING '.' FROM TRIM(TRAILING '0' FROM CAST(COALESCE(soi.length, 0) AS CHAR))), 'm')) AS spec, " +
+            "soi.thickness, soi.width, soi.length, " +
             "dni.quantity, dni.area_size, dni.box_count, dni.gross_weight, dni.total_weight, dni.remark " +
             "FROM delivery_notice_items dni " +
             "LEFT JOIN sales_order_items soi ON soi.id = dni.order_item_id " +
@@ -32,6 +33,7 @@ public interface DeliveryNoticeItemMapper extends BaseMapper<DeliveryNoticeItem>
             "TRIM(TRAILING '.' FROM TRIM(TRAILING '0' FROM CAST(COALESCE(soi.thickness, 0) AS CHAR))), 'μm*', ",
             "TRIM(TRAILING '.' FROM TRIM(TRAILING '0' FROM CAST(COALESCE(soi.width, 0) AS CHAR))), 'mm*', ",
             "TRIM(TRAILING '.' FROM TRIM(TRAILING '0' FROM CAST(COALESCE(soi.length, 0) AS CHAR))), 'm')) AS spec, ",
+            "soi.thickness, soi.width, soi.length, ",
             "dni.quantity, dni.area_size, dni.box_count, dni.gross_weight, dni.total_weight, dni.remark ",
             "FROM delivery_notice_items dni ",
             "LEFT JOIN sales_order_items soi ON soi.id = dni.order_item_id ",

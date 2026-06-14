@@ -1666,7 +1666,10 @@ public class QuotationServiceImpl extends ServiceImpl<QuotationMapper, Quotation
         if (loginUser == null) {
             return false;
         }
-        if (hasRole(loginUser, "admin")) {
+        if (hasRole(loginUser, "admin")
+                || hasRole(loginUser, "plan")
+                || hasRole(loginUser, "scheduler")
+                || hasRole(loginUser, "coating")) {
             return true;
         }
         Long userId = getCurrentUserId(loginUser);

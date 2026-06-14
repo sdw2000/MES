@@ -32,6 +32,7 @@ import org.springframework.util.MultiValueMap;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import lombok.extern.slf4j.Slf4j;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -39,12 +40,14 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fine.Dao.DeliveryNoticeItemMapper;
 import com.fine.Dao.DeliveryNoticeMapper;
+import com.fine.Dao.CustomerMapper;
 import com.fine.Dao.SalesOrderItemMapper;
 import com.fine.Dao.production.SalesOrderMapper;
 import com.fine.Dao.stock.TapeOutboundRequestMapper;
 import com.fine.Dao.stock.TapeStockMapper;
 import com.fine.modle.DeliveryNotice;
 import com.fine.modle.DeliveryNoticeItem;
+import com.fine.modle.Customer;
 import com.fine.modle.LogisticsCompany;
 import com.fine.modle.SalesOrder;
 import com.fine.modle.SalesOrderItem;
@@ -54,6 +57,7 @@ import com.fine.service.DeliveryNoticeService;
 import com.fine.service.LogisticsCompanyService;
 
 @Service
+@Slf4j
 public class DeliveryNoticeServiceImpl extends ServiceImpl<DeliveryNoticeMapper, DeliveryNotice> implements DeliveryNoticeService {
 
     private static final Set<String> RP_CUSTOMER_CODES = new LinkedHashSet<>(Arrays.asList(
@@ -65,6 +69,9 @@ public class DeliveryNoticeServiceImpl extends ServiceImpl<DeliveryNoticeMapper,
 
     @Autowired
     private DeliveryNoticeItemMapper deliveryNoticeItemMapper;
+
+    @Autowired
+    private CustomerMapper customerMapper;
 
     @Autowired
     private SalesOrderMapper salesOrderMapper;
@@ -239,6 +246,15 @@ public class DeliveryNoticeServiceImpl extends ServiceImpl<DeliveryNoticeMapper,
             applyShipmentStockDeduction(deliveryNotice);
             deliveryNotice.setUpdatedAt(new Date());
             deliveryNoticeMapper.updateById(deliveryNotice);
+
+            // 触发企业微信自动推送：仅当状态首次变为“已发货”时推送
+            if ("已发货".equals(deliveryNotice.getStatus()) || "shipped".equalsIgnoreCase(deliveryNotice.getStatus())) {
+                try {
+                    pushWeComNotification(deliveryNotice);
+                } catch (Exception e) {
+                    log.error("触发发货推送异常: {}", e.getMessage());
+                }
+            }
         }
 
         return this.getDeliveryNoticeDetail(deliveryNotice.getId());
@@ -1588,5 +1604,85 @@ public class DeliveryNoticeServiceImpl extends ServiceImpl<DeliveryNoticeMapper,
             }
         }
         return String.join(",", unique);
+    }
+
+    @Override
+    public com.fine.Utils.ResponseResult<?> testWeComPush(Long id) {
+        DeliveryNotice notice = this.getById(id);
+        if (notice == null) {
+            return com.fine.Utils.ResponseResult.error(404, "未找到发货通知单");
+        }
+        try {
+            pushWeComNotification(notice);
+            return com.fine.Utils.ResponseResult.success("推送任务已触发，请检查企业微信群。");
+        } catch (Exception e) {
+            return com.fine.Utils.ResponseResult.error(500, "测试异常: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 向企业微信机器人推送发货通知
+     */
+    private void pushWeComNotification(DeliveryNotice notice) {
+        if (notice == null || !StringUtils.hasText(notice.getCustomer())) return;
+        
+        try {
+            // 1. 获取客户详情（含Webhook）
+            QueryWrapper<Customer> customerQw = new QueryWrapper<>();
+            customerQw.eq("customer_name", notice.getCustomer()).eq("is_deleted", 0).last("LIMIT 1");
+            Customer customer = customerMapper.selectOne(customerQw);
+            
+            if (customer == null || !StringUtils.hasText(customer.getWecomWebhookUrl())) {
+                log.info("未找到客户推送配置或Webhook地址为空: {}", notice.getCustomer());
+                return;
+            }
+            
+            // 2. 组装明细信息
+            List<DeliveryNoticeItem> items = deliveryNoticeItemMapper.selectList(
+                new QueryWrapper<DeliveryNoticeItem>().eq("notice_id", notice.getId())
+            );
+            
+            StringBuilder materialDesc = new StringBuilder();
+            if (items != null) {
+                for (DeliveryNoticeItem item : items) {
+                    materialDesc.append("\n• ")
+                                .append(item.getMaterialCode())
+                                .append(" | ")
+                                .append(item.getSpec())
+                                .append(" | ")
+                                .append(item.getQuantity())
+                                .append("卷");
+                }
+            }
+
+            // 3. 构造Markdown文案
+            Map<String, Object> markdown = new HashMap<>();
+            String content = "📣 **发货通知**\n" +
+                    ">**订单单号**：`" + notice.getOrderNo() + "`\n" +
+                    ">**客户名称**：`" + notice.getCustomer() + "`\n" +
+                    ">**发货明细**：" + materialDesc.toString() + "\n" +
+                    ">**物流公司**：`" + (notice.getCarrierName() != null ? notice.getCarrierName() : "一号多货/自提") + "`\n" +
+                    ">**物流单号**：`" + (notice.getCarrierNo() != null ? notice.getCarrierNo() : "无") + "`\n" +
+                    "---\n" +
+                    "💡 *提示：物流状态可能存在延迟，请稍后通过系统或小程序查询*";
+            
+            markdown.put("content", content);
+            
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("msgtype", "markdown");
+            payload.put("markdown", markdown);
+
+            // 4. 发送POST请求（复用物流查询的RestTemplate构建方式，带超时控制）
+            RestTemplate restTemplate = buildLogisticsRestTemplate();
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(payload, headers);
+            
+            restTemplate.postForEntity(customer.getWecomWebhookUrl(), entity, String.class);
+            log.info("企业微信通知推送成功: {}", notice.getNoticeNo());
+            
+        } catch (Exception e) {
+            log.error("企业微信推送失败({}): {}", notice.getNoticeNo(), e.getMessage());
+        }
     }
 }

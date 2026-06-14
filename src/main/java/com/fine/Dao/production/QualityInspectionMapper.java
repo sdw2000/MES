@@ -32,10 +32,12 @@ public interface QualityInspectionMapper extends BaseMapper<QualityInspection> {
     List<QualityInspection> selectByBatchNo(@Param("batchNo") String batchNo);
     
     /**
-     * 生成质检单号
+     * 生成质检单号 (策略：PQC + 日期码yyMMdd + 4位序列号)
      */
-    @Select("SELECT CONCAT('QC-', DATE_FORMAT(NOW(), '%Y%m%d'), '-', LPAD(IFNULL(MAX(CAST(SUBSTRING(inspection_no, 13) AS UNSIGNED)), 0) + 1, 3, '0')) " +
-            "FROM quality_inspection WHERE inspection_no LIKE CONCAT('QC-', DATE_FORMAT(NOW(), '%Y%m%d'), '-%')")
+    @Select("SELECT CONCAT('PQC', DATE_FORMAT(NOW(), '%y%m%d'), " +
+            "LPAD(IFNULL(MAX(CAST(RIGHT(inspection_no, 4) AS UNSIGNED)), 0) + 1, 4, '0')) " +
+            "FROM quality_inspection " +
+            "WHERE inspection_no LIKE CONCAT('PQC', DATE_FORMAT(NOW(), '%y%m%d'), '%')")
     String generateInspectionNo();
     
     /**

@@ -38,6 +38,14 @@ public class DeliveryNotice {
     
     // 客户名称
     private String customer;
+
+    // 客户简称（展示字段，不入库）
+    @TableField(exist = false)
+    private String customerShortName;
+
+    // 客户代码（展示字段，不入库）
+    @TableField(exist = false)
+    private String customerCode;
     
     // 发货日期
     @JsonFormat(pattern = "yyyy-MM-dd")

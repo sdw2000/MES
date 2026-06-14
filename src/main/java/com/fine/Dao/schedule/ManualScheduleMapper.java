@@ -1,6 +1,7 @@
 package com.fine.Dao.schedule;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fine.modle.schedule.ManualSchedule;
 import org.apache.ibatis.annotations.Insert;
@@ -1295,8 +1296,9 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
     /**
      * 查询工序报工记录
      */
-    @Select("SELECT " +
-            "r.id, r.schedule_id, r.process_type, " +
+    @Select("SELECT r.*, " +
+            "ms.order_no, " +
+            "CONCAT(soi.width, 'mm*', soi.length, 'm*', soi.thickness, 'μm') AS spec_desc, " +
             "DATE_FORMAT(r.start_time, '%Y-%m-%d %H:%i:%s') AS start_time, " +
             "DATE_FORMAT(r.end_time, '%Y-%m-%d %H:%i:%s') AS end_time, " +
             "r.produced_qty, r.operator_name, r.proceed_next_process, " +
@@ -1311,11 +1313,12 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "FROM manual_schedule_process_report r " +
             "LEFT JOIN manual_schedule ms ON ms.id = r.schedule_id " +
             "LEFT JOIN sales_order_items soi ON soi.id = ms.order_detail_id " +
-            "WHERE r.schedule_id = #{scheduleId} " +
+            "WHERE (#{scheduleId} IS NULL OR r.schedule_id = #{scheduleId}) " +
             "AND r.process_type = #{processType} " +
             "AND r.is_deleted = 0 " +
-            "ORDER BY r.start_time DESC, r.id DESC")
-    List<Map<String, Object>> selectProcessReports(@Param("scheduleId") Long scheduleId,
+            "ORDER BY r.id DESC")
+    List<Map<String, Object>> selectProcessReports(IPage<?> page,
+                                                   @Param("scheduleId") Long scheduleId,
                                                    @Param("processType") String processType);
 
     /**
@@ -1659,6 +1662,16 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "WHERE order_detail_id = #{orderDetailId} " +
             "AND status IN ('PENDING','COATING_SCHEDULED','REWINDING_SCHEDULED')")
     BigDecimal sumActiveScheduleQtyByOrderDetailId(@Param("orderDetailId") Long orderDetailId);
+
+    /**
+     * 查询某订单明细已存在的手工分切排程卷数（用于平行排程校验）
+     */
+    @Select("SELECT IFNULL(SUM(IFNULL(schedule_qty, 0)), 0) " +
+            "FROM manual_schedule " +
+            "WHERE order_detail_id = #{orderDetailId} " +
+            "AND schedule_type = 'SLITTING_MANUAL' " +
+            "AND status IN ('PENDING','COATING_SCHEDULED','REWINDING_SCHEDULED')")
+    BigDecimal sumActiveManualSlittingQtyByOrderDetailId(@Param("orderDetailId") Long orderDetailId);
 
     /**
      * 查询订单明细下仍有效的手动排程（用于取消联动）

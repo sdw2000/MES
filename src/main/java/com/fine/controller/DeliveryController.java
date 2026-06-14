@@ -79,6 +79,17 @@ public class DeliveryController {
     @Autowired
     private TapeOutboundRequestMapper tapeOutboundRequestMapper;
 
+    @Autowired
+    private WeComController weComController;
+
+    /**
+     * 手动触发一次企业微信推送测试
+     */
+    @GetMapping("/notices/test-wecom-push/{id}")
+    public ResponseResult<?> testWeComPush(@PathVariable Long id) {
+        return deliveryNoticeService.testWeComPush(id);
+    }
+
     private static final String SLITTING_PENDING_OUTBOUND_LOCATION = "成品待出库区";
     
     /**
@@ -173,7 +184,38 @@ public class DeliveryController {
             return ResponseResult.success(resultPage);
         }
 
-        // 2. 仅为当前页的 records 批量查询明细 (Items)，避免 N+1
+        // 2. 批量查询客户信息，填充简称和代码，避免前端加载全量客户表
+        java.util.Set<String> customerKeys = new java.util.HashSet<>();
+        for (DeliveryNotice notice : records) {
+            if (StringUtils.hasText(notice.getCustomer())) {
+                customerKeys.add(notice.getCustomer().trim());
+            }
+        }
+        if (!customerKeys.isEmpty()) {
+            QueryWrapper<Customer> cqw = new QueryWrapper<>();
+            cqw.eq("is_deleted", 0)
+               .and(w -> w.in("customer_name", customerKeys)
+                          .or().in("customer_code", customerKeys)
+                          .or().in("short_name", customerKeys));
+            List<Customer> customerList = customerMapper.selectList(cqw);
+            Map<String, Customer> cMap = new HashMap<>();
+            for (Customer c : customerList) {
+                if (StringUtils.hasText(c.getCustomerName())) cMap.put(c.getCustomerName().trim(), c);
+                if (StringUtils.hasText(c.getCustomerCode())) cMap.put(c.getCustomerCode().trim(), c);
+                if (StringUtils.hasText(c.getShortName())) cMap.put(c.getShortName().trim(), c);
+            }
+            for (DeliveryNotice notice : records) {
+                Customer c = cMap.get(notice.getCustomer() != null ? notice.getCustomer().trim() : "");
+                if (c != null) {
+                    notice.setCustomerCode(c.getCustomerCode());
+                    notice.setCustomerShortName(StringUtils.hasText(c.getShortName()) ? c.getShortName() : c.getCustomerName());
+                } else {
+                    notice.setCustomerShortName(notice.getCustomer());
+                }
+            }
+        }
+
+        // 3. 仅为当前页的 records 批量查询明细 (Items)，避免 N+1
         List<Long> noticeIds = new ArrayList<>();
         for (DeliveryNotice notice : records) {
             if (notice != null && notice.getId() != null) {
@@ -355,6 +397,16 @@ public class DeliveryController {
             boolean updated = deliveryNoticeService.updateById(notice);
             
             if (updated) {
+                // 新增：自动推送企微通知 (方案二)
+                try {
+                    Customer customer = customerMapper.selectOne(new QueryWrapper<Customer>().eq("customer_code", notice.getCustomer()).last("LIMIT 1"));
+                    if (customer != null && customer.getWecomChatId() != null && !customer.getWecomChatId().isEmpty()) {
+                        weComController.sendAutoShipmentNotification(customer.getWecomChatId(), notice);
+                    }
+                } catch (Exception weEx) {
+                    System.err.println("自动推带企微消息失败: " + weEx.getMessage());
+                }
+
                 if (isRpCustomerCode(notice.getCustomer())) {
                     deliveryNoticeService.rebalanceRpProducedCreditsByNotice(notice.getId(), getCurrentUsername(loginUser));
                 } else {

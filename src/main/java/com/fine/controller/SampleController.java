@@ -4,13 +4,16 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fine.Utils.ResponseResult;
 import com.fine.modle.LogisticsUpdateDTO;
 import com.fine.modle.SampleOrderDTO;
+import com.fine.modle.SampleFeedback;
 import com.fine.service.SampleOrderService;
+import com.fine.service.SampleFeedbackService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.Map;
+import java.util.List;
 
 /**
  * 送样订单 Controller
@@ -23,6 +26,9 @@ public class SampleController {
 
     @Autowired
     private SampleOrderService sampleOrderService;
+
+    @Autowired
+    private SampleFeedbackService sampleFeedbackService;
 
     @GetMapping
     public ResponseResult<Page<SampleOrderDTO>> list(
@@ -161,6 +167,12 @@ public class SampleController {
         return new ResponseResult<>(20000, "生成成功", sampleNo);
     }
 
+    @GetMapping("/history/{customerId}")
+    public ResponseResult<List<SampleOrderDTO>> getHistoryByCustomerId(@PathVariable Long customerId) {
+        List<SampleOrderDTO> history = sampleOrderService.getHistoryByCustomerId(customerId);
+        return new ResponseResult<>(20000, "查询成功", history);
+    }
+
     @PostMapping("/import")
     public ResponseResult<Map<String, Object>> importSamples(@RequestParam("file") MultipartFile file) {
         try {
@@ -182,6 +194,32 @@ public class SampleController {
             return sampleOrderService.exportToExcel(customerName, status);
         } catch (Exception e) {
             return new ResponseResult<>(50000, "导出失败: " + e.getMessage());
+        }
+    }
+
+    @GetMapping("/{sampleOrderId}/feedbacks")
+    public ResponseResult<List<SampleFeedback>> getFeedbacks(@PathVariable Long sampleOrderId) {
+        List<SampleFeedback> feedbacks = sampleFeedbackService.getFeedbacksBySampleOrderId(sampleOrderId);
+        return new ResponseResult<>(20000, "查询成功", feedbacks);
+    }
+
+    @PostMapping("/feedbacks")
+    public ResponseResult<Void> addFeedback(@RequestBody SampleFeedback feedback) {
+        try {
+            boolean success = sampleFeedbackService.addFeedback(feedback);
+            return success ? new ResponseResult<>(20000, "反馈提交成功") : new ResponseResult<>(50000, "反馈提交失败");
+        } catch (Exception e) {
+            return new ResponseResult<>(50000, "反馈提交失败: " + e.getMessage());
+        }
+    }
+
+    @DeleteMapping("/feedbacks/{id}")
+    public ResponseResult<Void> deleteFeedback(@PathVariable Long id) {
+        try {
+            boolean success = sampleFeedbackService.deleteFeedback(id);
+            return success ? new ResponseResult<>(20000, "反馈删除成功") : new ResponseResult<>(50000, "反馈删除失败");
+        } catch (Exception e) {
+            return new ResponseResult<>(50000, "反馈删除失败: " + e.getMessage());
         }
     }
 }

@@ -249,7 +249,27 @@ public class SampleOrderServiceImpl implements SampleOrderService {
         order.setTotalQuantity(totalQty);
         
         return convertToDTO(order);
-    }    @Override
+    }
+
+    @Override
+    public List<SampleOrderDTO> getHistoryByCustomerId(Long customerId) {
+        if (customerId == null) return Collections.emptyList();
+        
+        LambdaQueryWrapper<SampleOrder> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(SampleOrder::getCustomerId, customerId)
+               .eq(SampleOrder::getIsDeleted, 0)
+               .orderByDesc(SampleOrder::getSendDate);
+        
+        List<SampleOrder> orders = sampleOrderMapper.selectList(wrapper);
+        return orders.stream().map(order -> {
+            SampleOrderDTO dto = convertToDTO(order);
+            // 填充送样明细，确保前端能显示物料名称、规格、数量等信息
+            dto.setItems(sampleItemMapper.selectBySampleNo(order.getSampleNo()));
+            return dto;
+        }).collect(Collectors.toList());
+    }
+
+    @Override
     @Transactional(rollbackFor = Exception.class)
     public String create(SampleOrderDTO dto) {
         // 生成送样编号
@@ -1232,7 +1252,10 @@ public class SampleOrderServiceImpl implements SampleOrderService {
     private boolean canAccessSample(LoginUser loginUser, SampleOrder order) {
         if (order == null) return true;
         if (loginUser == null) return false;
-        if (hasRole(loginUser, "admin")) return true;
+        if (hasRole(loginUser, "admin") 
+                || hasRole(loginUser, "plan")
+                || hasRole(loginUser, "scheduler")
+                || hasRole(loginUser, "coating")) return true;
         if (hasRole(loginUser, "production") || hasRole(loginUser, "packaging") || hasRole(loginUser, "packing")) {
             return true;
         }

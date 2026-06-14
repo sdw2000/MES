@@ -49,6 +49,11 @@ public class Customer {
     private String companyEmail;        // 公司邮箱
     private String website;             // 公司网站
     
+    // 企业微信配置
+    private String wecomWebhookUrl;     // 企业微信群机器人Webhook地址
+
+    private String wecomChatId;         // 自建应用推送专用的群ID (chatId)
+    
     // 财务信息
     private BigDecimal creditLimit;     // 信用额度（元）
     private String paymentTerms;        // 付款条件：现款现货、货到付款、月结30天、月结60天、月结90天、预付30%

@@ -36,6 +36,18 @@ public class DeliveryNoticeItem {
     
     // 规格
     private String spec;
+
+    // 厚度（仅展示，不入库）
+    @TableField(exist = false)
+    private Double thickness;
+
+    // 宽度（仅展示，不入库）
+    @TableField(exist = false)
+    private Double width;
+
+    // 长度（仅展示，不入库）
+    @TableField(exist = false)
+    private Double length;
     
     // 批号
     @TableField("batch_no")

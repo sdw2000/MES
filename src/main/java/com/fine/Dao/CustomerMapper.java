@@ -45,6 +45,12 @@ public interface CustomerMapper extends BaseMapper<Customer> {
      */
     @Select("SELECT COUNT(*) FROM customers WHERE customer_name = #{customerName} AND is_deleted = 0 AND id != #{excludeId}")
     int checkCustomerNameExists(@Param("customerName") String customerName, @Param("excludeId") Long excludeId);
+
+    /**
+     * 计算指定客户标示集合的累计已出货金额
+     */
+    Double calculateShippedAmount(@Param("keys") java.util.Set<String> keys);
+
       /**
      * 获取并更新编号序列
      */

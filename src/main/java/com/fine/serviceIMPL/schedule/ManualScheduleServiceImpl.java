@@ -217,7 +217,7 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         }
     }
 
-    private void ensureOrderDetailScheduleQuota(Long orderDetailId, Double requestQty) {
+    private void ensureOrderDetailScheduleQuota(Long orderDetailId, Double requestQty, String scheduleType) {
         if (orderDetailId == null) {
             throw new RuntimeException("orderDetailId 不能为空");
         }
@@ -227,7 +227,16 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
         ensureOrderDetailSchedulable(orderDetailId);
 
         BigDecimal pendingQty = scheduleMapper.selectPendingQtyForScheduling(orderDetailId);
-        BigDecimal activeScheduledQty = scheduleMapper.sumActiveScheduleQtyByOrderDetailId(orderDetailId);
+        
+        BigDecimal activeScheduledQty;
+        if ("SLITTING_MANUAL".equalsIgnoreCase(scheduleType)) {
+            // 分切平行排程：只校验已有的手动分切排程是否超量，忽略涂布/复卷等非分切手工记录，支持平行排程
+            activeScheduledQty = scheduleMapper.sumActiveManualSlittingQtyByOrderDetailId(orderDetailId);
+        } else {
+            // 普通排程（涂布/复卷/匹配库）：校验所有活跃排程，防重复占用订单份额
+            activeScheduledQty = scheduleMapper.sumActiveScheduleQtyByOrderDetailId(orderDetailId);
+        }
+
         BigDecimal availableForCreate = (pendingQty == null ? BigDecimal.ZERO : pendingQty)
                 .subtract(activeScheduledQty == null ? BigDecimal.ZERO : activeScheduledQty);
         BigDecimal requested = BigDecimal.valueOf(requestQty);
@@ -1298,12 +1307,12 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
     }
 
     @Override
-    public List<Map<String, Object>> getProcessWorkReports(Long scheduleId, String processType) {
-        if (scheduleId == null) {
-            throw new RuntimeException("scheduleId 不能为空");
-        }
+    public IPage<Map<String, Object>> getProcessWorkReports(Long scheduleId, String processType, Integer pageNum, Integer pageSize) {
         String normalizedProcessType = normalizeProcessType(processType);
-        return scheduleMapper.selectProcessReports(scheduleId, normalizedProcessType);
+        Page<Map<String, Object>> page = new Page<>(pageNum != null ? pageNum : 1, pageSize != null ? pageSize : 10);
+        List<Map<String, Object>> list = scheduleMapper.selectProcessReports(page, scheduleId, normalizedProcessType);
+        page.setRecords(list);
+        return page;
     }
 
     @Override
@@ -2426,16 +2435,15 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
     }
 
     private String buildAutoPendingInspectionNo(Long reportId, String rollCode) {
+        // 质检单号生成策略更新为：PQC + 日期码(yyMMdd) + 4位序列号
+        String no = qualityInspectionRecordMapper.generateInspectionNo("PQC");
+        if (org.springframework.util.StringUtils.hasText(no)) {
+            return no;
+        }
+        // 降级方案
         String datePart = LocalDate.now().format(DateTimeFormatter.ofPattern("yyMMdd"));
-        String reportPart = reportId == null ? "0" : String.valueOf(reportId);
-        String rollPart = rollCode == null ? "X" : rollCode.replaceAll("[^A-Za-z0-9]", "");
-        if (rollPart.isEmpty()) {
-            rollPart = "X";
-        }
-        if (rollPart.length() > 16) {
-            rollPart = rollPart.substring(rollPart.length() - 16);
-        }
-        return "PQC" + datePart + "-A" + reportPart + "-" + rollPart;
+        long suffix = System.currentTimeMillis() % 10000;
+        return "PQC" + datePart + String.format("%04d", suffix);
     }
 
     private Integer resolveRollSequenceNo(Map<String, Object> roll, String rollCode, int fallbackIdx) {
@@ -3611,7 +3619,7 @@ public class ManualScheduleServiceImpl extends ServiceImpl<ManualScheduleMapper,
             schedule.setStatus(schedule.getStatus() == null ? "PENDING" : schedule.getStatus());
         }
         if (schedule.getOrderDetailId() != null) {
-            ensureOrderDetailScheduleQuota(schedule.getOrderDetailId(), schedule.getScheduleQty());
+            ensureOrderDetailScheduleQuota(schedule.getOrderDetailId(), schedule.getScheduleQty(), schedule.getScheduleType());
             ensureSlittingNetDemandQuota(schedule);
 
             // 自动同步官方订单号，修正可能的传参偏差（如从合并列表中带入错误的单号）

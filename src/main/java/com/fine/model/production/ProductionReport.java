@@ -88,6 +88,14 @@ public class ProductionReport {
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "GMT+8")
     private Date updateTime;
     
+    // ========== 订单关联信息 (JOIN 查询字段) ==========
+    
+    /** 订单号 */
+    private String orderNo;
+    
+    /** 规格描述 (宽度/长度/厚度) */
+    private String specDesc;
+    
     // ========== 非数据库字段 ==========
     
     /** 设备名称 */

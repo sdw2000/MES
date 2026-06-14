@@ -6,6 +6,7 @@ import com.fine.modle.SampleOrderDTO;
 import com.fine.modle.LogisticsUpdateDTO;
 import org.springframework.web.multipart.MultipartFile;
 import java.util.Map;
+import java.util.List;
 
 /**
  * 送样订单Service接口
@@ -49,6 +50,11 @@ public interface SampleOrderService {
      */
     boolean updateLogistics(LogisticsUpdateDTO dto);
     
+    /**
+     * 根据客户ID查询历史送样记录
+     */
+    List<SampleOrderDTO> getHistoryByCustomerId(Long customerId);
+
     /**
      * 更新状态
      */

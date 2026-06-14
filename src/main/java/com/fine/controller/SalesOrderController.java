@@ -18,7 +18,7 @@ import javax.servlet.http.HttpServletResponse;
  */
 @RestController
 @RequestMapping("/sales/orders")
-@PreAuthorize("hasAnyAuthority('admin','sales','finance','quality')")
+@PreAuthorize("hasAnyAuthority('admin','sales','finance','quality','plan','scheduler','coating')")
 public class SalesOrderController {
 
     private static final Logger log = LoggerFactory.getLogger(SalesOrderController.class);

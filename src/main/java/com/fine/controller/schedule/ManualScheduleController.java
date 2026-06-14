@@ -681,10 +681,12 @@ public class ManualScheduleController {
      * 查询工序报工明细
      */
     @GetMapping("/report-work/list")
-    public ResponseResult<List<Map<String, Object>>> getReportWorkList(@RequestParam Long scheduleId,
-                                                                       @RequestParam String processType) {
+    public ResponseResult<IPage<Map<String, Object>>> getReportWorkList(@RequestParam(required = false) Long scheduleId,
+                                                                       @RequestParam String processType,
+                                                                       @RequestParam(defaultValue = "1") Integer pageNum,
+                                                                       @RequestParam(defaultValue = "10") Integer pageSize) {
         try {
-            return ResponseResult.success(manualScheduleService.getProcessWorkReports(scheduleId, processType));
+            return ResponseResult.success(manualScheduleService.getProcessWorkReports(scheduleId, processType, pageNum, pageSize));
         } catch (Exception e) {
             return ResponseResult.error("查询报工明细失败: " + e.getMessage());
         }

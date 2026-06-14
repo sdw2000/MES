@@ -1016,7 +1016,12 @@ public class SalesReturnServiceImpl extends ServiceImpl<SalesReturnMapper, Sales
 
     private Set<String> getAccessibleCustomerKeys() {
         LoginUser loginUser = getLoginUser();
-        if (loginUser == null || hasRole(loginUser, "admin") || hasRole(loginUser, "warehouse")) {
+        if (loginUser == null 
+                || hasRole(loginUser, "admin") 
+                || hasRole(loginUser, "warehouse")
+                || hasRole(loginUser, "plan")
+                || hasRole(loginUser, "scheduler")
+                || hasRole(loginUser, "coating")) {
             return null;
         }
         Long uid = getCurrentUserId(loginUser);

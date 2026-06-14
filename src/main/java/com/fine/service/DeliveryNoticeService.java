@@ -75,4 +75,11 @@ public interface DeliveryNoticeService extends IService<DeliveryNotice> {
      * @return key=orderItemId, value=共享池预览字段
      */
     Map<Long, Map<String, Object>> getRpPoolPreview(List<Long> orderItemIds, Long currentNoticeId);
+
+    /**
+     * 测试企业微信推送
+     * @param id 发货通知单ID
+     * @return 结果
+     */
+    com.fine.Utils.ResponseResult<?> testWeComPush(Long id);
 }

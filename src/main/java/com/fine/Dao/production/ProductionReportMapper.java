@@ -16,7 +16,22 @@ public interface ProductionReportMapper {
      * 分页查询报工记录
      */
     @Select("<script>" +
-            "SELECT pr.*, e.equipment_name FROM production_report pr " +
+            "SELECT pr.*, e.equipment_name, " +
+            "CASE " +
+            "  WHEN pr.task_type = 'COATING' THEN (SELECT order_no FROM schedule_coating WHERE task_no = pr.task_no LIMIT 1) " +
+            "  WHEN pr.task_type = 'REWINDING' THEN (SELECT order_no FROM schedule_rewinding WHERE task_no = pr.task_no LIMIT 1) " +
+            "  WHEN pr.task_type = 'SLITTING' THEN (SELECT order_no FROM schedule_slitting WHERE task_no = pr.task_no LIMIT 1) " +
+            "  WHEN pr.task_type = 'STRIPPING' OR pr.task_type = 'PACKAGING' THEN (SELECT ms.order_no FROM manual_schedule ms JOIN schedule_stripping ss ON ss.schedule_id = ms.id WHERE ss.task_no = pr.task_no LIMIT 1) " +
+            "  ELSE NULL " +
+            "END AS order_no, " +
+            "CASE " +
+            "  WHEN pr.task_type = 'COATING' THEN (SELECT CONCAT(width, 'mm*', length, 'm*', thickness, 'μm') FROM schedule_coating WHERE task_no = pr.task_no LIMIT 1) " +
+            "  WHEN pr.task_type = 'REWINDING' THEN (SELECT CONCAT(width, 'mm*', length, 'm*', thickness, 'μm') FROM schedule_rewinding WHERE task_no = pr.task_no LIMIT 1) " +
+            "  WHEN pr.task_type = 'SLITTING' THEN (SELECT CONCAT(target_width, 'mm*', slit_length, 'm*', thickness, 'μm') FROM schedule_slitting WHERE task_no = pr.task_no LIMIT 1) " +
+            "  WHEN pr.task_type = 'STRIPPING' OR pr.task_type = 'PACKAGING' THEN (SELECT CONCAT(IFNULL(target_width,0), 'mm*', IFNULL(target_length,0), 'm*', IFNULL(thickness,0), 'μm') FROM schedule_stripping WHERE task_no = pr.task_no LIMIT 1) " +
+            "  ELSE NULL " +
+            "END AS spec_desc " +
+            "FROM production_report pr " +
             "LEFT JOIN production_equipment e ON pr.equipment_id = e.id " +
             "WHERE 1=1 " +
             "<if test='params.reportNo != null and params.reportNo != \"\"'>" +
@@ -31,17 +46,32 @@ public interface ProductionReportMapper {
             "<if test='params.staffId != null'>" +
             "AND pr.staff_id = #{params.staffId} " +
             "</if>" +
-            "<if test='params.reportDate != null'>" +
+            "<if test='params.reportDate != null and params.reportDate != \"\"'>" +
             "AND pr.report_date = #{params.reportDate} " +
             "</if>" +
-            "ORDER BY pr.create_time DESC" +
+            "ORDER BY pr.id DESC" +
             "</script>")
     IPage<ProductionReport> selectList(IPage<ProductionReport> page, @Param("params") Map<String, Object> params);
     
     /**
      * 根据ID查询
      */
-    @Select("SELECT pr.*, e.equipment_name FROM production_report pr " +
+    @Select("SELECT pr.*, e.equipment_name, " +
+            "CASE " +
+            "  WHEN pr.task_type = 'COATING' THEN (SELECT order_no FROM schedule_coating WHERE task_no = pr.task_no LIMIT 1) " +
+            "  WHEN pr.task_type = 'REWINDING' THEN (SELECT order_no FROM schedule_rewinding WHERE task_no = pr.task_no LIMIT 1) " +
+            "  WHEN pr.task_type = 'SLITTING' THEN (SELECT order_no FROM schedule_slitting WHERE task_no = pr.task_no LIMIT 1) " +
+            "  WHEN pr.task_type = 'STRIPPING' OR pr.task_type = 'PACKAGING' THEN (SELECT ms.order_no FROM manual_schedule ms JOIN schedule_stripping ss ON ss.schedule_id = ms.id WHERE ss.task_no = pr.task_no LIMIT 1) " +
+            "  ELSE NULL " +
+            "END AS order_no, " +
+            "CASE " +
+            "  WHEN pr.task_type = 'COATING' THEN (SELECT CONCAT(width, 'mm*', length, 'm*', thickness, 'μm') FROM schedule_coating WHERE task_no = pr.task_no LIMIT 1) " +
+            "  WHEN pr.task_type = 'REWINDING' THEN (SELECT CONCAT(width, 'mm*', length, 'm*', thickness, 'μm') FROM schedule_rewinding WHERE task_no = pr.task_no LIMIT 1) " +
+            "  WHEN pr.task_type = 'SLITTING' THEN (SELECT CONCAT(target_width, 'mm*', slit_length, 'm*', thickness, 'μm') FROM schedule_slitting WHERE task_no = pr.task_no LIMIT 1) " +
+            "  WHEN pr.task_type = 'STRIPPING' OR pr.task_type = 'PACKAGING' THEN (SELECT CONCAT(IFNULL(target_width,0), 'mm*', IFNULL(target_length,0), 'm*', IFNULL(thickness,0), 'μm') FROM schedule_stripping WHERE task_no = pr.task_no LIMIT 1) " +
+            "  ELSE NULL " +
+            "END AS spec_desc " +
+            "FROM production_report pr " +
             "LEFT JOIN production_equipment e ON pr.equipment_id = e.id " +
             "WHERE pr.id = #{id}")
     ProductionReport selectById(@Param("id") Long id);

@@ -1,5 +1,7 @@
 package com.fine.serviceIMPL;
 
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fine.modle.LoginUser;
 import com.fine.service.ProductionDashboardService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -106,6 +108,12 @@ public class ProductionDashboardServiceImpl implements ProductionDashboardServic
                 process = "UNKNOWN";
             }
             process = process.trim().toUpperCase();
+            
+            // 业务映射：包装车间的分切工序即为包装
+            if ("SLITTING".equalsIgnoreCase(process)) {
+                process = "PACKAGING";
+            }
+            
             processAreaMap.put(process, processAreaMap.getOrDefault(process, BigDecimal.ZERO).add(toBigDecimal(row.get("outputSqm"))));
         }
 
@@ -156,52 +164,88 @@ public class ProductionDashboardServiceImpl implements ProductionDashboardServic
     }
 
     @Override
-    public List<Map<String, Object>> getTodayReports(String shiftCode) {
+    public IPage<Map<String, Object>> getTodayReports(String shiftCode, Integer pageNum, Integer pageSize) {
         LoginUser loginUser = getLoginUser();
         List<String> operatorAliases = resolveOperatorAliases(loginUser);
-        List<Map<String, Object>> rows = queryReportRows(LocalDate.now().minusDays(2), LocalDate.now().plusDays(1));
-        LocalDate today = LocalDate.now();
+        
+        // 增加查询范围：显示最近30天的数据，让报工人能看到自己的历史报工记录
+        LocalDate end = LocalDate.now();
+        LocalDate start = end.minusDays(30);
+        List<Map<String, Object>> rows = queryReportRows(start, end);
 
-        List<Map<String, Object>> result = new ArrayList<>();
+        List<Map<String, Object>> filtered = new ArrayList<>();
         for (Map<String, Object> row : rows) {
+            // 权限过滤：报工人只能看到自己的数据，管理员可以看所有
             if (!canViewRowByOperator(row, loginUser, operatorAliases)) continue;
+            
             LocalDateTime ts = extractReportDateTime(row);
             if (ts == null) continue;
+
             String groupCode = resolveShiftCode(row, ts);
 
-            LocalDate statDate = ts.toLocalDate();
-            if (!statDate.equals(today)) continue;
+            // 如果指定了班次过滤（针对管理员看全班组数据），则按班次过滤
+            if (shiftCode != null && !shiftCode.isEmpty() && !"ALL".equalsIgnoreCase(shiftCode) && !shiftCode.equalsIgnoreCase(groupCode)) {
+                continue;
+            }
 
             Map<String, Object> item = new HashMap<>();
             item.put("id", row.get("id"));
             item.put("shiftCode", groupCode);
-            item.put("taskType", row.get("taskType"));
+            
+            String taskType = String.valueOf(row.get("taskType"));
+            if ("SLITTING".equalsIgnoreCase(taskType)) {
+                taskType = "PACKAGING";
+            }
+            item.put("taskType", taskType);
+            
             item.put("taskNo", row.get("taskNo"));
+            item.put("orderNo", row.get("orderNo"));
+            item.put("materialCode", row.get("materialCode"));
+            item.put("specDesc", row.get("specDesc"));
             item.put("staffName", normalizeStaffName(row.get("staffName")));
             item.put("outputQty", toBigDecimal(row.get("outputQty")));
             item.put("outputSqm", toBigDecimal(row.get("outputSqm")));
             item.put("reportTime", ts.format(REPORT_TIME_MINUTE_FORMATTER));
             item.put("reportTimeSort", ts);
-            item.put("statDate", statDate.toString());
-            result.add(item);
+            item.put("statDate", ts.toLocalDate().toString());
+            filtered.add(item);
         }
 
-        result.sort(Comparator.comparing(
+        filtered.sort(Comparator.comparing(
                 m -> (LocalDateTime) m.get("reportTimeSort"),
                 Comparator.nullsLast(Comparator.reverseOrder())
         ));
-        result.forEach(item -> item.remove("reportTimeSort"));
-        return result;
+        filtered.forEach(item -> item.remove("reportTimeSort"));
+
+        // 分页逻辑
+        int total = filtered.size();
+        int startIdx = (pageNum - 1) * pageSize;
+        int endIdx = Math.min(startIdx + pageSize, total);
+        
+        List<Map<String, Object>> records = new ArrayList<>();
+        if (startIdx >= 0 && startIdx < total) {
+            records = filtered.subList(startIdx, endIdx);
+        }
+
+        IPage<Map<String, Object>> page = new Page<>(pageNum, pageSize);
+        page.setRecords(records);
+        page.setTotal(total);
+        return page;
     }
 
     private List<Map<String, Object>> queryReportRows(LocalDate startDate, LocalDate endDate) {
         List<Object> params = new ArrayList<>();
         StringBuilder sql = new StringBuilder();
+        
+        // --- 第一部分：手动排程工序报工 (Manual/Process Reports) ---
         sql.append("SELECT r.id AS id, ")
             .append("NULL AS shiftCode, ")
             .append("r.operator_name AS operatorName, ")
             .append("COALESCE(r.process_type, 'UNKNOWN') AS taskType, ")
             .append("CONCAT(COALESCE(r.process_type, 'UNK'), '-', COALESCE(r.schedule_id, 0), '-', r.id) AS taskNo, ")
+            .append("ms.order_no AS orderNo, ")
+            .append("soi.material_code AS materialCode, ")
+            .append("CONCAT(COALESCE(soi.width, 0), 'mm*', COALESCE(soi.length, 0), 'm*', COALESCE(soi.thickness, 0), 'μm') AS specDesc, ")
             .append("r.operator_name AS staffName, ")
             .append("COALESCE(r.produced_qty, 0) AS outputQty, ")
             .append("CASE ")
@@ -214,12 +258,63 @@ public class ProductionDashboardServiceImpl implements ProductionDashboardServic
             .append("LEFT JOIN sales_order_items soi ON soi.id = ms.order_detail_id AND soi.is_deleted = 0 ")
             .append("LEFT JOIN (SELECT report_id, SUM(COALESCE(area, 0)) AS roll_area_sum ")
             .append("           FROM manual_schedule_coating_roll WHERE is_deleted = 0 GROUP BY report_id) cr ON cr.report_id = r.id ")
-            .append("WHERE r.is_deleted = 0 ")
-            .append("AND DATE(COALESCE(r.end_time, r.start_time, r.created_at)) >= ? ")
-            .append("AND DATE(COALESCE(r.end_time, r.start_time, r.created_at)) <= ? ");
-        params.add(java.sql.Date.valueOf(startDate));
-        params.add(java.sql.Date.valueOf(endDate));
-        sql.append("ORDER BY reportTime DESC");
+            .append("WHERE r.is_deleted = 0 ");
+
+        if (startDate != null) {
+            sql.append("AND DATE(COALESCE(r.end_time, r.start_time, r.created_at)) >= ? ");
+            params.add(java.sql.Date.valueOf(startDate));
+        }
+        if (endDate != null) {
+            sql.append("AND DATE(COALESCE(r.end_time, r.start_time, r.created_at)) <= ? ");
+            params.add(java.sql.Date.valueOf(endDate));
+        }
+
+        sql.append(" UNION ALL ");
+
+        // --- 第二部分：系统通用报工 (Production Reports) ---
+        sql.append("SELECT pr.id AS id, ")
+            .append("pr.shift_code AS shiftCode, ")
+            .append("pr.staff_name AS operatorName, ")
+            .append("pr.task_type AS taskType, ")
+            .append("pr.task_no AS taskNo, ")
+            .append("CASE ")
+            .append("  WHEN pr.task_type = 'COATING' THEN (SELECT order_no FROM schedule_coating WHERE task_no = pr.task_no LIMIT 1) ")
+            .append("  WHEN pr.task_type = 'REWINDING' THEN (SELECT order_nos FROM schedule_rewinding WHERE task_no = pr.task_no LIMIT 1) ")
+            .append("  WHEN pr.task_type = 'SLITTING' THEN (SELECT order_no FROM schedule_slitting WHERE task_no = pr.task_no LIMIT 1) ")
+            .append("  WHEN pr.task_type = 'STRIPPING' OR pr.task_type = 'PACKAGING' THEN (SELECT ms.order_no FROM manual_schedule ms JOIN schedule_stripping ss ON ss.schedule_id = ms.id WHERE ss.task_no = pr.task_no LIMIT 1) ")
+            .append("  ELSE NULL ")
+            .append("END AS orderNo, ")
+            .append("CASE ")
+            .append("  WHEN pr.task_type = 'COATING' THEN (SELECT material_code FROM schedule_coating WHERE task_no = pr.task_no LIMIT 1) ")
+            .append("  WHEN pr.task_type = 'REWINDING' THEN (SELECT material_code FROM schedule_rewinding WHERE task_no = pr.task_no LIMIT 1) ")
+            .append("  WHEN pr.task_type = 'SLITTING' THEN (SELECT material_code FROM schedule_slitting WHERE task_no = pr.task_no LIMIT 1) ")
+            .append("  WHEN pr.task_type = 'STRIPPING' OR pr.task_type = 'PACKAGING' THEN (SELECT ms.material_code FROM manual_schedule ms JOIN schedule_stripping ss ON ss.schedule_id = ms.id WHERE ss.task_no = pr.task_no LIMIT 1) ")
+            .append("  ELSE NULL ")
+            .append("END AS materialCode, ")
+            .append("CASE ")
+            .append("  WHEN pr.task_type = 'COATING' THEN (SELECT CONCAT(jumbo_width, 'mm*', COALESCE(actual_length, plan_length), 'm*', thickness, 'μm') FROM schedule_coating WHERE task_no = pr.task_no LIMIT 1) ")
+            .append("  WHEN pr.task_type = 'REWINDING' THEN (SELECT CONCAT(jumbo_width, 'mm*', slit_length, 'm*', thickness, 'μm') FROM schedule_rewinding WHERE task_no = pr.task_no LIMIT 1) ")
+            .append("  WHEN pr.task_type = 'SLITTING' THEN (SELECT CONCAT(target_width, 'mm*', slit_length, 'm*', thickness, 'μm') FROM schedule_slitting WHERE task_no = pr.task_no LIMIT 1) ")
+            .append("  WHEN pr.task_type = 'STRIPPING' OR pr.task_type = 'PACKAGING' THEN (SELECT CONCAT(target_width, 'mm*', target_length, 'm*', thickness, 'μm') FROM schedule_stripping WHERE task_no = pr.task_no LIMIT 1) ")
+            .append("  ELSE NULL ")
+            .append("END AS specDesc, ")
+            .append("pr.staff_name AS staffName, ")
+            .append("pr.output_qty AS outputQty, ")
+            .append("pr.output_sqm AS outputSqm, ")
+            .append("COALESCE(pr.report_date, pr.create_time) AS reportTime ")
+            .append("FROM production_report pr ")
+            .append("WHERE 1=1 ");
+
+        if (startDate != null) {
+            sql.append("AND DATE(COALESCE(pr.report_date, pr.create_time)) >= ? ");
+            params.add(java.sql.Date.valueOf(startDate));
+        }
+        if (endDate != null) {
+            sql.append("AND DATE(COALESCE(pr.report_date, pr.create_time)) <= ? ");
+            params.add(java.sql.Date.valueOf(endDate));
+        }
+
+        sql.append(" ORDER BY reportTime DESC");
 
         String querySql = Objects.requireNonNull(sql.toString());
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(querySql, params.toArray());

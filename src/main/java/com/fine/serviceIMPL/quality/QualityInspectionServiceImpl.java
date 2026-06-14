@@ -316,8 +316,9 @@ public class QualityInspectionServiceImpl extends ServiceImpl<QualityInspectionR
 
     private String generateInspectionNoFallback(String prefix) {
         String datePart = LocalDate.now().format(DateTimeFormatter.ofPattern("yyMMdd"));
-        long suffix = System.currentTimeMillis() % 100000000L;
-        return prefix + datePart + "-" + suffix;
+        // 降级使用随机数或时间戳，保持4位
+        long suffix = System.currentTimeMillis() % 10000;
+        return prefix + datePart + String.format("%04d", suffix);
     }
 
     private String normalizeDateStart(String startDate) {

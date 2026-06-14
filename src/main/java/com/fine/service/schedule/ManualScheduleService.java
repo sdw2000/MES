@@ -264,7 +264,7 @@ public interface ManualScheduleService extends IService<ManualSchedule> {
    /**
     * 查询工序报工明细
     */
-   List<Map<String, Object>> getProcessWorkReports(Long scheduleId, String processType);
+   IPage<Map<String, Object>> getProcessWorkReports(Long scheduleId, String processType, Integer pageNum, Integer pageSize);
 
    /**
     * 查询单条报工完整详情（含母卷/领料明细）

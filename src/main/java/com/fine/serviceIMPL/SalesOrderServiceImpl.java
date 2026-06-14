@@ -1015,7 +1015,10 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
                 || hasRole(loginUser, "quality")
                 || hasRole(loginUser, "production")
                 || hasRole(loginUser, "packaging")
-                || hasRole(loginUser, "packing");
+                || hasRole(loginUser, "packing")
+                || hasRole(loginUser, "plan")
+                || hasRole(loginUser, "scheduler")
+                || hasRole(loginUser, "coating");
     }
 
     private Long getCurrentUserId(LoginUser loginUser) {
@@ -1536,29 +1539,33 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
                 || "unshipped".equals(statusFilterLower);
 
             LoginUser loginUser = getLoginUser();
-            // 根据关键词搜索订单号或客户名
+
+            // 根据关键词搜索订单号、客户名或物料
             if (hasKeyword) {
                 List<Long> matchedOrderIds = new ArrayList<>();
-                List<SalesOrderItem> matchedItems = salesOrderItemMapper.selectList(
-                    new LambdaQueryWrapper<SalesOrderItem>()
-                        .eq(SalesOrderItem::getIsDeleted, 0)
-                        .and(w -> w.like(SalesOrderItem::getMaterialCode, keywordValue)
-                            .or().like(SalesOrderItem::getColorCode, keywordValue)
-                            .or().like(SalesOrderItem::getRemark, keywordValue))
-                );
-                if (matchedItems != null && !matchedItems.isEmpty()) {
-                    for (SalesOrderItem item : matchedItems) {
-                        if (item != null && item.getOrderId() != null) {
-                            matchedOrderIds.add(item.getOrderId());
+                // 仅当关键词长度大于 3 时才搜索明细，避免过短关键词导致的全表扫描
+                if (keywordValue.length() >= 3) {
+                    List<SalesOrderItem> matchedItems = salesOrderItemMapper.selectList(
+                        new LambdaQueryWrapper<SalesOrderItem>()
+                            .eq(SalesOrderItem::getIsDeleted, 0)
+                            .and(w -> w.like(SalesOrderItem::getMaterialCode, keywordValue)
+                                .or().like(SalesOrderItem::getColorCode, keywordValue)
+                                .or().like(SalesOrderItem::getRemark, keywordValue))
+                            .last("LIMIT 100") // 限制匹配的明细数量
+                    );
+                    if (matchedItems != null && !matchedItems.isEmpty()) {
+                        for (SalesOrderItem item : matchedItems) {
+                            if (item != null && item.getOrderId() != null) {
+                                matchedOrderIds.add(item.getOrderId());
+                            }
                         }
                     }
                 }
+
                 queryWrapper.and(wrapper -> {
                     wrapper.like(SalesOrder::getOrderNo, keywordValue)
-                          .or()
-                          .like(SalesOrder::getCustomer, keywordValue)
-                          .or()
-                          .like(SalesOrder::getCustomerOrderNo, keywordValue);
+                          .or().like(SalesOrder::getCustomer, keywordValue)
+                          .or().like(SalesOrder::getCustomerOrderNo, keywordValue);
                     if (!matchedOrderIds.isEmpty()) {
                         wrapper.or().in(SalesOrder::getId, matchedOrderIds);
                     }
@@ -1570,10 +1577,8 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
                 LambdaQueryWrapper<Customer> customerWrapper = new LambdaQueryWrapper<>();
                 customerWrapper.eq(Customer::getIsDeleted, 0)
                         .and(w -> w.like(Customer::getCustomerName, customerKeyword)
-                                .or()
-                                .like(Customer::getCustomerCode, customerKeyword)
-                                .or()
-                                .like(Customer::getShortName, customerKeyword));
+                                .or().like(Customer::getCustomerCode, customerKeyword)
+                                .or().like(Customer::getShortName, customerKeyword));
                 List<Customer> matchedCustomers = customerMapper.selectList(customerWrapper);
 
                 Set<String> customerAliases = new HashSet<>();
@@ -1596,75 +1601,55 @@ public class SalesOrderServiceImpl extends ServiceImpl<SalesOrderMapper, SalesOr
                     queryWrapper.like(SalesOrder::getCustomer, customerKeyword);
                 } else {
                     queryWrapper.and(w -> w.like(SalesOrder::getCustomer, customerKeyword)
-                            .or()
-                            .in(SalesOrder::getCustomer, customerAliases));
+                            .or().in(SalesOrder::getCustomer, customerAliases));
                 }
             }
             
-            // 非搜索模式参数时，仍支持按订单状态字段精确筛选
+            // 按订单状态字段精确筛选
             if (!statusFilter.isEmpty() && !modeAll && !modeCompleted && !modePending) {
                 queryWrapper.eq(SalesOrder::getStatus, statusFilter);
             }
             
             queryWrapper.orderByDesc(SalesOrder::getCreatedAt);
-            if (!modeCompleted) {
-                queryWrapper.last("LIMIT 20"); // 默认场景限制返回20条，completed模式不限制
-            }
-            
-            List<SalesOrder> orders;
-            if (hasKeyword) {
-                LambdaQueryWrapper<SalesOrder> exactWrapper = new LambdaQueryWrapper<>();
-                exactWrapper.eq(SalesOrder::getIsDeleted, 0)
-                        .eq(SalesOrder::getOrderNo, keywordValue)
-                        .orderByDesc(SalesOrder::getCreatedAt)
-                        .last("LIMIT 20");
-                List<SalesOrder> exactOrders = salesOrderMapper.selectList(exactWrapper);
-                orders = (exactOrders != null && !exactOrders.isEmpty())
-                        ? exactOrders
-                        : salesOrderMapper.selectList(queryWrapper);
-            } else {
-                orders = salesOrderMapper.selectList(queryWrapper);
-            }
+            queryWrapper.last("LIMIT 100"); // 搜索框建议限制返回数量
 
-            // 按模式返回订单：
-            // 1) pending/unshipped（默认）：仅未发完
-            // 2) completed：仅已发完
-            // 3) all：全部
-            List<SalesOrder> filtered = new ArrayList<>();
+            List<SalesOrder> orders = salesOrderMapper.selectList(queryWrapper);
+
+            // 后处理过滤和补全
+            List<SalesOrder> result = new ArrayList<>();
             for (SalesOrder order : orders) {
                 if (order == null || order.getId() == null) continue;
-                if (!canAccessOrder(loginUser, order)) {
-                    continue;
-                }
+                if (!canAccessOrder(loginUser, order)) continue;
+
+                // 统一补全客户信息和明细
                 enrichOrderCustomerFields(order);
-                List<SalesOrderItem> items = salesOrderItemMapper.selectList(
-                    new LambdaQueryWrapper<SalesOrderItem>()
-                        .eq(SalesOrderItem::getOrderId, order.getId())
-                        .eq(SalesOrderItem::getIsDeleted, 0)
-                );
-                double total = 0.0;
-                double shipped = 0.0;
-                if (items != null) {
-                    for (SalesOrderItem item : items) {
-                        total += item.getRolls() != null ? item.getRolls() : 0.0;
-                        Double shippedQty = deliveryNoticeItemMapper.getConfirmedShippedQuantityByOrderItemId(item.getId());
-                        shipped += shippedQty != null ? Math.max(shippedQty, 0.0) : 0.0;
-                    }
-                }
-                double remaining = Math.max(0.0, total - shipped);
-                order.setTotalRolls(total);
-                order.setShippedRolls(shipped);
-                order.setRemainingRolls(remaining);
-                if (modeAll || (!modeCompleted && remaining > 0) || (modeCompleted && remaining <= 0)) {
-                    filtered.add(order);
+                
+                // 根据模式过滤（已发完/未发完）
+                if (modePending) {
+                    if (hasUnshippedItems(order)) result.add(order);
+                } else if (modeCompleted) {
+                    if (!hasUnshippedItems(order)) result.add(order);
+                } else {
+                    result.add(order);
                 }
             }
-            
-            return new ResponseResult<>(200, "success", filtered);
+
+            return new ResponseResult<>(200, "success", result);
         } catch (Exception e) {
-            e.printStackTrace();
-            return new ResponseResult<>(500, "搜索订单失败: " + e.getMessage());
+            log.error("搜索订单失败", e);
+            return new ResponseResult<>(500, "搜索失败: " + e.getMessage());
         }
+    }
+
+    private boolean hasUnshippedItems(SalesOrder order) {
+        if (order == null || order.getItems() == null) return false;
+        for (SalesOrderItem item : order.getItems()) {
+            Double rolls = item.getRolls() == null ? 0.0 : item.getRolls();
+            Double shippedRaw = deliveryNoticeItemMapper.getConfirmedShippedQuantityByOrderItemId(item.getId());
+            double shipped = shippedRaw == null ? 0.0 : Math.max(shippedRaw, 0.0);
+            if (rolls - shipped > 0.01) return true;
+        }
+        return false;
     }
 
     @Override

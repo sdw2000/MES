@@ -26,8 +26,10 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -59,12 +61,86 @@ public class CustomerServiceImpl implements CustomerService {
     @Override
     public IPage<CustomerDTO> getCustomerPage(Integer current, Integer size, CustomerDTO query) {
         Page<CustomerDTO> page = new Page<>(current, size);
-        // 复杂统计字段（上月/本年/出货金额）会导致自动COUNT极慢，改为轻量COUNT
-        page.setSearchCount(false);
-        page.setOptimizeCountSql(false);
-        Long total = customerMapper.selectCustomerPage_COUNT(query);
-        page.setTotal(total == null ? 0L : total);
-        return customerMapper.selectCustomerPage(page, query);
+        IPage<CustomerDTO> result = customerMapper.selectCustomerPage(page, query);
+        
+        List<CustomerDTO> records = result.getRecords();
+        if (records == null || records.isEmpty()) {
+            return result;
+        }
+
+        // 收集所有客户的识别键 (Code/Name/ShortName)
+        Set<String> allCustomerKeys = new HashSet<>();
+        for (CustomerDTO dto : records) {
+            // 初始化金额，防止前端为空
+            dto.setLastMonthSalesAmount(BigDecimal.ZERO);
+            dto.setThisYearSalesAmount(BigDecimal.ZERO);
+            dto.setShippedAmount(BigDecimal.ZERO);
+
+            if (dto.getCustomerCode() != null) allCustomerKeys.add(dto.getCustomerCode().trim());
+            if (dto.getCustomerName() != null) allCustomerKeys.add(dto.getCustomerName().trim());
+            if (dto.getShortName() != null) allCustomerKeys.add(dto.getShortName().trim());
+        }
+
+        if (allCustomerKeys.isEmpty()) return result;
+
+        // 1. 批量查询销售订单 (今年 + 上月)
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime firstDayOfMonth = now.withDayOfMonth(1).withHour(0).withMinute(0).withSecond(0);
+        LocalDateTime firstDayOfLastMonth = firstDayOfMonth.minusMonths(1);
+        LocalDateTime firstDayOfYear = now.withDayOfYear(1).withHour(0).withMinute(0).withSecond(0);
+
+        List<SalesOrder> recentOrders = salesOrderMapper.selectList(
+            new QueryWrapper<SalesOrder>()
+                .eq("is_deleted", 0)
+                .in("customer", allCustomerKeys)
+                .gt("order_date", firstDayOfLastMonth.toLocalDate())
+        );
+
+        // 2. 建立 客户标识 -> DTO 的映射
+        Map<String, List<CustomerDTO>> keyToDtos = new HashMap<>();
+        for (CustomerDTO dto : records) {
+            if (dto.getCustomerCode() != null) keyToDtos.computeIfAbsent(dto.getCustomerCode().trim(), k -> new ArrayList<>()).add(dto);
+            if (dto.getCustomerName() != null) keyToDtos.computeIfAbsent(dto.getCustomerName().trim(), k -> new ArrayList<>()).add(dto);
+            if (dto.getShortName() != null) keyToDtos.computeIfAbsent(dto.getShortName().trim(), k -> new ArrayList<>()).add(dto);
+        }
+
+        // 计算销售额
+        for (SalesOrder order : recentOrders) {
+            String cust = order.getCustomer();
+            if (cust == null) continue;
+            List<CustomerDTO> dtos = keyToDtos.get(cust.trim());
+            if (dtos == null) continue;
+
+            BigDecimal amt = order.getTotalAmount() != null ? order.getTotalAmount() : BigDecimal.ZERO;
+            // SalesOrder 的 orderDate 是 LocalDate 类型
+            java.time.LocalDate oDate = order.getOrderDate();
+            
+            for (CustomerDTO dto : dtos) {
+                // 当年额
+                if (oDate != null && !oDate.isBefore(firstDayOfYear.toLocalDate())) {
+                    dto.setThisYearSalesAmount(dto.getThisYearSalesAmount().add(amt));
+                }
+                // 上月额
+                if (oDate != null && !oDate.isBefore(firstDayOfLastMonth.toLocalDate()) && oDate.isBefore(firstDayOfMonth.toLocalDate())) {
+                    dto.setLastMonthSalesAmount(dto.getLastMonthSalesAmount().add(amt));
+                }
+            }
+        }
+
+        // 3. 计算已出货金额 (Shipped Amount) - 仅对当前页客户，单客户聚合，规避全表笛卡尔积
+        for (CustomerDTO dto : records) {
+            Set<String> keys = new HashSet<>();
+            if (dto.getCustomerCode() != null) keys.add(dto.getCustomerCode().trim());
+            if (dto.getCustomerName() != null) keys.add(dto.getCustomerName().trim());
+            if (dto.getShortName() != null) keys.add(dto.getShortName().trim());
+
+            if (!keys.isEmpty()) {
+                Double totalShipped = customerMapper.calculateShippedAmount(keys);
+                dto.setShippedAmount(totalShipped != null ? BigDecimal.valueOf(totalShipped) : BigDecimal.ZERO);
+            }
+        }
+
+        return result;
     }
     
     @Override
