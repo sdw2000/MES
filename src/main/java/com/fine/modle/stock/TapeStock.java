@@ -74,6 +74,7 @@ public class TapeStock {
     private String reelType;
     
     /** 版本号，用于乐观锁 */
+    @Version
     private Integer version;
     
     /** 最后修改人 */
@@ -88,6 +89,15 @@ public class TapeStock {
 
     /** 卡板位/库位 */
     private String location;
+
+    /** 车间现场状态: NORMAL (正常), CONSUMING (生产中), REMAINING (余料) */
+    private String workshopStatus;
+
+    /** 所属车间工段: 涂布 / 复卷 / 包装 / 分切 */
+    private String workshopSection;
+
+    /** 所属班次/班组 */
+    private String shiftCode;
     
     /** 规格描述 */
     private String specDesc;

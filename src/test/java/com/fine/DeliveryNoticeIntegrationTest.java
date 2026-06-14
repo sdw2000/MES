@@ -88,7 +88,7 @@ public class DeliveryNoticeIntegrationTest {
         when(salesOrderMapper.selectById(eq(orderId))).thenReturn(order);
         
         when(salesOrderItemMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(orderItems);
-        when(deliveryNoticeItemMapper.getShippedQuantityByOrderItemId(item1.getId())).thenReturn(0);
+        when(deliveryNoticeItemMapper.getShippedQuantityByOrderItemId(item1.getId())).thenReturn(0.0);
 
         ResponseResult<?> orderResult = salesOrderService.getAllOrders(1, 10, null, null, null, null, null, null, null, null, null, null);
         IPage<SalesOrder> pageInfo = (IPage<SalesOrder>) orderResult.getData();
@@ -116,7 +116,7 @@ public class DeliveryNoticeIntegrationTest {
         DeliveryNotice createResult = deliveryNoticeService.createDeliveryNotice(notice);
         assertNotNull(createResult);
 
-        when(deliveryNoticeItemMapper.getShippedQuantityByOrderItemId(item1.getId())).thenReturn(40);
+        when(deliveryNoticeItemMapper.getShippedQuantityByOrderItemId(item1.getId())).thenReturn(40.0);
         
         ResponseResult<?> orderResultAfterShip = salesOrderService.getAllOrders(1, 10, null, null, null, null, null, null, null, null, null, null);
         IPage<SalesOrder> pageInfoAfter = (IPage<SalesOrder>) orderResultAfterShip.getData();

@@ -199,7 +199,7 @@ public class TapeStockServiceImpl implements TapeStockService {
     
     // ============= 库存管理 =============
       @Override
-    public IPage<TapeStock> getStockPage(int page, int size, String qrCode, String materialCode, String rollType, String location) {
+    public IPage<TapeStock> getStockPage(int page, int size, String qrCode, String materialCode, String rollType, String location, String workshopSection, String workshopStatus) {
         LambdaQueryWrapper<TapeStock> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(TapeStock::getStatus, 1);
         // 二维码/批次号查询
@@ -216,6 +216,12 @@ public class TapeStockServiceImpl implements TapeStockService {
         }
         if (StringUtils.hasText(location)) {
             wrapper.eq(TapeStock::getLocation, location);
+        }
+        if (StringUtils.hasText(workshopSection)) {
+            wrapper.eq(TapeStock::getWorkshopSection, workshopSection);
+        }
+        if (StringUtils.hasText(workshopStatus)) {
+            wrapper.eq(TapeStock::getWorkshopStatus, workshopStatus);
         }
         wrapper.orderByAsc(TapeStock::getProdDate);
         Page<TapeStock> pageParam = new Page<>(page, size);
@@ -2055,7 +2061,7 @@ public class TapeStockServiceImpl implements TapeStockService {
         if (code.startsWith("LX") || name.contains("离型膜") || name.contains("离型纸") || spec.contains("离型")) {
             return "RELEASE_FILM_PAPER";
         }
-        if (code.startsWith("PM") || name.contains("泡棉") || spec.contains("泡棉")) {
+        if (code.startsWith("PM") || code.startsWith("4011") || name.contains("泡棉") || spec.contains("泡棉")) {
             return "FOAM";
         }
         if (code.startsWith("LMR") || code.startsWith("HHFT") || code.startsWith("RH") || code.startsWith("ML")
@@ -4247,6 +4253,17 @@ public class TapeStockServiceImpl implements TapeStockService {
         }
         
         outboundMapper.insert(request);
+
+        // [业务逻辑简化]
+        // 根据用户要求，不再通过代码硬编码判断物料前缀（如4011/PM等）。
+        // 只要是手动发起的直接出库申请（BIZ_TYPE_MANUAL），立即执行库存扣减逻辑，不再停留在待审批状态。
+        // 如果扣减失败（如并发冲突、库存不足），则整个事务回滚，确保前端能收到明确的错误提示。
+        if (isManualOutbound(request)) {
+            this.approveOutbound(request.getId(), true,
+                    request.getApplicant() != null ? request.getApplicant() : "system",
+                    "系统自动直接出库：直接扣减库存", null);
+        }
+
         return request;
     }
 
@@ -4495,7 +4512,45 @@ public class TapeStockServiceImpl implements TapeStockService {
             if (afterRolls == 0) {
                 stock.setStatus(0); // 标记为已清空
             }
-            stockMapper.updateById(stock);
+
+            // --- 车间现场联动逻辑 ---
+            // 如果是领料到生产/包装/复卷/分切等车间，则自动将库存记录标记为在车间，并保持状态为1(可见)
+            String applyDept = request.getApplyDept() == null ? "" : request.getApplyDept();
+            boolean toWorkshop = applyDept.contains("生产") || 
+                               applyDept.contains("包装") || 
+                               applyDept.contains("复卷") || 
+                               applyDept.contains("分切") ||
+                               applyDept.contains("车间");
+            
+            if (toWorkshop) {
+                stock.setStatus(1); // 即使rolls为0，我们也保持记录在库表以便追踪
+                stock.setLocation("车间现场");
+                stock.setWorkshopStatus("NORMAL"); // 标记为已领料到车间，待消耗
+                
+                // 自动判定车间工段
+                if (applyDept.contains("涂布")) {
+                    stock.setWorkshopSection("涂布");
+                } else if (applyDept.contains("包装")) {
+                    stock.setWorkshopSection("包装");
+                } else if (applyDept.contains("复卷")) {
+                    stock.setWorkshopSection("复卷");
+                } else if (applyDept.contains("分切")) {
+                    stock.setWorkshopSection("分切");
+                } else {
+                    stock.setWorkshopSection("其他");
+                }
+
+                // 如果实物卷数归零，但我们想在“车间现存查询”中看到它，我们需要它status=1
+                if (afterRolls == 0) {
+                    stock.setStatus(1); 
+                }
+            }
+            // --- 联动逻辑结束 ---
+
+            int updateRows = stockMapper.updateById(stock);
+            if (updateRows == 0) {
+                throw new RuntimeException("库存扣减失败，可能该记录已被其他操作修改（版本冲突），请刷新后重试");
+            }
             
             // 记录流水
             saveStockLog(stock.getId(), stock.getBatchNo(), stock.getMaterialCode(),
@@ -5514,6 +5569,10 @@ public class TapeStockServiceImpl implements TapeStockService {
             return "复卷";
         }
         return v;
+    }
+
+    private boolean isManualOutbound(TapeOutboundRequest request) {
+        return TapeOutboundRequest.BIZ_TYPE_MANUAL.equals(request.getBizType());
     }
 
 }

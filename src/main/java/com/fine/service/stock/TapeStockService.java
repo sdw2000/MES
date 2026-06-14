@@ -18,8 +18,10 @@ public interface TapeStockService {
      * 分页查询库存
      * @param qrCode 二维码/批次号
      * @param rollType 卷类型
+     * @param workshopSection 所属车间(涂布/包装等)
+     * @param workshopStatus 车间状态
      */
-    IPage<TapeStock> getStockPage(int page, int size, String qrCode, String materialCode, String rollType, String location);
+    IPage<TapeStock> getStockPage(int page, int size, String qrCode, String materialCode, String rollType, String location, String workshopSection, String workshopStatus);
     
     /**
      * 按料号汇总库存

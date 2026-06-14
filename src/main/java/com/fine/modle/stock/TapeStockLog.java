@@ -47,6 +47,27 @@ public class TapeStockLog {
     /** 备注 */
     private String remark;
 
+    /** 变动面积(m²) */
+    private java.math.BigDecimal changeArea;
+
+    /** 损耗面积(m²) */
+    private java.math.BigDecimal lossArea;
+
+    /** 损耗原因 */
+    private String lossReason;
+
+    /** 发生车间工段 */
+    private String workshopSection;
+
+    /** 班次/班组 (如: A班, 甲组) */
+    private String shiftCode;
+
+    /** 变动前规格 (如: 1000mm*500m) */
+    private String beforeSpec;
+
+    /** 变动后规格 (如: 1000mm*480m) */
+    private String afterSpec;
+
     /** 订单号（展示字段，不落库） */
     @TableField(exist = false)
     private String orderNo;
@@ -62,4 +83,6 @@ public class TapeStockLog {
     public static final String TYPE_IN = "IN";       // 入库
     public static final String TYPE_OUT = "OUT";     // 出库
     public static final String TYPE_ADJUST = "ADJUST"; // 调整
+    public static final String TYPE_TRANSFER = "TRANSFER"; // 班组交接
+    public static final String TYPE_MOVE = "MOVE";     // 移库入线边
 }
