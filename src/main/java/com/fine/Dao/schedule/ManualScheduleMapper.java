@@ -530,8 +530,8 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "GROUP BY ms.id " +
             "ORDER BY " +
             "  CASE WHEN ms.schedule_type = 'STOCK' THEN 0 ELSE 1 END ASC, " +
-            "  CASE WHEN ms.schedule_type = 'STOCK' THEN ms.id END ASC, " +
-            "  COALESCE(eo.start_time, CONCAT(ms.coating_schedule_date, ' 08:00:00'), ms.coating_date, ms.rewinding_date, ms.created_at) ASC, " +
+            "  CASE WHEN ms.schedule_type = 'STOCK' THEN ms.id END DESC, " +
+            "  COALESCE(eo.start_time, CONCAT(ms.coating_schedule_date, ' 08:00:00'), ms.coating_date, ms.rewinding_date, ms.created_at) DESC, " +
             "  o.delivery_date ASC")
     List<Map<String, Object>> selectCoatingCompletedOrders();
 
@@ -594,8 +594,8 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "GROUP BY ms.id " +
             "ORDER BY " +
             "  CASE WHEN ms.schedule_type = 'STOCK' THEN 0 ELSE 1 END ASC, " +
-            "  CASE WHEN ms.schedule_type = 'STOCK' THEN ms.id END ASC, " +
-            "  COALESCE(eo.start_time, CONCAT(ms.coating_schedule_date, ' 08:00:00'), ms.coating_date, ms.rewinding_date, ms.created_at) ASC, " +
+            "  CASE WHEN ms.schedule_type = 'STOCK' THEN ms.id END DESC, " +
+            "  COALESCE(eo.start_time, CONCAT(ms.coating_schedule_date, ' 08:00:00'), ms.coating_date, ms.rewinding_date, ms.created_at) DESC, " +
             "  o.delivery_date ASC")
     List<Map<String, Object>> selectCoatingCompletedOrdersPage(Page<Map<String, Object>> page);
 
@@ -677,7 +677,7 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "JOIN sales_order_items soi ON ms.order_detail_id = soi.id " +
             "JOIN sales_orders o ON soi.order_id = o.id " +
             "LEFT JOIN equipment_occupation eo ON eo.schedule_id = ms.id AND eo.process_type = 'REWINDING' AND eo.status IN ('PLANNED','RUNNING','FINISHED') " +
-            "ORDER BY COALESCE(eo.start_time, ms.rewinding_date, ms.created_at) ASC, o.delivery_date ASC")
+            "ORDER BY COALESCE(eo.start_time, ms.rewinding_date, ms.created_at) DESC, o.delivery_date ASC")
     List<Map<String, Object>> selectRewindingSchedules();
 
     /**
@@ -713,7 +713,7 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "JOIN sales_order_items soi ON ms.order_detail_id = soi.id " +
             "JOIN sales_orders o ON soi.order_id = o.id " +
             "LEFT JOIN equipment_occupation eo ON eo.schedule_id = ms.id AND eo.process_type = 'REWINDING' AND eo.status IN ('PLANNED','RUNNING','FINISHED') " +
-            "ORDER BY COALESCE(eo.start_time, ms.rewinding_date, ms.created_at) ASC, o.delivery_date ASC")
+            "ORDER BY COALESCE(eo.start_time, ms.rewinding_date, ms.created_at) DESC, o.delivery_date ASC")
     List<Map<String, Object>> selectRewindingSchedulesPage(Page<Map<String, Object>> page);
 
     /**
@@ -864,7 +864,7 @@ public interface ManualScheduleMapper extends BaseMapper<ManualSchedule> {
             "    ORDER BY ms.id DESC " +
             "  </when>" +
             "  <otherwise>" +
-            "    ORDER BY COALESCE(ms.packaging_date, ms.slitting_schedule_date) ASC, o.delivery_date ASC " +
+            "    ORDER BY COALESCE(ms.packaging_date, ms.slitting_schedule_date, ms.created_at) DESC, o.delivery_date ASC " +
             "  </otherwise>" +
             "</choose>" +
             "</script>")

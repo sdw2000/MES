@@ -158,7 +158,12 @@ public class ProductionManagementController {
             }
         }
 
-        all.sort(Comparator.comparing(o -> String.valueOf(o.getOrDefault("taskNo", ""))));
+        // 确保样板单按日期/任务号降序排列，使最新信息出现在首页
+        all.sort((o1, o2) -> {
+            String t1 = String.valueOf(o1.getOrDefault("taskNo", ""));
+            String t2 = String.valueOf(o2.getOrDefault("taskNo", ""));
+            return t2.compareTo(t1); // 降序
+        });
         int total = all.size();
         int from = Math.max(0, ((pageNum == null ? 1 : pageNum) - 1) * (pageSize == null ? 20 : pageSize));
         int to = Math.min(total, from + (pageSize == null ? 20 : pageSize));
@@ -340,6 +345,16 @@ public class ProductionManagementController {
                 all.add(vo);
             }
         }
+
+        // 按照计划开始时间降序排列，使最新的任务排在前面
+        all.sort((v1, v2) -> {
+            Date d1 = v1.getPlanStartTime();
+            Date d2 = v2.getPlanStartTime();
+            if (d1 == null && d2 == null) return 0;
+            if (d1 == null) return 1;
+            if (d2 == null) return -1;
+            return d2.compareTo(d1);
+        });
 
         // 简单分页
         int total = all.size();
